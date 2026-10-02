@@ -29,6 +29,12 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "installer.nsh"
+      }
+    },
     "category": "Utility",
     "shortDescription": "Fernzugriff auf eigene Geräte",
     "icon": [

@@ -11,9 +11,15 @@ use anyhow::{bail, Context, Result};
 use ctxremote_core::config::Config;
 use ctxremote_core::agent_process::{self, AgentProcess};
 use ctxremote_core::host::{Host, ScreenSource};
+use ctxremote_core::ui_link::{self, ServiceLink, UiEvent, UiRequest};
+use sha2::{Digest, Sha256};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{LocalFree, HLOCAL};
+use windows::Win32::System::Registry::{
+    RegCloseKey, RegCreateKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE,
+    KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_VALUE_TYPE,
+};
 use windows::Win32::Storage::FileSystem::{CreateDirectoryW, FILE_ATTRIBUTE_REPARSE_POINT};
 use windows::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, GetNamedSecurityInfoW, SDDL_REVISION_1,
@@ -49,10 +55,13 @@ Aufruf: ctxremote-service <Option>
 
   --install [--server <Adresse>]
                      Dienst installieren und starten (Administrator)
+  --stop             Dienst stoppen und auf das Ende warten (Administrator)
   --uninstall        Dienst stoppen und entfernen (Administrator)
   --service          Vom Dienstmanager gestartet (nicht manuell verwenden)
   --console          Host im Vordergrund ausführen, Ende mit Strg+C
-  --agent <pipe>     Bildschirm-Agent starten (intern)";
+  --agent <pipe>     Bildschirm-Agent starten (intern)
+  --configure <datei> <sha256>
+                     Einstellungen der App an den Dienst übergeben (intern, erhöht)";
 
 /// Entry point; returns the process exit code.
 pub fn run() -> i32 {
@@ -60,11 +69,13 @@ pub fn run() -> i32 {
     let result = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["--install"] => install(None),
         ["--install", "--server", server] => install(Some(server)),
+        ["--stop"] => stop(),
         ["--uninstall"] => uninstall(),
         ["--service"] => service_dispatcher::start(SERVICE_NAME, ffi_service_main)
             .context("Start als Dienst fehlgeschlagen (nur durch den Dienstmanager möglich)"),
         ["--console"] => console(),
         ["--agent", pipe] => agent(pipe),
+        ["--configure", file, digest] => configure(Path::new(file), digest),
         _ => {
             eprintln!("{HELP}");
             return 2;
@@ -247,7 +258,7 @@ fn console() -> Result<()> {
     let screen = screen_source()?;
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
-        let _host = Host::start_with(Arc::new(RwLock::new(config)), screen);
+        let _host = start_host(config, screen);
         tracing::info!("Host läuft im Vordergrund, Ende mit Strg+C");
         tokio::signal::ctrl_c().await
     })?;
@@ -305,7 +316,7 @@ fn service_body() -> Result<()> {
         let runtime = tokio::runtime::Runtime::new()?;
         let _guard = runtime.enter();
         let screen = screen_source()?;
-        let host = Host::start_with(Arc::new(RwLock::new(config)), screen);
+        let host = start_host(config, screen);
         tracing::info!("Dienst gestartet");
         handle.set_service_status(status(ServiceState::Running, 0))?;
         let _ = stop_rx.recv();
@@ -412,6 +423,7 @@ fn install(server: Option<&str>) -> Result<()> {
         Err(e) => return Err(anyhow::Error::new(e).context("Dienst nicht öffnbar")),
     };
 
+    enable_sas_policy()?;
     service.set_description(SERVICE_DESCRIPTION)?;
     service
         .update_failure_actions(ServiceFailureActions {
@@ -438,18 +450,8 @@ fn install(server: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn uninstall() -> Result<()> {
-    let manager = open_manager(ServiceManagerAccess::CONNECT)?;
-    let access = ServiceAccess::STOP | ServiceAccess::QUERY_STATUS | ServiceAccess::DELETE;
-    let service = match manager.open_service(SERVICE_NAME, access) {
-        Ok(service) => service,
-        Err(e) if error_code(&e) == Some(ERROR_SERVICE_DOES_NOT_EXIST) => {
-            println!("Dienst ist nicht installiert.");
-            return Ok(());
-        }
-        Err(e) => return Err(anyhow::Error::new(e).context("Dienst nicht öffnbar")),
-    };
-
+/// Stops the service and waits up to 15 s for `Stopped`.
+fn stop_and_wait(service: &windows_service::service::Service) -> Result<()> {
     if service.query_status()?.current_state != ServiceState::Stopped {
         // Ignore failures here: the service may already be stopping.
         let _ = service.stop();
@@ -461,7 +463,155 @@ fn uninstall() -> Result<()> {
             std::thread::sleep(Duration::from_millis(250));
         }
     }
+    Ok(())
+}
+
+/// Opens the service; `None` if it is not installed.
+fn open_existing(access: ServiceAccess) -> Result<Option<windows_service::service::Service>> {
+    let manager = open_manager(ServiceManagerAccess::CONNECT)?;
+    match manager.open_service(SERVICE_NAME, access) {
+        Ok(service) => Ok(Some(service)),
+        Err(e) if error_code(&e) == Some(ERROR_SERVICE_DOES_NOT_EXIST) => Ok(None),
+        Err(e) => Err(anyhow::Error::new(e).context("Dienst nicht öffnbar")),
+    }
+}
+
+fn stop() -> Result<()> {
+    match open_existing(ServiceAccess::STOP | ServiceAccess::QUERY_STATUS)? {
+        Some(service) => {
+            stop_and_wait(&service)?;
+            println!("Dienst gestoppt.");
+        }
+        None => println!("Dienst ist nicht installiert."),
+    }
+    Ok(())
+}
+
+fn uninstall() -> Result<()> {
+    let access = ServiceAccess::STOP | ServiceAccess::QUERY_STATUS | ServiceAccess::DELETE;
+    let Some(service) = open_existing(access)? else {
+        println!("Dienst ist nicht installiert.");
+        return Ok(());
+    };
+    stop_and_wait(&service)?;
     service.delete().context("Dienst nicht löschbar")?;
     println!("Dienst entfernt. Die Daten in {} bleiben erhalten.", data_dir().display());
     Ok(())
+}
+
+/// Enables Ctrl+Alt+Del from a service: SoftwareSASGeneration 0/missing -> 1, 2 -> 3 (1 and 3 stay).
+fn enable_sas_policy() -> Result<()> {
+    let key_path = wide(std::ffi::OsStr::new(
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System",
+    ));
+    let name = wide(std::ffi::OsStr::new("SoftwareSASGeneration"));
+    unsafe {
+        let mut key = HKEY::default();
+        RegCreateKeyExW(
+            HKEY_LOCAL_MACHINE,
+            PCWSTR(key_path.as_ptr()),
+            None,
+            PCWSTR::null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_QUERY_VALUE | KEY_SET_VALUE,
+            None,
+            &mut key,
+            None,
+        )
+        .ok()
+        .context("Richtlinie SoftwareSASGeneration: Schlüssel nicht öffnbar")?;
+
+        let mut data = [0u8; 4];
+        let mut len = data.len() as u32;
+        let mut kind = REG_VALUE_TYPE::default();
+        let query = RegQueryValueExW(
+            key,
+            PCWSTR(name.as_ptr()),
+            None,
+            Some(&mut kind),
+            Some(data.as_mut_ptr()),
+            Some(&mut len),
+        );
+        let valid = query.is_ok() && kind == REG_DWORD;
+        let current = if valid { u32::from_le_bytes(data) } else { 0 };
+        let wanted = match current {
+            2 => 3,
+            1 | 3 => current,
+            _ => 1,
+        };
+        let result = if !valid || wanted != current {
+            RegSetValueExW(key, PCWSTR(name.as_ptr()), None, REG_DWORD, Some(&wanted.to_le_bytes()))
+                .ok()
+                .context("Richtlinie SoftwareSASGeneration nicht setzbar")
+        } else {
+            Ok(())
+        };
+        let _ = RegCloseKey(key);
+        result
+    }
+}
+
+/// Starts the host and, next to it, the app's link (UI pipe).
+fn start_host(config: Config, screen: Arc<dyn ScreenSource>) -> Host {
+    let config = Arc::new(RwLock::new(config));
+    let host = Host::start_with(config.clone(), screen);
+    let link_host = host.clone();
+    tokio::spawn(async move {
+        if let Err(e) = ui_link::serve(link_host, config).await {
+            tracing::error!("Verbindung zur App beendet: {e:#}");
+        }
+    });
+    host
+}
+
+// ------------------------------------------------------------ configure
+
+#[derive(serde::Deserialize)]
+struct SettingsRequest {
+    server: String,
+    permanent_password: Option<String>,
+}
+
+/// The app's elevated helper: hands the settings in `file` to the running
+/// service and writes the answer back into the file.
+///
+/// The file lives in the user's temp folder, so it is only trusted if it still
+/// matches the digest the app passed on the command line. Otherwise nothing is
+/// applied and nothing is written, so the path cannot be used to overwrite files.
+fn configure(file: &Path, digest: &str) -> Result<()> {
+    let request = std::fs::read(file).context("Anfrage nicht lesbar")?;
+    if hex::encode(Sha256::digest(&request)) != digest.to_ascii_lowercase() {
+        bail!("Die Anfrage wurde verändert und nicht übernommen");
+    }
+    let answer = apply_settings(&request);
+    let reply = match &answer {
+        Ok(()) => serde_json::json!({ "ok": true }),
+        Err(e) => serde_json::json!({ "error": e }),
+    };
+    std::fs::write(file, reply.to_string()).context("Antwort nicht schreibbar")?;
+    answer.map_err(anyhow::Error::msg)
+}
+
+fn apply_settings(request: &[u8]) -> Result<(), String> {
+    let request: SettingsRequest =
+        serde_json::from_slice(request).map_err(|e| format!("Anfrage ungültig: {e}"))?;
+    let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    runtime.block_on(async {
+        let (answers, mut answer) = tokio::sync::mpsc::unbounded_channel();
+        let link = ServiceLink::connect(move |event| {
+            if let Some(UiEvent::Configured(result)) = event {
+                let _ = answers.send(result);
+            }
+        })
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+        link.send(UiRequest::Configure {
+            server: request.server,
+            permanent_password: request.permanent_password,
+        });
+        match tokio::time::timeout(Duration::from_secs(10), answer.recv()).await {
+            Ok(Some(result)) => result,
+            _ => Err("Der Dienst hat nicht geantwortet".into()),
+        }
+    })
 }

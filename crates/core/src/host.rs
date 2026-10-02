@@ -13,7 +13,7 @@ use ctxremote_proto::session::{HostMsg, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::future::BoxFuture;
 use futures::StreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, watch, Notify};
 use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
@@ -31,7 +31,7 @@ pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
 /// Decides whether the named viewer may connect, e.g. by asking the user.
 pub type Approver = Arc<dyn Fn(String) -> BoxFuture<'static, bool> + Send + Sync>;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Presence {
     Connecting,
@@ -39,7 +39,7 @@ pub enum Presence {
     Offline { reason: String },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum HostEvent {
     SessionStarted { session: u64, peer: String },

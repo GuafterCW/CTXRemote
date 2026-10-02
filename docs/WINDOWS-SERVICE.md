@@ -35,6 +35,8 @@ App (Benutzer) ◀─ \\.\pipe\ctxremote-ui (ACL: angemeldete Benutzer lesen,
 
 ## Umsetzung in Schritten
 
+Stand 2. Oktober 2026: Alle Schritte sind umgesetzt und auf dem Windows Server getestet.
+
 1. **Sitzung von der Übertragung trennen** (`crates/core`): `run_session` aufteilen in die Netzseite und eine Agent-Seite, die nur `ViewerMsg` liest und `HostMsg` schreibt, über einen allgemeinen Kanal. In der App verbinden In-Process-Kanäle beide Seiten, das Verhalten bleibt unverändert.
 2. **Crate `crates/service`** (`windows-service`): Dienstmodus, `--agent`, `--install` und `--uninstall`, `--configure`. Pipe-Framing wie im Protokoll (postcard).
 3. **Agent:** dem Eingabedesktop folgen, Start in der Konsolensitzung, Neustart bei einem Sitzungswechsel.

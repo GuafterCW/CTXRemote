@@ -1,0 +1,9 @@
+{
+  "build": {
+    "beforeDevCommand": "node scripts/prepare-service.mjs && npm run dev",
+    "beforeBuildCommand": "node scripts/prepare-service.mjs && npm run build"
+  },
+  "bundle": {
+    "externalBin": ["binaries/ctxremote-service"]
+  }
+}

@@ -10,6 +10,9 @@ ctxremote-core.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+sha2.workspace = true
+hex.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
@@ -23,4 +26,5 @@ features = [
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
+    "Win32_System_Registry",
 ]

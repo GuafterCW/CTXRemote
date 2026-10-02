@@ -45,7 +45,11 @@
   onMount(() => {
     refresh();
     const subscriptions = [
-      listen<Presence>("presence", (e) => (presence = e.payload)),
+      listen<Presence>("presence", (e) => {
+        presence = e.payload;
+        // The service reports its sessions with its state; resync after a reconnect.
+        if (overview?.service) refresh();
+      }),
       listen<HostEvent>("host-event", (e) => {
         const event = e.payload;
         if (event.kind === "sessionStarted") hosted = [...hosted, { session: event.session, peer: event.peer }];
@@ -148,7 +152,9 @@
       ? "Bereit"
       : presence.state === "connecting"
         ? "Verbinde mit Server …"
-        : "Server nicht erreichbar",
+        : presence.reason.startsWith("CTXRemote-Dienst")
+          ? "Dienst nicht erreichbar"
+          : "Server nicht erreichbar",
   );
 </script>
 
@@ -336,6 +342,7 @@
   <Settings
     server={overview.server}
     unattended={overview.unattended}
+    service={overview.service}
     version={overview.version}
     onclose={() => {
       settingsOpen = false;

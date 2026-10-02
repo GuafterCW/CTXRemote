@@ -729,14 +729,17 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ctxremote-core",
+ "hex",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "windows",
 ]
 
 [[package]]
@@ -806,7 +809,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ctxremote-core",
+ "hex",
+ "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tracing",
  "tracing-subscriber",

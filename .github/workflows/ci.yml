@@ -38,5 +38,10 @@ jobs:
       - name: Tests
         run: cargo test --locked -p ctxremote-proto -p ctxremote-core -p ctxremote-server
 
+      - name: Dienst für den Installer (nur Windows)
+        if: runner.os == 'Windows'
+        working-directory: app
+        run: node scripts/prepare-service.mjs
+
       - name: App
         run: cargo build --locked -p ctxremote

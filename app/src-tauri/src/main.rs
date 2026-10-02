@@ -2,6 +2,8 @@
 
 #[cfg(feature = "quick")]
 mod quick;
+#[cfg(not(feature = "quick"))]
+mod service;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -11,6 +13,8 @@ use ctxremote_core::config::Config;
 use ctxremote_core::host::{Host, Presence};
 use ctxremote_core::proto::session::{HostInfo, InputEvent, VideoFrame, ViewerMsg};
 use ctxremote_core::proto::DeviceId;
+#[cfg(not(feature = "quick"))]
+use ctxremote_core::ui_link::UiRequest;
 use ctxremote_core::viewer::{ViewerEvent, ViewerSession};
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -24,9 +28,26 @@ use tauri::{
 
 struct AppState {
     config: Arc<RwLock<Config>>,
-    host: Host,
+    host: Side,
     viewers: Mutex<HashMap<u32, Viewer>>,
     next_viewer: AtomicU32,
+}
+
+/// Who hosts this device: the app itself, or the installed Windows service.
+enum Side {
+    Local(Host),
+    #[cfg(not(feature = "quick"))]
+    Service(Arc<service::Service>),
+}
+
+impl Side {
+    fn end_session(&self, session: u64) {
+        match self {
+            Side::Local(host) => host.end_session(session),
+            #[cfg(not(feature = "quick"))]
+            Side::Service(service) => service.send(UiRequest::EndSession(session)),
+        }
+    }
 }
 
 struct Viewer {
@@ -79,6 +100,7 @@ struct Overview {
     password: String,
     server: String,
     unattended: bool,
+    service: bool,
     host_supported: bool,
     peers: Vec<PeerView>,
     hosted: Vec<Hosted>,
@@ -103,11 +125,27 @@ struct Hosted {
 #[tauri::command]
 fn overview(state: State<AppState>) -> Overview {
     let config = state.config.read().unwrap();
+    let (presence, password, server, unattended, sessions, service) = match &state.host {
+        Side::Local(host) => (
+            host.presence().borrow().clone(),
+            host.password(),
+            config.server.clone(),
+            config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
+            host.sessions(),
+            false,
+        ),
+        #[cfg(not(feature = "quick"))]
+        Side::Service(service) => {
+            let s = service.state();
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true)
+        }
+    };
     Overview {
-        presence: state.host.presence().borrow().clone(),
-        password: state.host.password(),
-        server: config.server.clone(),
-        unattended: config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
+        presence,
+        password,
+        server,
+        unattended,
+        service,
         host_supported: ctxremote_core::capture::HOST_SUPPORTED,
         peers: config
             .peers
@@ -119,48 +157,51 @@ fn overview(state: State<AppState>) -> Overview {
                 last_seen: p.last_seen,
             })
             .collect(),
-        hosted: state
-            .host
-            .sessions()
-            .into_iter()
-            .map(|(session, peer)| Hosted { session, peer })
-            .collect(),
+        hosted: sessions.into_iter().map(|(session, peer)| Hosted { session, peer }).collect(),
         version: env!("CARGO_PKG_VERSION"),
     }
 }
 
 #[tauri::command]
-fn refresh_password(state: State<AppState>) -> String {
-    state.host.refresh_password();
-    state.host.password()
+async fn refresh_password(state: State<'_, AppState>) -> CmdResult<String> {
+    Ok(match &state.host {
+        Side::Local(host) => {
+            host.refresh_password();
+            host.password()
+        }
+        #[cfg(not(feature = "quick"))]
+        Side::Service(service) => service.refresh_password().await,
+    })
 }
 
 /// `permanent_password`: `None` keeps the current one, `Some("")` disables unattended access.
 #[tauri::command]
-fn save_settings(
-    state: State<AppState>,
+async fn save_settings(
+    state: State<'_, AppState>,
     server: String,
     permanent_password: Option<String>,
 ) -> CmdResult<()> {
+    #[cfg_attr(feature = "quick", allow(clippy::infallible_destructuring_match))]
+    let host = match &state.host {
+        Side::Local(host) => host,
+        // The service owns these settings; changing them needs an elevated helper.
+        #[cfg(not(feature = "quick"))]
+        Side::Service(_) => {
+            service::configure(server.clone(), permanent_password).await?;
+            // Viewing goes through the same server as hosting.
+            let mut config = state.config.write().unwrap();
+            config.server = server.trim().to_string();
+            return config.save().map_err(err);
+        }
+    };
     let server_changed = {
         let mut config = state.config.write().unwrap();
-        let server = server.trim().to_string();
-        if server.is_empty() {
-            return Err("Bitte eine Serveradresse angeben".into());
-        }
-        let changed = config.server != server;
-        config.server = server;
-        if let Some(password) = permanent_password {
-            if !password.is_empty() && password.chars().count() < 8 {
-                return Err("Das Passwort braucht mindestens 8 Zeichen".into());
-            }
-            config.permanent_password = Some(password).filter(|p| !p.is_empty());
-        }
+        let changed = config.apply_settings(&server, permanent_password.as_deref()).map_err(err)?;
         config.save().map_err(err)?;
         changed
     };
     if server_changed {
-        state.host.reconnect();
+        host.reconnect();
     }
     Ok(())
 }
@@ -402,6 +443,39 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Passes the local host's presence and events on to the windows.
+fn forward_local_events(app: &AppHandle, host: &Host) {
+    let handle = app.clone();
+    let mut presence = host.presence();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let current = presence.borrow_and_update().clone();
+            let _ = handle.emit("presence", current);
+            if presence.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let handle = app.clone();
+    let mut events = host.events();
+    tauri::async_runtime::spawn(async move {
+        use tokio::sync::broadcast::error::RecvError;
+        loop {
+            match events.recv().await {
+                Ok(event) => {
+                    if matches!(event, ctxremote_core::host::HostEvent::SessionStarted { .. }) {
+                        show_main(&handle);
+                    }
+                    let _ = handle.emit("host-event", event);
+                }
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -433,39 +507,22 @@ fn main() {
             let config = Arc::new(RwLock::new(quick::load_config()?));
             #[cfg(not(feature = "quick"))]
             let config = Arc::new(RwLock::new(Config::load()?));
-            let host = tauri::async_runtime::block_on(async { Host::start(config.clone()) });
-            #[cfg(feature = "quick")]
-            host.require_approval(quick::approver(app.handle().clone()));
-
-            let handle = app.handle().clone();
-            let mut presence = host.presence();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    let current = presence.borrow_and_update().clone();
-                    let _ = handle.emit("presence", current);
-                    if presence.changed().await.is_err() {
-                        break;
+            let host = tauri::async_runtime::block_on(async {
+                // Service mode, unless this is the portable build or a separate profile.
+                #[cfg(not(feature = "quick"))]
+                if std::env::var_os("CTXREMOTE_CONFIG").is_none() {
+                    if let Some(service) = service::Service::detect(app.handle()).await {
+                        return Side::Service(service);
                     }
                 }
+                Side::Local(Host::start(config.clone()))
             });
-
-            let handle = app.handle().clone();
-            let mut events = host.events();
-            tauri::async_runtime::spawn(async move {
-                use tokio::sync::broadcast::error::RecvError;
-                loop {
-                    match events.recv().await {
-                        Ok(event) => {
-                            if matches!(event, ctxremote_core::host::HostEvent::SessionStarted { .. }) {
-                                show_main(&handle);
-                            }
-                            let _ = handle.emit("host-event", event);
-                        }
-                        Err(RecvError::Lagged(_)) => continue,
-                        Err(RecvError::Closed) => break,
-                    }
-                }
-            });
+            #[cfg_attr(feature = "quick", allow(irrefutable_let_patterns))]
+            if let Side::Local(host) = &host {
+                #[cfg(feature = "quick")]
+                host.require_approval(quick::approver(app.handle().clone()));
+                forward_local_events(app.handle(), host);
+            }
 
             app.manage(AppState {
                 config,

@@ -121,6 +121,24 @@ impl Config {
         Ok(SigningKey::from_bytes(&bytes))
     }
 
+    /// Applies the settings form. `permanent_password`: `None` keeps the current
+    /// one, `Some("")` disables unattended access. Returns whether the server changed.
+    pub fn apply_settings(&mut self, server: &str, permanent_password: Option<&str>) -> Result<bool> {
+        let server = server.trim();
+        if server.is_empty() {
+            bail!("Bitte eine Serveradresse angeben");
+        }
+        if let Some(password) = permanent_password {
+            if !password.is_empty() && password.chars().count() < 8 {
+                bail!("Das Passwort braucht mindestens 8 Zeichen");
+            }
+            self.permanent_password = Some(password.to_string()).filter(|p| !p.is_empty());
+        }
+        let changed = self.server != server;
+        self.server = server.to_string();
+        Ok(changed)
+    }
+
     pub fn server_addr(&self) -> String {
         let server = self.server.trim();
         if server.rsplit_once(':').is_some_and(|(_, port)| port.parse::<u16>().is_ok()) {

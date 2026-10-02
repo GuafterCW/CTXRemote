@@ -39,6 +39,8 @@ export interface Overview {
   password: string;
   server: string;
   unattended: boolean;
+  /** The installed Windows service hosts this device. */
+  service: boolean;
   hostSupported: boolean;
   peers: Peer[];
   hosted: Hosted[];

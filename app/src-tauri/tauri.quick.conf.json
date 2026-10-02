@@ -2,6 +2,12 @@
   "productName": "CTXRemote Hilfe",
   "mainBinaryName": "CTXRemote-Hilfe",
   "identifier": "info.philipp-dev.ctxremote.hilfe",
+  "build": {
+    "beforeBuildCommand": "npm run build"
+  },
+  "bundle": {
+    "externalBin": []
+  },
   "app": {
     "windows": [
       {

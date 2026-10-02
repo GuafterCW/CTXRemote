@@ -28,25 +28,32 @@ Stand: 2. Oktober 2026. Übergabenotiz, damit die Arbeit auf einem anderen Rechn
 1. **Code-Signatur:** Smart App Control blockiert unsignierte Builds (os error 4551). Kandidat ist Microsoft Trusted Signing für etwa 10 $ im Monat.
 2. **Monitorwechsel testen**, mit einem Host, der mehrere Monitore hat.
 
-## In Arbeit (Stand 2. Oktober 2026, abends, noch nicht committet)
+## Stand 2. Oktober 2026, abends
 
 - **Zwischenablage** (Text, beide Richtungen): fertig und auf dem Windows Server getestet.
-- **Windows-Dienst** (`crates/service`, Entwurf in `docs/WINDOWS-SERVICE.md`): Die Schritte 1, 2, 3 und 5 sind umgesetzt und auf dem Windows Server getestet: Sperrbildschirm, Strg+Alt+Entf, UAC sowie Abmelden und Anmelden ohne Abbruch der Sitzung. „Sperren“ ruft `LockWorkStation` auf, weil Windows ein eingespieltes Win+L ignoriert. `SendSAS` kommt aus dem Dienstprozess, weil Windows es von SYSTEM-Prozessen ignoriert. Offen sind noch die UI-Pipe mit Anbindung der App (Schritt 4) und der Installer (Schritt 6).
-- **Schnellhilfe „CTXRemote Hilfe“**: eine portable EXE (`npm run build:quick` mit `CTXREMOTE_QUICK_SERVER`). Die Konfiguration ist flüchtig, jede Verbindung muss mit „Zulassen/Ablehnen“ bestätigt werden (`Host::require_approval`). Die Ablehnung ist im Loopback getestet, der Dialog selbst noch nicht.
+- **Windows-Dienst** (`crates/service`, Entwurf in `docs/WINDOWS-SERVICE.md`): fertig und auf dem Windows Server getestet:
+  - Sperrbildschirm, Strg+Alt+Entf und UAC
+  - Abmelden und Anmelden ohne Abbruch der Sitzung
+  - App im Dienstmodus über die UI-Pipe mit ID, Passwort und Sitzungen
+  - Einstellungen mit UAC-Abfrage
+  - Installation und Deinstallation über den NSIS-Installer
+
+  Zwei Windows-Eigenheiten: „Sperren“ ruft `LockWorkStation` auf, weil Windows ein eingespieltes Win+L ignoriert. `SendSAS` kommt aus dem Dienstprozess, weil Windows es von SYSTEM-Prozessen ignoriert. Unter Windows braucht `cargo build -p ctxremote` vorher `node app/scripts/prepare-service.mjs`, weil Tauri den Dienst als Sidecar schon beim Build verlangt.
+- **Schnellhilfe „CTXRemote Hilfe“**: eine portable EXE (`npm run build:quick` mit `CTXREMOTE_QUICK_SERVER`). Die Konfiguration ist flüchtig, jede Verbindung muss mit „Zulassen/Ablehnen“ bestätigt werden (`Host::require_approval`). Die Ablehnung ist im Loopback getestet, den Dialog selbst hat noch niemand angeklickt.
 
 ## Nächste Schritte
 
-1. Windows-Dienst fertigstellen: UI-Pipe und App-Anbindung, dann der Installer.
+1. Den Zustimmungsdialog der Schnellhilfe testen.
 2. Dateiübertragung
 3. Danach P2P, Hardware-Encoder und macOS-Host (zum Testen ist ein Mac nötig).
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 
-Weitere Roadmap: P2P-Hole-Punching, Remote-Mauszeiger, Hardware-Encoder, Adressbuch auf dem Server.
+Weitere Roadmap: Remote-Mauszeiger, Adressbuch auf dem Server.
 
 ## Bekannte Kompromisse
 
-- Das feste Passwort liegt im Klartext in der Benutzerkonfiguration, weil SPAKE2 das Passwort selbst braucht. Es soll später in den Windows-Anmeldeinformationsspeicher.
+- Das feste Passwort liegt im Klartext, weil SPAKE2 das Passwort selbst braucht. Mit Dienst steht es in `C:\ProgramData\CTXRemote\host.json`, lesbar nur für SYSTEM und Administratoren. Ohne Dienst steht es in der Benutzerkonfiguration. Möglich wäre später DPAPI mit Maschinenbindung.
 - Verbindungen laufen noch nur über das Relay, eine direkte P2P-Verbindung fehlt.
 
 ## Entwicklungsumgebung (Windows)

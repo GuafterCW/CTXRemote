@@ -42,7 +42,7 @@ npm install
 npm run tauri dev
 
 # App-Installer bauen
-npm run tauri build
+npm run tauri build   # NSIS-Installer inkl. Windows-Dienst (braucht Adminrechte bei der Installation)
 ```
 
 ### Schnellhilfe („CTXRemote Hilfe“)

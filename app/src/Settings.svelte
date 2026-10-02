@@ -6,9 +6,10 @@
   let {
     server: initialServer,
     unattended,
+    service,
     version,
     onclose,
-  }: { server: string; unattended: boolean; version: string; onclose: () => void } = $props();
+  }: { server: string; unattended: boolean; service: boolean; version: string; onclose: () => void } = $props();
 
   // The form edits a copy; props are only the starting point.
   let server = $state(untrack(() => initialServer));
@@ -50,6 +51,13 @@
   </header>
 
   <div class="body">
+    {#if service}
+      <p class="note">
+        Diese Einstellungen gelten für den CTXRemote-Dienst dieses Geräts. Zum Speichern sind
+        Administratorrechte nötig.
+      </p>
+    {/if}
+
     <label class="group">
       <span class="name">Server</span>
       <input class="field" bind:value={server} spellcheck="false" placeholder="server.example.de:21300" />
