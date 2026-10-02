@@ -154,7 +154,12 @@ fn key(code: &str, down: bool) {
 }
 
 fn send(input: &INPUT) {
-    let sent = unsafe { SendInput(std::slice::from_ref(input), size_of::<INPUT>() as i32) };
+    let inject = || unsafe { SendInput(std::slice::from_ref(input), size_of::<INPUT>() as i32) };
+    let mut sent = inject();
+    // The input desktop may have changed (lock screen, UAC); follow it and retry once.
+    if sent == 0 && crate::desktop::follow_input() {
+        sent = inject();
+    }
     if sent == 0 {
         // Typically UIPI: the foreground window runs with higher integrity than we do.
         tracing::trace!("SendInput wurde blockiert");

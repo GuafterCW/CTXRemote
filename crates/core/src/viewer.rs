@@ -14,6 +14,8 @@ use tokio::time::timeout;
 use crate::net;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// The host may first ask its user (see `Host::require_approval`).
+const WELCOME_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub enum ViewerEvent {
     Video(VideoFrame),
@@ -44,7 +46,7 @@ impl ViewerSession {
         let (mut tx, mut rx) = viewer_handshake(t, target, password).await?;
         let name = format!("{} ({})", whoami::username(), whoami::devicename());
         tx.send(&ViewerMsg::Hello { name, device: own_id }).await?;
-        let host = match timeout(CONNECT_TIMEOUT, rx.recv::<HostMsg>()).await?? {
+        let host = match timeout(WELCOME_TIMEOUT, rx.recv::<HostMsg>()).await?? {
             Some(HostMsg::Welcome(info)) => info,
             Some(HostMsg::Bye(reason)) => bail!(reason),
             _ => bail!("Gegenstelle hat die Sitzung nicht eröffnet"),
@@ -80,6 +82,11 @@ impl ViewerSession {
 
     pub fn send(&self, msg: ViewerMsg) {
         let _ = self.outbox.send(msg);
+    }
+
+    /// A handle for sending from other threads, e.g. the clipboard watcher.
+    pub fn sender(&self) -> mpsc::UnboundedSender<ViewerMsg> {
+        self.outbox.clone()
     }
 
     pub fn close(&self) {

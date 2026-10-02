@@ -10,6 +10,9 @@ ctxremote-proto.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 futures.workspace = true
+bytes.workspace = true
+postcard.workspace = true
+tokio-util.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,6 +23,7 @@ hex.workspace = true
 openh264 = "0.9"
 directories = "6"
 whoami = "1"
+arboard = { version = "3", default-features = false }
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.62"
@@ -30,6 +34,14 @@ features = [
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Shutdown",
+    "Win32_System_Threading",
+    "Win32_System_DataExchange",
     "Win32_System_StationsAndDesktops",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",

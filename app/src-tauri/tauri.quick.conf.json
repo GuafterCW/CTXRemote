@@ -1,0 +1,20 @@
+{
+  "productName": "CTXRemote Hilfe",
+  "mainBinaryName": "CTXRemote-Hilfe",
+  "identifier": "info.philipp-dev.ctxremote.hilfe",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "CTXRemote Hilfe",
+        "url": "index.html#/quick",
+        "width": 440,
+        "height": 560,
+        "resizable": false,
+        "maximizable": false,
+        "center": true,
+        "visible": false
+      }
+    ]
+  }
+}

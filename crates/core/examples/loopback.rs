@@ -6,6 +6,9 @@
 //! cargo run -p ctxremote-server &
 //! cargo run -p ctxremote-core --example loopback -- 127.0.0.1:21300
 //! ```
+//!
+//! With `--agent-process` the screen side runs in a child process behind a
+//! named pipe, the way the Windows service runs it.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -19,12 +22,26 @@ use ctxremote_core::proto::DeviceId;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let server = std::env::args().nth(1).unwrap_or_else(|| "127.0.0.1:21300".into());
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--agent") {
+        // Started by `--agent-process` below.
+        return ctxremote_core::agent_process::serve(&args[1]).await;
+    }
+    let agent_process = args.iter().any(|a| a == "--agent-process");
+    args.retain(|a| a != "--agent-process");
+    let server = args.first().cloned().unwrap_or_else(|| "127.0.0.1:21300".into());
     let config_path = std::env::temp_dir().join("ctxremote-loopback.json");
     std::env::set_var("CTXREMOTE_CONFIG", &config_path);
     let config = Config { server: server.clone(), ..Config::default() };
 
-    let host = Host::start(Arc::new(RwLock::new(config)));
+    let config = Arc::new(RwLock::new(config));
+    let host = if agent_process {
+        // The screen side runs in a child process behind a pipe, as under the service.
+        let exe = std::env::current_exe()?;
+        Host::start_with(config, Arc::new(ctxremote_core::agent_process::AgentProcess::new(exe)))
+    } else {
+        Host::start(config)
+    };
     let mut presence = host.presence();
     let id: DeviceId = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -90,6 +107,16 @@ async fn main() -> Result<()> {
     }
     drop(session);
     tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // With approval required, a refusal ends the session despite the right password.
+    host.require_approval(Arc::new(|peer| {
+        println!("Anfrage von {peer}, wird abgelehnt");
+        Box::pin(async { false })
+    }));
+    match ViewerSession::connect(&server, None, id, &host.password(), |_| {}).await {
+        Ok(_) => bail!("abgelehnte Sitzung wurde trotzdem eröffnet"),
+        Err(e) => println!("Ohne Zustimmung abgewiesen: {e}"),
+    }
     let _ = std::fs::remove_file(config_path);
     println!("OK");
     Ok(())

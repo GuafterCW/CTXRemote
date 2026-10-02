@@ -1,6 +1,7 @@
 //! Persistent per-user settings and device identity.
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use anyhow::{bail, Context, Result};
 use ctxremote_proto::{DeviceId, DEFAULT_PORT};
@@ -62,10 +63,22 @@ impl Default for Config {
     }
 }
 
+/// Set once per process, e.g. to the service's machine-wide config.
+static PATH: OnceLock<PathBuf> = OnceLock::new();
+
 impl Config {
-    /// `%APPDATA%\philipp-dev\CTXRemote\config\config.json`, unless `CTXREMOTE_CONFIG`
-    /// points elsewhere (useful for running a second instance on one machine).
+    /// Pins the config file for this process. Only the first call has an effect.
+    pub fn use_path(path: PathBuf) {
+        let _ = PATH.set(path);
+    }
+
+    /// The path pinned with [`Config::use_path`], else `CTXREMOTE_CONFIG` (useful for
+    /// a second instance on one machine), else
+    /// `%APPDATA%\philipp-dev\CTXRemote\config\config.json`.
     pub fn path() -> Result<PathBuf> {
+        if let Some(path) = PATH.get() {
+            return Ok(path.clone());
+        }
         if let Some(path) = std::env::var_os("CTXREMOTE_CONFIG") {
             return Ok(path.into());
         }

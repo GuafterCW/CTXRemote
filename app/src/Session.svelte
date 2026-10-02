@@ -123,6 +123,19 @@
     canvas?.focus();
   }
 
+  function sendSas() {
+    api.sendSas(session);
+    keysOpen = false;
+    canvas?.focus();
+  }
+
+  // Windows ignores an injected Win+L, so locking is its own request.
+  function lockScreen() {
+    api.lockScreen(session);
+    keysOpen = false;
+    canvas?.focus();
+  }
+
   function chooseDisplay(index: number) {
     display = index;
     api.selectDisplay(session, index);
@@ -233,10 +246,11 @@
         </button>
         {#if keysOpen}
           <div class="menu" role="menu">
+            <button role="menuitem" onclick={sendSas}>Strg + Alt + Entf</button>
             <button role="menuitem" onclick={() => combo("MetaLeft")}>Windows-Taste</button>
             <button role="menuitem" onclick={() => combo("AltLeft", "Tab")}>Alt + Tab</button>
             <button role="menuitem" onclick={() => combo("ControlLeft", "ShiftLeft", "Escape")}>Task-Manager</button>
-            <button role="menuitem" onclick={() => combo("MetaLeft", "KeyL")}>Sperren</button>
+            <button role="menuitem" onclick={lockScreen}>Sperren</button>
           </div>
         {/if}
       </div>

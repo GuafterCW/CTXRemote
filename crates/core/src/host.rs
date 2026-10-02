@@ -2,31 +2,34 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc as std_mpsc, Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, ServerMsg, SessionId};
 use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender};
-use ctxremote_proto::session::{HostInfo, HostMsg, VideoCodec, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{HostMsg, ViewerMsg};
 use ctxremote_proto::DeviceId;
+use futures::future::BoxFuture;
 use futures::StreamExt;
 use serde::Serialize;
 use tokio::sync::{broadcast, mpsc, watch, Notify};
 use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 
-use crate::capture::{self, Capturer};
+use crate::agent;
 use crate::config::{generate_password, Config};
-use crate::encoder::{pack_bgra, VideoEncoder};
-use crate::input::Injector;
 use crate::net;
 
 const PING_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_FAILURES: u32 = 5;
 const LOCKOUT: Duration = Duration::from_secs(5 * 60);
-const FPS: f32 = 30.0;
+/// Must stay below the viewer's wait for `Welcome`.
+pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Decides whether the named viewer may connect, e.g. by asking the user.
+pub type Approver = Arc<dyn Fn(String) -> BoxFuture<'static, bool> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -53,6 +56,8 @@ struct Shared {
     presence: watch::Sender<Presence>,
     events: broadcast::Sender<HostEvent>,
     reconnect: Notify,
+    screen: Arc<dyn ScreenSource>,
+    approver: Mutex<Option<Approver>>,
 }
 
 #[derive(Clone)]
@@ -63,6 +68,11 @@ pub struct Host {
 impl Host {
     /// Starts the presence loop on the current tokio runtime.
     pub fn start(config: Arc<RwLock<Config>>) -> Self {
+        Self::start_with(config, Arc::new(InProcess))
+    }
+
+    /// Like [`Host::start`], with the screen side of each session served by `screen`.
+    pub fn start_with(config: Arc<RwLock<Config>>, screen: Arc<dyn ScreenSource>) -> Self {
         let (presence, _) = watch::channel(Presence::Connecting);
         let (events, _) = broadcast::channel(32);
         let shared = Arc::new(Shared {
@@ -74,6 +84,8 @@ impl Host {
             presence,
             events,
             reconnect: Notify::new(),
+            screen,
+            approver: Mutex::new(None),
         });
         tokio::spawn(presence_loop(shared.clone()));
         Self { shared }
@@ -99,6 +111,12 @@ impl Host {
     /// Re-registers, e.g. after the server address changed.
     pub fn reconnect(&self) {
         self.shared.reconnect.notify_one();
+    }
+
+    /// Asks `approver` with the viewer's name before each session; a password alone
+    /// is then not enough. Unanswered requests are refused after a minute.
+    pub fn require_approval(&self, approver: Approver) {
+        *self.shared.approver.lock().unwrap() = Some(approver);
     }
 
     pub fn end_session(&self, session: u64) {
@@ -216,13 +234,24 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
         _ => bail!("Gegenstelle hat sich nicht vorgestellt"),
     };
 
+    let approver = shared.approver.lock().unwrap().clone();
+    if let Some(approve) = approver {
+        // Viewer messages sent meanwhile (input) wait unread in the connection.
+        if !timeout(APPROVAL_TIMEOUT, approve(peer.clone())).await.unwrap_or(false) {
+            let mut tx = tx;
+            let _ = tx.send(&HostMsg::Bye("Der Zugriff wurde abgelehnt".into())).await;
+            tx.close().await;
+            bail!("Zugriff für {peer} abgelehnt");
+        }
+    }
+
     let number = shared.next_session.fetch_add(1, Ordering::Relaxed);
     let stop = Arc::new(Notify::new());
     shared.sessions.lock().unwrap().insert(number, (peer.clone(), stop.clone()));
     let _ = shared.events.send(HostEvent::SessionStarted { session: number, peer: peer.clone() });
     info!(%peer, "Sitzung gestartet");
 
-    let result = run_session(tx, rx, stop).await;
+    let result = run_session(tx, rx, stop, shared.screen.as_ref()).await;
 
     shared.sessions.lock().unwrap().remove(&number);
     let _ = shared.events.send(HostEvent::SessionEnded { session: number });
@@ -256,66 +285,87 @@ fn record_failure(shared: &Shared) {
     }
 }
 
-enum VideoCommand {
-    Keyframe,
-    Display(u8),
+/// The two ends of a session's screen side: messages to it, messages from it.
+/// It ends when the sender is dropped; it is gone when the receiver closes.
+pub type ScreenChannels = (mpsc::Sender<ViewerMsg>, mpsc::Receiver<HostMsg>);
+
+/// Provides the screen side (capture, input, clipboard) for each session.
+pub trait ScreenSource: Send + Sync + 'static {
+    fn open(&self) -> BoxFuture<'static, Result<ScreenChannels>>;
 }
 
-async fn run_session(mut tx: SecureSender, mut rx: SecureReceiver, stop: Arc<Notify>) -> Result<()> {
-    let displays = match capture::displays() {
-        Ok(displays) if !displays.is_empty() => displays,
-        result => {
-            let reason = result.err().map_or("Kein Bildschirm gefunden".into(), |e| format!("{e:#}"));
-            // Tell the viewer why instead of just dropping the connection.
-            let _ = tx.send(&HostMsg::Bye(reason.clone())).await;
-            bail!(reason);
+/// Runs [`agent::run`] as a task in this process.
+pub struct InProcess;
+
+impl ScreenSource for InProcess {
+    fn open(&self) -> BoxFuture<'static, Result<ScreenChannels>> {
+        let (to_agent, inbox) = mpsc::channel::<ViewerMsg>(64);
+        // Small, so a slow link throttles capture instead of queueing frames.
+        let (outbox, from_agent) = mpsc::channel::<HostMsg>(2);
+        tokio::spawn(async move {
+            if let Err(e) = agent::run(inbox, outbox).await {
+                info!("Bildschirmseite beendet: {e:#}");
+            }
+        });
+        Box::pin(async move { Ok((to_agent, from_agent)) })
+    }
+}
+
+/// How long a vanished screen side may take to come back before the session ends.
+const SCREEN_RETURN: Duration = Duration::from_secs(60);
+
+/// Relays between the encrypted connection and the session's screen side.
+async fn run_session(
+    mut tx: SecureSender,
+    mut rx: SecureReceiver,
+    stop: Arc<Notify>,
+    screen: &dyn ScreenSource,
+) -> Result<()> {
+    let (mut to_agent, mut from_agent) = match screen.open().await {
+        Ok(channels) => channels,
+        Err(e) => {
+            let _ = tx.send(&HostMsg::Bye(format!("{e:#}"))).await;
+            tx.close().await;
+            return Err(e);
         }
     };
-    let primary = displays.iter().find(|d| d.primary).unwrap_or(&displays[0]);
-    let mut active = primary.clone();
-    tx.send(&HostMsg::Welcome(HostInfo {
-        hostname: whoami::devicename(),
-        username: whoami::username(),
-        os: format!("{}", whoami::distro()),
-        displays: displays.iter().map(Into::into).collect(),
-        active_display: active.index,
-    }))
-    .await?;
 
-    // Capture and encoding block, so they live on their own thread. The small
-    // channel applies backpressure: on a slow link we capture less often
-    // instead of queueing stale frames.
-    let (frames_tx, mut frames_rx) = mpsc::channel::<VideoFrame>(2);
-    let (commands, commands_rx) = std_mpsc::channel::<VideoCommand>();
-    let first_display = active.index;
-    let video = std::thread::Builder::new()
-        .name("ctxremote-video".into())
-        .spawn(move || {
-            if let Err(e) = video_loop(first_display, commands_rx, frames_tx) {
-                warn!("Videoübertragung beendet: {e:#}");
-            }
-        })?;
-
-    let mut injector = Injector::new(&active);
     let result: Result<()> = async {
         loop {
             tokio::select! {
-                frame = frames_rx.recv() => match frame {
-                    Some(frame) => tx.send(&HostMsg::Video(frame)).await?,
-                    None => bail!("Bildschirmaufnahme nicht verfügbar"),
-                },
-                msg = rx.recv::<ViewerMsg>() => match msg? {
-                    Some(ViewerMsg::Input(event)) => injector.apply(&event),
-                    Some(ViewerMsg::RequestKeyframe) => { let _ = commands.send(VideoCommand::Keyframe); }
-                    Some(ViewerMsg::SelectDisplay(index)) => {
-                        if let Some(display) = displays.iter().find(|d| d.index == index) {
-                            active = display.clone();
-                            injector.set_display(&active);
-                            let _ = commands.send(VideoCommand::Display(index));
+                msg = from_agent.recv() => match msg {
+                    Some(msg) => {
+                        let bye = matches!(msg, HostMsg::Bye(_));
+                        tx.send(&msg).await?;
+                        if bye {
+                            return Ok(());
                         }
                     }
-                    Some(ViewerMsg::Clipboard(_)) | Some(ViewerMsg::Hello { .. }) => {}
+                    // Gone without `Bye`: the agent ended with its Windows session
+                    // (sign-out, sign-in, user switch). Start one in the new session.
+                    None => match reopen(screen, &stop).await {
+                        Some((new_to, new_from)) => {
+                            info!("Bildschirmseite neu gestartet");
+                            (to_agent, from_agent) = (new_to, new_from);
+                        }
+                        None => {
+                            let _ = tx.send(&HostMsg::Bye("Der Bildschirm ist nicht mehr verfügbar".into())).await;
+                            return Ok(());
+                        }
+                    },
+                },
+                msg = rx.recv::<ViewerMsg>() => match msg? {
                     Some(ViewerMsg::Bye) | None => return Ok(()),
+                    // Windows accepts SendSAS only from the service process, which is this one.
+                    Some(ViewerMsg::SecureAttention) => {
+                        if let Err(e) = crate::sas::send() {
+                            warn!("Strg+Alt+Entf fehlgeschlagen: {e:#}");
+                        }
+                    }
+                    Some(msg) => {
+                        // A failed send means the agent is gone; the branch above notices.
+                        let _ = to_agent.send(msg).await;
+                    }
                 },
                 _ = stop.notified() => {
                     let _ = tx.send(&HostMsg::Bye("Die Sitzung wurde am Gerät beendet".into())).await;
@@ -326,80 +376,26 @@ async fn run_session(mut tx: SecureSender, mut rx: SecureReceiver, stop: Arc<Not
     }
     .await;
 
-    injector.release_all();
-    drop(commands);
-    drop(frames_rx);
-    let _ = tokio::task::spawn_blocking(move || video.join()).await;
+    // Dropping the sender ends the screen side.
+    drop(to_agent);
+    drop(from_agent);
     tx.close().await;
     result
 }
 
-fn video_loop(
-    mut display: u8,
-    commands: std_mpsc::Receiver<VideoCommand>,
-    frames: mpsc::Sender<VideoFrame>,
-) -> Result<()> {
-    let frame_time = Duration::from_secs_f32(1.0 / FPS);
-    let started = Instant::now();
-    'display: loop {
-        let mut capturer = Capturer::new(display)?;
-        let mut encoder: Option<VideoEncoder> = None;
-        let mut packed = Vec::new();
-        let mut have_frame = false;
-        let mut force_key = true;
-        loop {
-            let tick = Instant::now();
-            loop {
-                match commands.try_recv() {
-                    Ok(VideoCommand::Keyframe) => force_key = true,
-                    Ok(VideoCommand::Display(index)) if index != display => {
-                        display = index;
-                        continue 'display;
-                    }
-                    Ok(VideoCommand::Display(_)) => {}
-                    Err(std_mpsc::TryRecvError::Empty) => break,
-                    Err(std_mpsc::TryRecvError::Disconnected) => return Ok(()),
-                }
-            }
-
-            let changed = capturer.next_frame(frame_time.as_millis() as u32, |data, pitch, w, h| {
-                pack_bgra(data, pitch, w, h, &mut packed);
-            })?;
-            have_frame |= changed;
-            if !have_frame || !(changed || force_key) {
-                continue;
-            }
-
-            let (width, height) = (capturer.display().width, capturer.display().height);
-            if encoder.as_ref().map(|e| e.size()) != Some((width & !1, height & !1)) {
-                encoder = Some(VideoEncoder::new(width, height, FPS)?);
-            }
-            let encoder = encoder.as_mut().expect("created above");
-            if force_key {
-                encoder.force_keyframe();
-            }
-            let (w, h) = encoder.size();
-            let encoded = encoder.encode(&packed)?;
-            if encoded.data.is_empty() {
-                // Rate control skipped this frame; a pending keyframe is retried next tick.
-                continue;
-            }
-            force_key &= !encoded.keyframe;
-            let frame = VideoFrame {
-                display,
-                width: w,
-                height: h,
-                keyframe: encoded.keyframe,
-                codec: VideoCodec::H264,
-                timestamp_us: started.elapsed().as_micros() as u64,
-                data: encoded.data.to_vec(),
-            };
-            if frames.blocking_send(frame).is_err() {
-                return Ok(());
-            }
-            if let Some(rest) = frame_time.checked_sub(tick.elapsed()) {
-                std::thread::sleep(rest);
-            }
+/// Retries opening the screen side for up to [`SCREEN_RETURN`]; `None` if it
+/// stays away or the session is stopped meanwhile.
+async fn reopen(screen: &dyn ScreenSource, stop: &Notify) -> Option<ScreenChannels> {
+    let deadline = Instant::now() + SCREEN_RETURN;
+    while Instant::now() < deadline {
+        tokio::select! {
+            _ = sleep(Duration::from_secs(1)) => {}
+            _ = stop.notified() => return None,
+        }
+        match screen.open().await {
+            Ok(channels) => return Some(channels),
+            Err(e) => info!("Bildschirmseite noch nicht verfügbar: {e:#}"),
         }
     }
+    None
 }

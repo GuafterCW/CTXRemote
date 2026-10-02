@@ -21,6 +21,10 @@ pub enum ViewerMsg {
     RequestKeyframe,
     Clipboard(String),
     Bye,
+    /// Triggers Ctrl+Alt+Del on the host; needs the Windows service.
+    SecureAttention,
+    /// Locks the host's session (injected Win+L is ignored by Windows).
+    LockScreen,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

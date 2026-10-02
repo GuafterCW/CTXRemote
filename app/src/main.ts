@@ -1,6 +1,7 @@
 import { mount } from "svelte";
 import "./styles.css";
 import Home from "./Home.svelte";
+import Quick from "./Quick.svelte";
 import Session from "./Session.svelte";
 
 const match = location.hash.match(/^#\/session\/(\d+)$/);
@@ -10,4 +11,6 @@ if (match) document.body.classList.add("session");
 
 export default match
   ? mount(Session, { target, props: { session: Number(match[1]) } })
-  : mount(Home, { target });
+  : location.hash === "#/quick"
+    ? mount(Quick, { target })
+    : mount(Home, { target });

@@ -78,6 +78,8 @@ pub struct Capturer {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     duplication: Option<IDXGIOutputDuplication>,
+    /// Since when duplication keeps failing; a fresh device may be needed.
+    failing_since: Option<std::time::Instant>,
     staging: Option<ID3D11Texture2D>,
 }
 
@@ -111,9 +113,11 @@ impl Capturer {
             device: device.context("kein Direct3D-Gerät")?,
             context: context.context("kein Direct3D-Kontext")?,
             duplication: None,
+            failing_since: None,
             staging: None,
         };
-        capturer.duplicate()?;
+        // On a desktop we cannot reach yet (secure desktop), `next_frame` keeps retrying.
+        let _ = capturer.duplicate();
         Ok(capturer)
     }
 
@@ -123,6 +127,8 @@ impl Capturer {
 
     fn duplicate(&mut self) -> Result<()> {
         self.duplication = None;
+        // Lock screen and UAC prompts live on another desktop; duplication only sees our thread's.
+        crate::desktop::follow_input();
         let dup = unsafe { self.output.DuplicateOutput(&self.device) }
             .context("Bildschirmaufnahme nicht möglich (DuplicateOutput)")?;
         self.duplication = Some(dup);
@@ -138,10 +144,16 @@ impl Capturer {
     ) -> Result<bool> {
         if self.duplication.is_none() {
             // Duplication is lost on mode changes and secure-desktop switches; retry quietly.
-            if self.duplicate().is_err() {
+            if let Err(e) = self.duplicate() {
+                let since = *self.failing_since.get_or_insert_with(std::time::Instant::now);
+                if since.elapsed() > std::time::Duration::from_secs(2) {
+                    // The caller starts over with a new device.
+                    return Err(e);
+                }
                 std::thread::sleep(std::time::Duration::from_millis(timeout_ms.into()));
                 return Ok(false);
             }
+            self.failing_since = None;
         }
         // A cheap COM reference, so `self` stays free for the copy below.
         let dup = self.duplication.clone().expect("set above");
@@ -151,11 +163,15 @@ impl Capturer {
         match unsafe { dup.AcquireNextFrame(timeout_ms, &mut info, &mut resource) } {
             Ok(()) => {}
             Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok(false),
-            Err(e) if e.code() == DXGI_ERROR_ACCESS_LOST => {
+            Err(e) => {
+                // ACCESS_LOST on desktop switches (lock screen, UAC, sign-in); other
+                // errors there too. Duplicate again on the next call.
+                if e.code() != DXGI_ERROR_ACCESS_LOST {
+                    tracing::debug!("AcquireNextFrame: {e}");
+                }
                 self.duplication = None;
                 return Ok(false);
             }
-            Err(e) => return Err(e.into()),
         }
 
         let result = (|| {

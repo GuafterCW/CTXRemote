@@ -10,6 +10,12 @@ export type HostEvent =
   | { kind: "sessionEnded"; session: number }
   | { kind: "passwordChanged" };
 
+/** Quick build: a viewer waits for the user's decision. */
+export interface ApprovalRequest {
+  id: number;
+  peer: string;
+}
+
 export interface Peer {
   id: string;
   alias: string | null;
@@ -79,8 +85,12 @@ export const api = {
   sendInput: (session: number, event: InputEvent) => invoke<void>("send_input", { session, event }),
   selectDisplay: (session: number, index: number) => invoke<void>("select_display", { session, index }),
   requestKeyframe: (session: number) => invoke<void>("request_keyframe", { session }),
+  sendSas: (session: number) => invoke<void>("send_sas", { session }),
+  lockScreen: (session: number) => invoke<void>("lock_screen", { session }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
   endHostedSession: (session: number) => invoke<void>("end_hosted_session", { session }),
+  /** Quick build only. */
+  answerApproval: (id: number, allow: boolean) => invoke<void>("answer_approval", { id, allow }),
 };
 
 export function errorText(e: unknown): string {

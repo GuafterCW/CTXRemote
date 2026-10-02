@@ -17,22 +17,32 @@ Stand: 2. Oktober 2026. Übergabenotiz, damit die Arbeit auf einem anderen Rechn
 - Linux (Docker, `rust:1`): alle Tests grün, die komplette App baut.
 - Windows-End-to-End-Test (`cargo run --release -p ctxremote-core --example loopback`): Sitzung nach 17 ms, erster 1920×1200-Keyframe nach 245 ms, dekodierbar.
 - Die App lief einmal, und das Hauptfenster wurde per Screenshot geprüft.
+- CI grün auf Windows, Linux und macOS. Damit ist auch der macOS-Build bestätigt.
+- Loopback auf dem neuen Entwicklungsrechner: Sitzung nach 12 ms, erster 2560×1440-Keyframe nach 181 ms, zwei Monitore erkannt.
+- GUI-Sitzung über das Netz (Viewer: Entwicklungsrechner, Host: Windows Server, Server im LAN): Verbindung, Bild, Maus, Tastatur und Aliase funktionieren.
 
-**Noch nicht getestet:** eine volle Sitzung in der GUI mit Sitzungsfenster, Maus und Tastatur, die Alias-Oberfläche in der laufenden App und der macOS-Build. Der Grund ist Smart App Control auf dem bisherigen Entwicklungsrechner (siehe unten).
+**Noch nicht getestet:** der Monitorwechsel in einer GUI-Sitzung, weil der Test-Host nur einen Monitor hatte. Zwei Instanzen auf *einem* PC eignen sich nur, um Verbindung und Bild zu prüfen. Der Host bewegt dann die eigene Maus, und Tastatureingaben können sich im Kreis drehen.
 
 ## Offene Entscheidungen und To-dos
 
-1. **Erster Commit und Push** auf GitHub. Danach läuft die CI, die auch den macOS-Build prüft.
-2. **Code-Signatur:** Smart App Control blockiert unsignierte Builds (os error 4551). Kandidat ist Microsoft Trusted Signing für etwa 10 $ im Monat.
-3. **GUI-Sitzung testen:** zwei Instanzen auf einem PC, eine davon mit `CTXREMOTE_CONFIG=<andere.json>`.
+1. **Code-Signatur:** Smart App Control blockiert unsignierte Builds (os error 4551). Kandidat ist Microsoft Trusted Signing für etwa 10 $ im Monat.
+2. **Monitorwechsel testen**, mit einem Host, der mehrere Monitore hat.
 
-## Nächste Schritte (vereinbarte Reihenfolge)
+## In Arbeit (Stand 2. Oktober 2026, abends, noch nicht committet)
 
-1. Linux-Host für X11 (XShm/XTest)
-2. macOS-Host (ScreenCaptureKit, CGEvent; Bildschirmaufnahme- und Bedienungshilfen-Rechte)
-3. Wayland (PipeWire und Desktop-Portale)
+- **Zwischenablage** (Text, beide Richtungen): fertig und auf dem Windows Server getestet.
+- **Windows-Dienst** (`crates/service`, Entwurf in `docs/WINDOWS-SERVICE.md`): Die Schritte 1, 2, 3 und 5 sind umgesetzt und auf dem Windows Server getestet: Sperrbildschirm, Strg+Alt+Entf, UAC sowie Abmelden und Anmelden ohne Abbruch der Sitzung. „Sperren“ ruft `LockWorkStation` auf, weil Windows ein eingespieltes Win+L ignoriert. `SendSAS` kommt aus dem Dienstprozess, weil Windows es von SYSTEM-Prozessen ignoriert. Offen sind noch die UI-Pipe mit Anbindung der App (Schritt 4) und der Installer (Schritt 6).
+- **Schnellhilfe „CTXRemote Hilfe“**: eine portable EXE (`npm run build:quick` mit `CTXREMOTE_QUICK_SERVER`). Die Konfiguration ist flüchtig, jede Verbindung muss mit „Zulassen/Ablehnen“ bestätigt werden (`Host::require_approval`). Die Ablehnung ist im Loopback getestet, der Dialog selbst noch nicht.
 
-Weitere Roadmap: Zwischenablage (Protokoll vorhanden), Dateiübertragung, Windows-Dienst (Anmeldebildschirm, UAC, Strg+Alt+Entf), P2P-Hole-Punching, Remote-Mauszeiger, Hardware-Encoder, Adressbuch auf dem Server.
+## Nächste Schritte
+
+1. Windows-Dienst fertigstellen: UI-Pipe und App-Anbindung, dann der Installer.
+2. Dateiübertragung
+3. Danach P2P, Hardware-Encoder und macOS-Host (zum Testen ist ein Mac nötig).
+
+Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
+
+Weitere Roadmap: P2P-Hole-Punching, Remote-Mauszeiger, Hardware-Encoder, Adressbuch auf dem Server.
 
 ## Bekannte Kompromisse
 

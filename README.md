@@ -45,6 +45,18 @@ npm run tauri dev
 npm run tauri build
 ```
 
+### Schnellhilfe („CTXRemote Hilfe“)
+
+Portable EXE ohne Installation, Einstellungen und Tray, mit der sich ein PC einmalig fernsteuern lässt. Die Serveradresse wird beim Bauen eingebaut:
+
+```powershell
+cd app
+$env:CTXREMOTE_QUICK_SERVER = "remote.example.org:21300"; npm run build:quick
+# Ergebnis: target\release\CTXRemote-Hilfe.exe
+```
+
+Eingehende Verbindungen müssen dort immer per „Zulassen“ bestätigt werden; beim Schließen des Fensters endet die App samt Sitzung.
+
 In der App unter **Einstellungen → Server** die Serveradresse eintragen. Firewall: TCP 21300 eingehend auf dem Server.
 
 ## Plattformen

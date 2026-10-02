@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(feature = "quick")]
+mod quick;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -11,9 +14,13 @@ use ctxremote_core::proto::DeviceId;
 use ctxremote_core::viewer::{ViewerEvent, ViewerSession};
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
+#[cfg(not(feature = "quick"))]
 use tauri::menu::{Menu, MenuItem};
+#[cfg(not(feature = "quick"))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+};
 
 struct AppState {
     config: Arc<RwLock<Config>>,
@@ -34,6 +41,8 @@ struct Viewer {
 struct Link {
     channel: Option<Channel<InvokeResponseBody>>,
     closed: Option<Option<String>>,
+    /// Keeps the clipboard watcher alive for the session's lifetime.
+    clipboard: Option<ctxremote_core::clipboard::ClipboardSync>,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -201,10 +210,15 @@ async fn connect(
                     let _ = channel.send(InvokeResponseBody::Raw(video_packet(&frame)));
                 }
             }
-            ViewerEvent::Clipboard(_) => {}
+            ViewerEvent::Clipboard(text) => {
+                if let Some(clipboard) = &link.lock().unwrap().clipboard {
+                    clipboard.apply(text);
+                }
+            }
             ViewerEvent::Closed(reason) => {
                 {
                     let mut link = link.lock().unwrap();
+                    link.clipboard = None;
                     if let Some(channel) = &link.channel {
                         let _ = channel.send(InvokeResponseBody::Raw(closed_packet(&reason)));
                     }
@@ -219,6 +233,12 @@ async fn connect(
     let session = ViewerSession::connect(&server, own_id, target, &password, on_event)
         .await
         .map_err(|e| format!("{e:#}"))?;
+    link.lock().unwrap().clipboard = {
+        let outbox = session.sender();
+        ctxremote_core::clipboard::ClipboardSync::start(true, move |text| {
+            let _ = outbox.send(ViewerMsg::Clipboard(text));
+        })
+    };
     let label = {
         let mut config = state.config.write().unwrap();
         config.remember(target, &session.host.hostname);
@@ -293,6 +313,16 @@ fn request_keyframe(state: State<AppState>, session: u32) {
 }
 
 #[tauri::command]
+fn lock_screen(state: State<AppState>, session: u32) {
+    with_viewer(&state, session, |s| s.send(ViewerMsg::LockScreen));
+}
+
+#[tauri::command]
+fn send_sas(state: State<AppState>, session: u32) {
+    with_viewer(&state, session, |s| s.send(ViewerMsg::SecureAttention));
+}
+
+#[tauri::command]
 fn disconnect(state: State<AppState>, session: u32) {
     // Dropping the session sends `Bye`.
     state.viewers.lock().unwrap().remove(&session);
@@ -311,6 +341,67 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+/// Registers the commands; `$extra` adds build-specific ones.
+macro_rules! handlers {
+    ($($extra:path),*) => {
+        tauri::generate_handler![
+            overview,
+            refresh_password,
+            save_settings,
+            forget_peer,
+            set_alias,
+            connect,
+            attach,
+            send_input,
+            select_display,
+            request_keyframe,
+            send_sas,
+            lock_screen,
+            disconnect,
+            end_hosted_session,
+            $($extra),*
+        ]
+    };
+}
+
+fn on_run_event(_app: &AppHandle, event: RunEvent) {
+    #[cfg(feature = "quick")]
+    if let RunEvent::Exit = event {
+        quick::cleanup();
+    }
+    #[cfg(not(feature = "quick"))]
+    let _ = event;
+}
+
+#[cfg(not(feature = "quick"))]
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "CTXRemote öffnen", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Beenden", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    TrayIconBuilder::with_id("main")
+        .icon(app.default_window_icon().cloned().expect("bundle has an icon"))
+        .tooltip("CTXRemote")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -319,15 +410,32 @@ fn main() {
         )
         .init();
 
+    #[cfg(feature = "quick")]
+    quick::pin_config();
+
+    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
     // A separate config is a separate profile (e.g. a second device for testing on one PC).
+    #[cfg(not(feature = "quick"))]
     if std::env::var_os("CTXREMOTE_CONFIG").is_none() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)));
     }
+    #[cfg(feature = "quick")]
+    let commands: fn(tauri::ipc::Invoke) -> bool = handlers![quick::answer_approval];
+    #[cfg(not(feature = "quick"))]
+    let commands: fn(tauri::ipc::Invoke) -> bool = handlers![];
+    #[cfg(feature = "quick")]
+    let builder = builder.manage(quick::Approvals::default());
+
     builder
         .setup(|app| {
+            #[cfg(feature = "quick")]
+            let config = Arc::new(RwLock::new(quick::load_config()?));
+            #[cfg(not(feature = "quick"))]
             let config = Arc::new(RwLock::new(Config::load()?));
             let host = tauri::async_runtime::block_on(async { Host::start(config.clone()) });
+            #[cfg(feature = "quick")]
+            host.require_approval(quick::approver(app.handle().clone()));
 
             let handle = app.handle().clone();
             let mut presence = host.presence();
@@ -366,40 +474,27 @@ fn main() {
                 next_viewer: AtomicU32::new(1),
             });
 
-            let open = MenuItem::with_id(app, "open", "CTXRemote öffnen", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Beenden", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
-            TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().cloned().expect("bundle has an icon"))
-                .tooltip("CTXRemote")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "open" => show_main(app),
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        show_main(tray.app_handle());
-                    }
-                })
-                .build(app)?;
+            #[cfg(not(feature = "quick"))]
+            build_tray(app)?;
 
             show_main(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the main window keeps the device reachable from the tray.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
-                    api.prevent_close();
-                    let _ = window.hide();
+                    // Quick: closing the window ends the app and any running session.
+                    #[cfg(feature = "quick")]
+                    {
+                        let _ = api;
+                        window.app_handle().exit(0);
+                    }
+                    // Closing the main window keeps the device reachable from the tray.
+                    #[cfg(not(feature = "quick"))]
+                    {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
                 }
             }
             if let WindowEvent::Destroyed = event {
@@ -408,20 +503,8 @@ fn main() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![
-            overview,
-            refresh_password,
-            save_settings,
-            forget_peer,
-            set_alias,
-            connect,
-            attach,
-            send_input,
-            select_display,
-            request_keyframe,
-            disconnect,
-            end_hosted_session,
-        ])
-        .run(tauri::generate_context!())
-        .expect("CTXRemote konnte nicht gestartet werden");
+        .invoke_handler(commands)
+        .build(tauri::generate_context!())
+        .expect("CTXRemote konnte nicht gestartet werden")
+        .run(on_run_event);
 }
