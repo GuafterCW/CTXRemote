@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = ["crates/proto", "crates/server", "crates/core", "app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+authors = ["Philipp Ecker"]
+
+[workspace.dependencies]
+ctxremote-proto = { path = "crates/proto" }
+ctxremote-core = { path = "crates/core" }
+
+anyhow = "1"
+thiserror = "2"
+bytes = "1"
+futures = "0.3"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["use-std"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+spake2 = "0.4"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+hex = "0.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# The encoder and pixel conversion are unusable without optimisation.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.ctxremote-core]
+opt-level = 3

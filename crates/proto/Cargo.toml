@@ -1,0 +1,22 @@
+[package]
+name = "ctxremote-proto"
+description = "Wire protocol, framing and session crypto for CTXRemote"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+futures.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+serde.workspace = true
+postcard.workspace = true
+rand.workspace = true
+spake2.workspace = true
+chacha20poly1305.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+ed25519-dalek.workspace = true

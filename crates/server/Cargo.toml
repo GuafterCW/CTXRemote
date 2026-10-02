@@ -1,0 +1,18 @@
+[package]
+name = "ctxremote-server"
+description = "Self-hosted rendezvous and relay server for CTXRemote"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ctxremote-proto.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rand.workspace = true
+hex.workspace = true
