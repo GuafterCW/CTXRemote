@@ -7,6 +7,9 @@
 //!   control channel. The server pushes [`ServerMsg::Incoming`] on it.
 //! * [`ClientMsg::Connect`]: a viewer asks to reach a device.
 //! * [`ClientMsg::Join`]: a host accepts an [`ServerMsg::Incoming`] session.
+//! * [`ClientMsg::UpdateCheck`] / [`ClientMsg::UpdateDownload`]: asks for the
+//!   newest client release (see [`crate::update`]). Servers from before this
+//!   existed close the connection, which clients take as "no update".
 //!
 //! After both sides of a session receive [`ServerMsg::Ready`] the server
 //! becomes a transparent byte relay. Clients must not send anything between
@@ -28,6 +31,12 @@ pub enum ServerMsg {
     Ready,
     Pong,
     Error(ServerError),
+    /// Answer to `UpdateCheck`: the newest release for that platform, if any.
+    Update(Option<crate::update::UpdateInfo>),
+    /// Part of the installer requested with `UpdateDownload`.
+    UpdateData(Vec<u8>),
+    /// The installer is complete.
+    UpdateEnd,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +50,9 @@ pub enum ClientMsg {
     Connect { target: DeviceId },
     Join { session: SessionId },
     Ping,
+    UpdateCheck { platform: String },
+    /// Fetches the release announced for `platform`, if it is still `version`.
+    UpdateDownload { platform: String, version: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
@@ -55,6 +67,8 @@ pub enum ServerError {
     Version,
     #[error("Zu viele Anfragen, bitte kurz warten")]
     RateLimited,
+    #[error("Dieses Update ist auf dem Server nicht mehr vorhanden")]
+    UpdateGone,
 }
 
 fn register_payload(nonce: &Nonce) -> Vec<u8> {

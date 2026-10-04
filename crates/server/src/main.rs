@@ -3,9 +3,15 @@
 //!
 //! ```text
 //! ctxremote-server [--listen 0.0.0.0:21300] [--data ./data]
+//! ctxremote-server update-keygen
+//! ctxremote-server update-sign --platform P --version V --file F --out DIR [--notes TEXT]
 //! ```
+//!
+//! Client releases placed in `<data>/updates` (by `update-sign`) are handed
+//! out to clients that ask; see `docs/DEPLOY.md`.
 
 mod registry;
+mod updates;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -32,12 +38,16 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(20);
 /// Clients ping every 15 s; three missed pings drop the device.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 const CONNECTS_PER_MINUTE: u32 = 30;
+/// Installer downloads served at once; each holds a file open.
+const PARALLEL_DOWNLOADS: usize = 8;
 
 struct Server {
     registry: Mutex<Registry>,
     online: Mutex<HashMap<DeviceId, mpsc::Sender<ServerMsg>>>,
     pending: Mutex<HashMap<SessionId, oneshot::Sender<Transport>>>,
     rate: Mutex<HashMap<IpAddr, (Instant, u32)>>,
+    updates: updates::Store,
+    downloads: tokio::sync::Semaphore,
 }
 
 #[tokio::main]
@@ -48,15 +58,22 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    let mut args = std::env::args().skip(1).peekable();
+    match args.peek().map(String::as_str) {
+        Some("update-keygen") => return updates::keygen(),
+        Some("update-sign") => return updates::sign(args.skip(1).collect()),
+        _ => {}
+    }
     let mut listen: SocketAddr = ([0, 0, 0, 0], DEFAULT_PORT).into();
     let mut data = PathBuf::from("data");
-    let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--listen" => listen = args.next().context("--listen braucht eine Adresse")?.parse()?,
             "--data" => data = args.next().context("--data braucht einen Pfad")?.into(),
             "-h" | "--help" => {
                 println!("ctxremote-server [--listen 0.0.0.0:{DEFAULT_PORT}] [--data ./data]");
+                println!("ctxremote-server update-keygen");
+                println!("ctxremote-server update-sign --platform P --version V --file F --out DIR [--notes TEXT]");
                 return Ok(());
             }
             other => bail!("unbekanntes Argument: {other}"),
@@ -68,6 +85,8 @@ async fn main() -> Result<()> {
         online: Mutex::default(),
         pending: Mutex::default(),
         rate: Mutex::default(),
+        updates: updates::Store::new(data.join("updates")),
+        downloads: tokio::sync::Semaphore::new(PARALLEL_DOWNLOADS),
     });
 
     let listener = TcpListener::bind(listen).await?;
@@ -115,6 +134,21 @@ impl Server {
                 Ok(())
             }
             ClientMsg::Ping => Ok(()),
+            ClientMsg::UpdateCheck { platform } => {
+                let info = self.updates.latest(&platform);
+                framing::send(&mut t, &ServerMsg::Update(info)).await
+            }
+            ClientMsg::UpdateDownload { platform, version } => {
+                if !self.allow_connect(peer.ip()) {
+                    framing::send(&mut t, &ServerMsg::Error(ServerError::RateLimited)).await?;
+                    return Ok(());
+                }
+                let Ok(_slot) = self.downloads.try_acquire() else {
+                    framing::send(&mut t, &ServerMsg::Error(ServerError::RateLimited)).await?;
+                    return Ok(());
+                };
+                self.updates.send(&mut t, &platform, &version).await
+            }
         }
     }
 

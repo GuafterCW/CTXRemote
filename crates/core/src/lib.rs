@@ -16,6 +16,7 @@ pub mod keymap;
 mod net;
 pub mod sas;
 pub mod ui_link;
+pub mod update;
 pub mod viewer;
 
 pub use ctxremote_proto as proto;

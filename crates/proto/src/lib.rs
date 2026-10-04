@@ -9,6 +9,7 @@ pub mod framing;
 pub mod rendezvous;
 pub mod secure;
 pub mod session;
+pub mod update;
 
 use std::fmt;
 use std::str::FromStr;

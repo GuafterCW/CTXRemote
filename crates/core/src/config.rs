@@ -72,7 +72,8 @@ const MAX_ALIAS_LEN: usize = 40;
 impl Default for Config {
     fn default() -> Self {
         Self {
-            server: format!("localhost:{DEFAULT_PORT}"),
+            // Release builds point at the project's server (see docs/DEPLOY.md).
+            server: option_env!("CTXREMOTE_DEFAULT_SERVER").map_or(format!("localhost:{DEFAULT_PORT}"), str::to_string),
             device_id: None,
             device_key: hex::encode(SigningKey::generate(&mut rand::rngs::OsRng).to_bytes()),
             permanent_password: None,
