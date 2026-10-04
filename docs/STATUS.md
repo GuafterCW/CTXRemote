@@ -131,10 +131,16 @@ Weitere Roadmap: Remote-Mauszeiger, Adressbuch auf dem Server.
 
 ## Ideen für später
 
-- **Schönerer Installer:** Der NSIS-Assistent von Tauri sieht noch im Originalzustand nach Windows XP aus.
-  - Geplant ist Weg 1: eigene Seiten- und Kopfbilder im App-Stil, ein eigenes Setup-Symbol, deutsche Texte und so wenige Seiten wie möglich. Dafür gibt es die Tauri-Optionen `bundle.windows.nsis` (`sidebarImage`, `headerImage`, `installerIcon`, `languages`).
-  - Weg 2 wäre ein eigenes Setup-Fenster im App-Design, das NSIS still im Hintergrund ausführt. Das lohnt sich erst bei Verteilung an andere.
-  - Da Updates still laufen, sieht man den Installer pro Gerät nur einmal.
+- **Eigenes Setup-Fenster (vom Nutzer gewählt: Weg 2):** Der NSIS-Assistent von Tauri sieht im Originalzustand nach Windows XP aus. Statt ihn nur mit Bildern aufzuhübschen (Weg 1, verworfen) soll ein eigenes Setup-Programm im App-Design entstehen:
+  - **Aussehen:** Logo, Text, ein Knopf „Installieren“ und ein Fortschrittsbalken, wie bei Discord oder Spotify. Gestaltung nach den Regeln unten.
+  - **Technik (Vorschlag):**
+    - eine kleine eigene Rust-Anwendung (Tauri-Fenster oder natives Fenster), die den NSIS-Installer eingebettet mitbringt
+    - sie startet diesen per UAC mit `/S` unsichtbar und zeigt den Fortschritt an
+    - Abschlussseite mit „CTXRemote starten“
+  - **Pipeline:** `release.yml` baut das Setup-Programm zusätzlich und legt es als Artefakt ab, z. B. `CTXRemote-Setup.exe`. Für automatische Updates bleibt der NSIS-Installer zuständig, sie laufen ja still.
+  - **Offen:**
+    - Fortschrittsanzeige: NSIS meldet keinen Fortschritt nach außen. Entweder Zwischenschritte schätzen oder die Dateien selbst kopieren statt NSIS zu nutzen.
+    - Deinstallation über „Apps & Features“ muss weiter funktionieren.
 
 ## Bekannte Kompromisse
 
