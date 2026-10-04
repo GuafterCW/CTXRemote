@@ -5,3 +5,4 @@ app/dist
 app/src-tauri/gen
 *.json.tmp
 app/src-tauri/binaries
+app/src-tauri/tauri.version.json

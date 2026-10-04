@@ -228,6 +228,7 @@ Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb je
   - Signieren, Ausliefern über mehrere Blöcke, falscher Schlüssel, getauschte Datei und zurückgezogenes Release (`crates/server/tests/updates.rs`)
   - `deploy/remote-deploy.sh` mit nachgebildetem systemd, inklusive Rückfall auf die vorige Version, wenn der neue Server nicht startet
   - der statische musl-Build
+- Auf GitHub: ein Probelauf des Workflows auf dem Arbeitsbranch, ohne Auslieferung. Version, Server und Client waren grün, Installer und Server lagen als Artefakte vor. Den Schritt Schnellhilfe hat der Lauf übersprungen, weil die Variable fehlte. Lokal baut er mit derselben Konfiguration.
 - **Nicht getestet**:
   - der echte Workflow-Lauf, der erst nach der Einrichtung möglich ist
   - die stille Installation durch den Dienst auf Windows
