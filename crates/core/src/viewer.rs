@@ -137,7 +137,9 @@ impl ViewerSession {
                             }
                         });
                     }
-                    // The host's last message on the relay; the rest comes directly.
+                    // The host's answer to our `Switch` and its last message on the
+                    // relay; the rest comes directly. The connection was confirmed
+                    // before we switched, so its reading half is waiting already.
                     Ok(Some(HostMsg::Switch)) => {
                         let Some(wait) = direct.take() else {
                             break Some("Unerwarteter Verbindungswechsel".into());

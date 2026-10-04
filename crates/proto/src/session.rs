@@ -255,4 +255,3 @@ pub enum InputEvent {
     /// Releases every key and button the viewer may still hold, e.g. on focus loss.
     ReleaseAll,
 }
-

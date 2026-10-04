@@ -333,8 +333,9 @@ impl ScreenSource for InProcess {
 
 /// How long a vanished screen side may take to come back before the session ends.
 const SCREEN_RETURN: Duration = Duration::from_secs(60);
-/// How long the host waits for a direct connection the viewer says it opened.
-const SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the host waits for a direct connection the viewer says it opened;
+/// it confirmed the connection already, so this is only the hand-over.
+const SWITCH_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// What a session needs to know about the viewer and the ways to reach it.
 struct Route {
@@ -345,7 +346,7 @@ struct Route {
 }
 
 /// Moves the sending side onto the direct connection: `Switch` is the last
-/// message on the relay. Returns the reading half for when the viewer follows.
+/// message on the relay. Returns the reading half.
 async fn switch_sender(tx: &mut SecureSender, t: Transport) -> Result<TransportStream> {
     use futures::StreamExt as _;
     let (sink, stream) = t.split();
@@ -372,10 +373,9 @@ async fn run_session(
         }
     };
 
-    // The direct route on offer, and its reading half once we switched to it.
+    // The direct route on offer until the viewer switches to it.
     let mut offer: Option<Offer> = None;
     let mut offered = false;
-    let mut direct_stream: Option<TransportStream> = None;
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -413,28 +413,19 @@ async fn run_session(
                         }
                     },
                 },
-                connection = async { (&mut offer.as_mut().expect("guarded").connection).await }, if offer.is_some() => {
-                    offer = None;
-                    if let Ok(t) = connection {
-                        direct_stream = Some(switch_sender(&mut tx, t).await?);
-                        info!("Sitzung wechselt auf die Direktverbindung");
-                    }
-                }
                 msg = rx.recv::<ViewerMsg>() => match msg? {
                     Some(ViewerMsg::Bye) | None => return Ok(()),
-                    // The viewer's last message on the relay; the rest comes directly.
+                    // The viewer's last message on the relay. Only the viewer starts
+                    // the switch, once it has our confirmation: had we switched on
+                    // our own, a viewer that gave up waiting would lose the session.
+                    // Its direct connection is with us by now, or a moment later.
                     Some(ViewerMsg::Switch) => {
-                        let stream = match direct_stream.take() {
-                            Some(stream) => stream,
-                            None => {
-                                let mut pending = offer.take().context("Wechsel ohne Angebot")?;
-                                let t = timeout(SWITCH_TIMEOUT, &mut pending.connection)
-                                    .await
-                                    .context("Direktverbindung kam nicht an")?
-                                    .context("Direktverbindung kam nicht an")?;
-                                switch_sender(&mut tx, t).await?
-                            }
-                        };
+                        let mut pending = offer.take().context("Wechsel ohne Angebot")?;
+                        let t = timeout(SWITCH_TIMEOUT, &mut pending.connection)
+                            .await
+                            .context("Direktverbindung kam nicht an")?
+                            .context("Direktverbindung kam nicht an")?;
+                        let stream = switch_sender(&mut tx, t).await?;
                         drop(rx.reroute(stream));
                         info!("Sitzung läuft direkt");
                     }

@@ -25,10 +25,12 @@ use tracing::{debug, info, warn};
 /// Default TCP port of the direct listener, next to the server's 21300.
 pub const DEFAULT_PORT: u16 = 21301;
 
-const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
+const HELLO_TIMEOUT: Duration = Duration::from_secs(3);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(3);
-/// Unauthenticated connections waiting for their hello at once.
+/// Unauthenticated connections waiting for their hello at once, in total and
+/// per source address, so one machine cannot block everyone else.
 const MAX_PENDING: usize = 16;
+const MAX_PENDING_PER_IP: usize = 4;
 
 type Waiting = Mutex<HashMap<[u8; 32], oneshot::Sender<Transport>>>;
 
@@ -73,8 +75,9 @@ impl DirectListener {
         info!(port, "Direktverbindungen möglich");
         let waiting: Arc<Waiting> = Arc::default();
         let gate = Arc::new(Semaphore::new(MAX_PENDING));
+        let per_ip: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::default();
         for listener in listeners {
-            tokio::spawn(accept_loop(listener, waiting.clone(), gate.clone()));
+            tokio::spawn(accept_loop(listener, waiting.clone(), gate.clone(), per_ip.clone()));
         }
         Some(Arc::new(Self { port, waiting, extra }))
     }
@@ -110,7 +113,12 @@ fn bind(addr: SocketAddr) -> Result<TcpListener> {
     Ok(TcpListener::from_std(socket.into())?)
 }
 
-async fn accept_loop(listener: TcpListener, waiting: Arc<Waiting>, gate: Arc<Semaphore>) {
+async fn accept_loop(
+    listener: TcpListener,
+    waiting: Arc<Waiting>,
+    gate: Arc<Semaphore>,
+    per_ip: Arc<Mutex<HashMap<IpAddr, usize>>>,
+) {
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(accepted) => accepted,
@@ -120,13 +128,38 @@ async fn accept_loop(listener: TcpListener, waiting: Arc<Waiting>, gate: Arc<Sem
                 continue;
             }
         };
-        // Beyond the limit, new connections are dropped until a slot frees up.
-        let Ok(permit) = gate.clone().try_acquire_owned() else { continue };
+        // Beyond the limits, new connections are dropped until a slot frees up.
+        let ip = peer.ip();
+        {
+            let mut counts = per_ip.lock().unwrap();
+            let count = counts.entry(ip).or_default();
+            if *count >= MAX_PENDING_PER_IP {
+                continue;
+            }
+            *count += 1;
+        }
+        let release = {
+            let per_ip = per_ip.clone();
+            move || {
+                let mut counts = per_ip.lock().unwrap();
+                if let Some(count) = counts.get_mut(&ip) {
+                    *count -= 1;
+                    if *count == 0 {
+                        counts.remove(&ip);
+                    }
+                }
+            }
+        };
+        let Ok(permit) = gate.clone().try_acquire_owned() else {
+            release();
+            continue;
+        };
         let waiting = waiting.clone();
         tokio::spawn(async move {
             if let Err(e) = admit(stream, &waiting).await {
                 debug!(%peer, "Direktverbindung abgelehnt: {e:#}");
             }
+            release();
             drop(permit);
         });
     }

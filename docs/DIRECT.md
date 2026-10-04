@@ -9,16 +9,20 @@ Stand: 4. Oktober 2026. Der Code liegt in `crates/core/src/direct.rs`, die Sitzu
    - `addrs` enthält die Adresse der Netzwerkkarte Richtung Server, eine öffentliche IPv6-Adresse (falls vorhanden) und die Einträge aus `direct_addresses`.
    - `token` ist ein zufälliges Einmal-Token aus 32 Bytes.
 3. Der Viewer probiert bis zu 8 Adressen gleichzeitig, jeweils mit 3 s Zeitlimit. Er sendet ein Klartext-`DirectHello { token }`, der Host antwortet mit demselben Token. Erst nach dieser Bestätigung gilt die Verbindung, damit ein anderes Gerät unter derselben LAN-Adresse nichts durcheinanderbringt.
-4. Beide Seiten senden `Switch` als **letzte** Nachricht über den Relay, schließen ihn und senden ab dann direkt. Gelesen wird der Relay bis zum `Switch` der Gegenseite, danach die Direktverbindung. Die Schlüssel und Nonce-Zähler laufen einfach weiter (`SecureSender::reroute`, `SecureReceiver::reroute`). Die Direktverbindung ist deshalb genauso vertraulich wie der Relay.
+4. Erst nach dieser Bestätigung sendet der Viewer `Switch` als **letzte** Nachricht über den Relay und sendet ab dann direkt.
+   - Der Host antwortet mit seinem eigenen `Switch` über den Relay und folgt ebenfalls.
+   - Gelesen wird der Relay jeweils bis zum `Switch` der Gegenseite, danach die Direktverbindung.
+   - Die Schlüssel und Nonce-Zähler laufen einfach weiter (`SecureSender::reroute`, `SecureReceiver::reroute`). Die Direktverbindung ist deshalb genauso vertraulich wie der Relay.
+   - Den Wechsel startet bewusst nur der Viewer. Gibt er kurz vor der Bestätigung auf, bleibt die Sitzung auf dem Relay, statt abzubrechen.
 5. Klappt keine Adresse, bleibt die Sitzung ohne Meldung auf dem Relay.
 
 Der Server bleibt unverändert und muss nicht aktualisiert werden.
 
 ## Sicherheit des Listeners
 
-- Läuft im Dienstmodus als SYSTEM und ist aus dem Netz erreichbar. Ein Fremder darf genau einen Frame von höchstens 256 Bytes senden, mit 5 s Zeitlimit. Höchstens 16 solcher Verbindungen sind gleichzeitig offen, alle weiteren werden sofort geschlossen.
+- Läuft im Dienstmodus als SYSTEM und ist aus dem Netz erreichbar. Ein Fremder darf genau einen Frame von höchstens 256 Bytes senden, mit 3 s Zeitlimit. Offen sind gleichzeitig höchstens 16 solcher Verbindungen und höchstens 4 je Quelladresse, alle weiteren werden sofort geschlossen.
 - Das Token kommt nur innerhalb der verschlüsselten Sitzung zum Viewer, gilt einmal und verfällt mit dem Ende der Sitzung (`Drop for Offer`).
-- Wer das `DirectHello` im LAN mitliest, kann die Verbindung höchstens stören (Sitzungsabbruch). Mitlesen oder eigene Eingaben einschleusen kann er nicht, weil alle Sitzungsdaten verschlüsselt und authentifiziert sind.
+- Wer das `DirectHello` im LAN mitliest und das Token zuerst einlöst, verhindert nur die Direktverbindung, denn der echte Viewer bekommt dann keine Bestätigung und bleibt auf dem Relay. Mitlesen oder eigene Eingaben einschleusen kann er nicht, weil alle Sitzungsdaten verschlüsselt und authentifiziert sind.
 
 ## Einstellungen (`config.json` bzw. `C:\ProgramData\CTXRemote\host.json`)
 
@@ -28,7 +32,7 @@ Der Server bleibt unverändert und muss nicht aktualisiert werden.
 | `direct_port` | `21301` | Port des Listeners. Für Direktverbindungen aus dem Internet am Router weiterleiten. |
 | `direct_addresses` | `[]` | Zusätzliche Adressen im Format `host:port`, z. B. `["meinhaus.dyndns.org:21301"]` bei Portweiterleitung |
 
-Eine Oberfläche für diese Felder gibt es noch nicht. `ctxremote-service --install` legt die Windows-Firewall-Regel „CTXRemote Direktverbindung“ für den Dienst an, `--uninstall` entfernt sie. Ohne Dienst fragt Windows beim ersten Start nach der Firewall-Freigabe.
+Eine Oberfläche für diese Felder gibt es noch nicht. Die Firewall-Regel entsteht nur bei `--install`, nach einer Änderung von `direct_port` den Dienst also neu installieren. `ctxremote-service --install` legt die Windows-Firewall-Regel „CTXRemote Direktverbindung“ für den Dienst an, `--uninstall` entfernt sie. Ohne Dienst fragt Windows beim ersten Start nach der Firewall-Freigabe.
 
 ## Fähigkeiten-Aushandlung (`Features`)
 
