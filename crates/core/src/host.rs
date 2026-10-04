@@ -10,7 +10,7 @@ use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, ServerMsg, SessionId};
 use ctxremote_proto::framing::Transport;
 use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender, TransportStream};
-use ctxremote_proto::session::{Features, HostMsg, ViewerMsg};
+use ctxremote_proto::session::{Features, HostMsg, ViewerMsg, MAX_CHAT};
 use ctxremote_proto::DeviceId;
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -44,16 +44,27 @@ pub enum Presence {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum HostEvent {
-    SessionStarted { session: u64, peer: String },
+    /// `chat`: the viewer can receive chat messages.
+    SessionStarted { session: u64, peer: String, chat: bool },
     SessionEnded { session: u64 },
     PasswordChanged,
+    /// A chat message from the viewer of `session`.
+    Chat { session: u64, text: String },
+}
+
+/// A running session as the rest of the host sees it.
+struct SessionHandle {
+    peer: String,
+    stop: Arc<Notify>,
+    /// Chat messages to the viewer; `None` if the viewer has no chat.
+    chat: Option<mpsc::UnboundedSender<String>>,
 }
 
 struct Shared {
     config: Arc<RwLock<Config>>,
     password: Mutex<String>,
     failures: Mutex<(u32, Option<Instant>)>,
-    sessions: Mutex<HashMap<u64, (String, Arc<Notify>)>>,
+    sessions: Mutex<HashMap<u64, SessionHandle>>,
     next_session: AtomicU64,
     presence: watch::Sender<Presence>,
     events: broadcast::Sender<HostEvent>,
@@ -147,15 +158,32 @@ impl Host {
     }
 
     pub fn end_session(&self, session: u64) {
-        if let Some((_, stop)) = self.shared.sessions.lock().unwrap().get(&session) {
-            stop.notify_one();
+        if let Some(handle) = self.shared.sessions.lock().unwrap().get(&session) {
+            handle.stop.notify_one();
         }
+    }
+
+    /// Sends a chat message to the viewer of `session`.
+    pub fn send_chat(&self, session: u64, text: &str) -> Result<(), String> {
+        let text = chat_text(text).ok_or("Leere Nachricht")?;
+        let sessions = self.shared.sessions.lock().unwrap();
+        let handle = sessions.get(&session).ok_or("Die Sitzung ist beendet")?;
+        let chat = handle.chat.as_ref().ok_or("Die Gegenstelle hat eine ältere Version ohne Chat")?;
+        chat.send(text).map_err(|_| "Die Sitzung ist beendet".to_string())
+    }
+
+    /// Sessions whose viewer can receive chat messages.
+    pub fn chat_sessions(&self) -> Vec<u64> {
+        let sessions = self.shared.sessions.lock().unwrap();
+        let mut list: Vec<u64> = sessions.iter().filter(|(_, h)| h.chat.is_some()).map(|(n, _)| *n).collect();
+        list.sort_unstable();
+        list
     }
 
     /// Sessions currently controlling this device, with the viewer's name.
     pub fn sessions(&self) -> Vec<(u64, String)> {
         let sessions = self.shared.sessions.lock().unwrap();
-        let mut list: Vec<_> = sessions.iter().map(|(n, (peer, _))| (*n, peer.clone())).collect();
+        let mut list: Vec<_> = sessions.iter().map(|(n, h)| (*n, h.peer.clone())).collect();
         list.sort_unstable_by_key(|(n, _)| *n);
         list
     }
@@ -298,11 +326,17 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
 
     let number = shared.next_session.fetch_add(1, Ordering::Relaxed);
     let stop = Arc::new(Notify::new());
-    shared.sessions.lock().unwrap().insert(number, (peer.clone(), stop.clone()));
-    let _ = shared.events.send(HostEvent::SessionStarted { session: number, peer: peer.clone() });
+    let (chat, chat_out) = mpsc::unbounded_channel::<String>();
+    let chat = features.has(Features::CHAT).then_some(chat);
+    let can_chat = chat.is_some();
+    shared.sessions.lock().unwrap().insert(number, SessionHandle { peer: peer.clone(), stop: stop.clone(), chat });
+    let _ = shared.events.send(HostEvent::SessionStarted { session: number, peer: peer.clone(), chat: can_chat });
     info!(%peer, "Sitzung gestartet");
 
     let route = Route {
+        number,
+        events: shared.events.clone(),
+        chat: chat_out,
         features,
         direct: shared.direct.lock().unwrap().clone(),
         server: shared.config.read().unwrap().server_addr(),
@@ -318,6 +352,20 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     }
     info!(%peer, "Sitzung beendet");
     result
+}
+
+/// A chat message as it goes out or is shown: trimmed, not empty, at most
+/// [`MAX_CHAT`] bytes (cut at a character boundary).
+pub fn chat_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let mut end = text.len().min(MAX_CHAT);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    Some(text[..end].to_string())
 }
 
 fn locked_out(shared: &Shared) -> bool {
@@ -375,6 +423,11 @@ const SWITCH_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// What a session needs to know about the viewer and the ways to reach it.
 struct Route {
+    /// The session's number, for chat events.
+    number: u64,
+    events: broadcast::Sender<HostEvent>,
+    /// Chat messages typed at the host, to send to the viewer.
+    chat: mpsc::UnboundedReceiver<String>,
     /// What the viewer understands; newer messages only go to viewers that do.
     features: Features,
     direct: Option<Arc<DirectListener>>,
@@ -398,7 +451,7 @@ async fn run_session(
     mut rx: SecureReceiver,
     stop: Arc<Notify>,
     screen: &dyn ScreenSource,
-    route: Route,
+    mut route: Route,
 ) -> Result<()> {
     let (mut to_agent, mut from_agent) = match screen.open().await {
         Ok(channels) => channels,
@@ -449,8 +502,14 @@ async fn run_session(
                         }
                     },
                 },
+                Some(text) = route.chat.recv() => tx.send(&HostMsg::Chat(text)).await?,
                 msg = rx.recv::<ViewerMsg>() => match msg? {
                     Some(ViewerMsg::Bye) | None => return Ok(()),
+                    Some(ViewerMsg::Chat(text)) => {
+                        if let Some(text) = chat_text(&text) {
+                            let _ = route.events.send(HostEvent::Chat { session: route.number, text });
+                        }
+                    }
                     // The viewer's last message on the relay. Only the viewer starts
                     // the switch, once it has our confirmation: had we switched on
                     // our own, a viewer that gave up waiting would lose the session.

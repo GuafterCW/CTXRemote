@@ -52,6 +52,17 @@ impl Side {
             Side::Service(service) => service.send(UiRequest::EndSession(session)),
         }
     }
+
+    fn send_chat(&self, session: u64, text: String) -> Result<(), String> {
+        match self {
+            Side::Local(host) => host.send_chat(session, &text),
+            #[cfg(not(feature = "quick"))]
+            Side::Service(service) => {
+                service.send(UiRequest::Chat { session, text });
+                Ok(())
+            }
+        }
+    }
 }
 
 struct Viewer {
@@ -140,12 +151,14 @@ struct PeerView {
 struct Hosted {
     session: u64,
     peer: String,
+    /// The viewer can receive chat messages.
+    chat: bool,
 }
 
 #[tauri::command]
 fn overview(state: State<AppState>) -> Overview {
     let config = state.config.read().unwrap();
-    let (presence, password, server, unattended, sessions, service, direct, direct_active) = match &state.host {
+    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat) = match &state.host {
         Side::Local(host) => (
             host.presence().borrow().clone(),
             host.password(),
@@ -155,11 +168,12 @@ fn overview(state: State<AppState>) -> Overview {
             false,
             config.direct_settings(),
             host.direct_active(),
+            host.chat_sessions(),
         ),
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => {
             let s = service.state();
-            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active)
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions)
         }
     };
     Overview {
@@ -181,7 +195,10 @@ fn overview(state: State<AppState>) -> Overview {
                 last_seen: p.last_seen,
             })
             .collect(),
-        hosted: sessions.into_iter().map(|(session, peer)| Hosted { session, peer }).collect(),
+        hosted: sessions
+            .into_iter()
+            .map(|(session, peer)| Hosted { session, peer, chat: chat.contains(&session) })
+            .collect(),
         version: env!("CARGO_PKG_VERSION"),
     }
 }
@@ -315,6 +332,9 @@ async fn connect(
                 }
                 link.cursor = Some(packet);
             }
+            ViewerEvent::Chat(text) => {
+                let _ = app.emit_to(format!("session-{number}"), "chat", text);
+            }
             ViewerEvent::Direct(addr) => {
                 link.lock().unwrap().direct = Some(addr.clone());
                 let _ = app.emit_to(format!("session-{number}"), "route", addr);
@@ -390,12 +410,18 @@ struct Features {
     files: bool,
     restart: bool,
     quality: bool,
+    chat: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
     fn from(f: ctxremote_core::proto::session::Features) -> Self {
         use ctxremote_core::proto::session::Features as F;
-        Self { files: f.has(F::FILES), restart: f.has(F::RESTART), quality: f.has(F::QUALITY) }
+        Self {
+            files: f.has(F::FILES),
+            restart: f.has(F::RESTART),
+            quality: f.has(F::QUALITY),
+            chat: f.has(F::CHAT),
+        }
     }
 }
 
@@ -456,6 +482,20 @@ fn request_keyframe(state: State<AppState>, session: u32) {
 #[tauri::command]
 fn lock_screen(state: State<AppState>, session: u32) {
     with_viewer(&state, session, |s| s.send(ViewerMsg::LockScreen));
+}
+
+/// Chat from this viewer to the host of `session`.
+#[tauri::command]
+fn send_chat(state: State<AppState>, session: u32, text: String) -> CmdResult<()> {
+    let text = ctxremote_core::host::chat_text(&text).ok_or("Leere Nachricht")?;
+    with_viewer(&state, session, |s| s.send(ViewerMsg::Chat(text)));
+    Ok(())
+}
+
+/// Chat from the person at this device to the viewer of a hosted session.
+#[tauri::command]
+fn host_chat(state: State<AppState>, session: u64, text: String) -> CmdResult<()> {
+    state.host.send_chat(session, text)
 }
 
 #[tauri::command]
@@ -656,6 +696,8 @@ macro_rules! handlers {
             send_sas,
             lock_screen,
             restart_host,
+            send_chat,
+            host_chat,
             set_quality,
             disconnect,
             end_hosted_session,
@@ -739,7 +781,7 @@ fn forward_local_events(app: &AppHandle, host: &Host) {
         loop {
             match events.recv().await {
                 Ok(event) => {
-                    if matches!(event, ctxremote_core::host::HostEvent::SessionStarted { .. }) {
+                    if matches!(event, ctxremote_core::host::HostEvent::SessionStarted { .. } | ctxremote_core::host::HostEvent::Chat { .. }) {
                         show_main(&handle);
                     }
                     let _ = handle.emit("host-event", event);

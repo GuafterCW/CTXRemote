@@ -182,3 +182,42 @@ async fn without_listener_the_session_stays_on_the_relay() {
     .await
     .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn chat_goes_both_ways() {
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+    let mut host_events = host.events();
+    let (session, events) = connect(&addr, &host, id).await;
+
+    let number = loop {
+        match tokio::time::timeout(Duration::from_secs(5), host_events.recv()).await.unwrap().unwrap() {
+            ctxremote_core::host::HostEvent::SessionStarted { session, chat, .. } => {
+                assert!(chat, "a current viewer can chat");
+                break session;
+            }
+            _ => continue,
+        }
+    };
+    session.send(ViewerMsg::Chat("  Hallo vom Viewer  ".into()));
+    let text = loop {
+        match tokio::time::timeout(Duration::from_secs(5), host_events.recv()).await.unwrap().unwrap() {
+            ctxremote_core::host::HostEvent::Chat { session, text } if session == number => break text,
+            _ => continue,
+        }
+    };
+    assert_eq!(text, "Hallo vom Viewer");
+
+    host.send_chat(number, "Antwort vom Host").unwrap();
+    assert!(host.send_chat(number, "   ").is_err());
+    tokio::task::spawn_blocking(move || {
+        let got = wait_for(&events, |e| match e {
+            ViewerEvent::Chat(t) => Some(t),
+            _ => None,
+        });
+        assert_eq!(got.as_deref(), Some("Antwort vom Host"));
+        drop(session);
+    })
+    .await
+    .unwrap();
+}

@@ -22,6 +22,9 @@ pub struct ServiceState {
     pub direct: DirectSettings,
     /// The listener for direct connections runs.
     pub direct_active: bool,
+    /// Sessions whose viewer can receive chat messages.
+    #[serde(default)]
+    pub chat_sessions: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +36,8 @@ pub enum UiRequest {
     /// As [`crate::config::Config::apply_direct`]; elevated administrators only.
     /// Appended last: the JSON enum is matched by name, but keep the order anyway.
     ConfigureDirect(DirectSettings),
+    /// A chat message to the viewer of a session; any signed-in user, like `EndSession`.
+    Chat { session: u64, text: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,6 +168,7 @@ mod imp {
             server: config.server.clone(),
             unattended: config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
             sessions: host.sessions(),
+            chat_sessions: host.chat_sessions(),
             direct: config.direct_settings(),
             direct_active: host.direct_active(),
         }
@@ -194,6 +200,12 @@ mod imp {
                     match request {
                         UiRequest::RefreshPassword => { host.refresh_password(); continue; }
                         UiRequest::EndSession(session) => { host.end_session(session); continue; }
+                        UiRequest::Chat { session, text } => {
+                            if let Err(e) = host.send_chat(session, &text) {
+                                tracing::debug!("Chat nicht zugestellt: {e}");
+                            }
+                            continue;
+                        }
                         UiRequest::Configure { server, permanent_password } => {
                             let answer = if is_elevated_admin(HANDLE(handle as _)) {
                                 configure(&host, &config, &server, permanent_password.as_deref())

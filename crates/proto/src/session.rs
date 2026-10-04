@@ -29,7 +29,12 @@ pub enum HostMsg {
     DirectOffer { addrs: Vec<String>, token: [u8; 32] },
     /// Last message on the old route; everything after it comes over the direct one.
     Switch,
+    /// A chat message from the person at the host.
+    Chat(String),
 }
+
+/// Longest chat message in bytes; longer ones are cut by the sender.
+pub const MAX_CHAT: usize = 4000;
 
 /// What a peer understands beyond the first protocol version, as bits.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,9 +46,10 @@ impl Features {
     pub const RESTART: u32 = 1 << 2;
     pub const QUALITY: u32 = 1 << 3;
     pub const DIRECT: u32 = 1 << 4;
+    pub const CHAT: u32 = 1 << 5;
 
     /// Everything this build supports.
-    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT);
+    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT);
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
 
@@ -101,6 +107,8 @@ pub enum ViewerMsg {
     SetQuality(Quality),
     /// Last message on the old route; everything after it goes over the direct one.
     Switch,
+    /// A chat message from the person at the viewer.
+    Chat(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

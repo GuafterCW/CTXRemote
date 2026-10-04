@@ -31,6 +31,7 @@ impl Service {
             sessions: Vec::new(),
             direct: DirectSettings { enabled: false, port: 0, addresses: Vec::new() },
             direct_active: false,
+            chat_sessions: Vec::new(),
         });
         let service = Arc::new(Service { link: Mutex::new(None), state });
         match tokio::time::timeout(Duration::from_secs(2), establish(service.clone(), app.clone()))
@@ -87,7 +88,7 @@ fn establish(
                     service.state.send_replace(state);
                 }
                 Some(UiEvent::Host(event)) => {
-                    if matches!(event, HostEvent::SessionStarted { .. }) {
+                    if matches!(event, HostEvent::SessionStarted { .. } | HostEvent::Chat { .. }) {
                         crate::show_main(&app);
                     }
                     let _ = app.emit("host-event", event);

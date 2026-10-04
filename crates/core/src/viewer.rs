@@ -33,6 +33,8 @@ pub enum ViewerEvent {
     Transfer(TransferEvent),
     /// The session now runs over a direct connection to this address.
     Direct(String),
+    /// A chat message from the person at the host.
+    Chat(String),
     /// The session ended; carries the reason if it was not the viewer's choice.
     Closed(Option<String>),
 }
@@ -88,6 +90,7 @@ impl ViewerSession {
                             ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => features.has(Features::FILES),
                             ViewerMsg::Restart => features.has(Features::RESTART),
                             ViewerMsg::SetQuality(_) => features.has(Features::QUALITY),
+                            ViewerMsg::Chat(_) => features.has(Features::CHAT),
                             _ => true,
                         };
                         if !supported {
@@ -157,6 +160,11 @@ impl ViewerSession {
                     Ok(Some(HostMsg::Clipboard(text))) => on_event(ViewerEvent::Clipboard(text)),
                     Ok(Some(HostMsg::Bye(reason))) => break Some(reason),
                     Ok(Some(HostMsg::Cursor(shape))) => on_event(ViewerEvent::Cursor(shape)),
+                    Ok(Some(HostMsg::Chat(text))) => {
+                        if let Some(text) = crate::host::chat_text(&text) {
+                            on_event(ViewerEvent::Chat(text));
+                        }
+                    }
                     Ok(Some(HostMsg::FileReply { req, result })) => router.reply(req, result),
                     Ok(Some(HostMsg::Transfer { id, msg })) => router.transfer(id, msg),
                     Ok(Some(HostMsg::TransferAck { id, bytes })) => router.ack(id, bytes),
