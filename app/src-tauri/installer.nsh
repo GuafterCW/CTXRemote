@@ -21,7 +21,7 @@
   Pop $0
   ; /SD: a silent update has nobody to click the box away.
   ${If} $0 != 0
-    MessageBox MB_OK|MB_ICONEXCLAMATION /SD IDOK "Der CTXRemote-Dienst konnte nicht eingerichtet werden (Fehlercode $0).$\r$\nDie Installation wurde abgeschlossen. Den Dienst können Sie später als Administrator mit $\"ctxremote-service.exe --install$\" einrichten."
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Der CTXRemote-Dienst konnte nicht eingerichtet werden (Fehlercode $0).$\r$\nDie Installation wurde abgeschlossen. Den Dienst können Sie später als Administrator mit $\"ctxremote-service.exe --install$\" einrichten." /SD IDOK
   ${EndIf}
 !macroend
 

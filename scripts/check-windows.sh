@@ -37,3 +37,29 @@ cd "$root"
 cargo check --target x86_64-pc-windows-msvc -p ctxremote-core -p ctxremote-service -p ctxremote "$@"
 CTXREMOTE_QUICK_SERVER=check.invalid:21300 \
   cargo check --target x86_64-pc-windows-msvc -p ctxremote --features quick "$@"
+
+# The installer hooks only get compiled when the Windows installer is built, so
+# check them here with makensis (apt install nsis) if it is available.
+if command -v makensis >/dev/null; then
+  nsis_dir="$root/target/nsis-check"
+  mkdir -p "$nsis_dir"
+  cat > "$nsis_dir/check.nsi" <<NSI
+Unicode true
+!include "LogicLib.nsh"
+!define MAINBINARYNAME "ctxremote"
+!include "$root/app/src-tauri/installer.nsh"
+OutFile "$nsis_dir/check.exe"
+InstallDir "\$TEMP\\ctxremote-check"
+Section Install
+  !insertmacro NSIS_HOOK_PREINSTALL
+  !insertmacro NSIS_HOOK_POSTINSTALL
+  WriteUninstaller "\$INSTDIR\\uninstall.exe"
+SectionEnd
+Section Uninstall
+  !insertmacro NSIS_HOOK_PREUNINSTALL
+SectionEnd
+NSI
+  makensis -V1 "$nsis_dir/check.nsi" && echo "Installer-Hooks: ok"
+else
+  echo "Hinweis: makensis fehlt (apt install nsis), Installer-Hooks nicht geprüft."
+fi

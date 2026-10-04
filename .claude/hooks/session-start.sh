@@ -32,3 +32,6 @@ rustup target add x86_64-pc-windows-msvc >/dev/null 2>&1 || true
 
 # Download all crates now, so the first build does not wait for the network.
 cargo fetch --locked >/dev/null 2>&1 || cargo fetch >/dev/null
+
+# makensis checks the installer hooks in scripts/check-windows.sh.
+command -v makensis >/dev/null || (SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo -n"; DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -q nsis >/dev/null 2>&1 || true)
