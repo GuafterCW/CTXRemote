@@ -129,6 +129,13 @@ Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 
 Weitere Roadmap: Remote-Mauszeiger, Adressbuch auf dem Server.
 
+## Ideen für später
+
+- **Schönerer Installer:** Der NSIS-Assistent von Tauri sieht noch im Originalzustand nach Windows XP aus.
+  - Geplant ist Weg 1: eigene Seiten- und Kopfbilder im App-Stil, ein eigenes Setup-Symbol, deutsche Texte und so wenige Seiten wie möglich. Dafür gibt es die Tauri-Optionen `bundle.windows.nsis` (`sidebarImage`, `headerImage`, `installerIcon`, `languages`).
+  - Weg 2 wäre ein eigenes Setup-Fenster im App-Design, das NSIS still im Hintergrund ausführt. Das lohnt sich erst bei Verteilung an andere.
+  - Da Updates still laufen, sieht man den Installer pro Gerät nur einmal.
+
 ## Bekannte Kompromisse
 
 - Das feste Passwort liegt im Klartext, weil SPAKE2 das Passwort selbst braucht. Mit Dienst steht es in `C:\ProgramData\CTXRemote\host.json`, lesbar nur für SYSTEM und Administratoren. Ohne Dienst steht es in der Benutzerkonfiguration. Möglich wäre später DPAPI mit Maschinenbindung.
