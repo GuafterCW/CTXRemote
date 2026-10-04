@@ -527,8 +527,15 @@ struct TransferUpdate {
 }
 
 /// Opens (or focuses) the file transfer window of a session.
+///
+/// Async on purpose: building a window inside a synchronous command blocks the
+/// main thread on Windows, so the new window stays white and the app freezes.
 #[tauri::command]
-fn open_files(app: AppHandle, state: State<AppState>, session: u32) -> CmdResult<()> {
+async fn open_files(app: AppHandle, state: State<'_, AppState>, session: u32) -> CmdResult<()> {
+    show_files_window(&app, &state, session)
+}
+
+fn show_files_window(app: &AppHandle, state: &AppState, session: u32) -> CmdResult<()> {
     let label = format!("files-{session}");
     if let Some(window) = app.get_webview_window(&label) {
         let _ = window.unminimize();
@@ -545,7 +552,7 @@ fn open_files(app: AppHandle, state: State<AppState>, session: u32) -> CmdResult
             .map_or(viewer.session.host.hostname.clone(), |p| p.label().to_string());
         format!("Dateien · {name}")
     };
-    WebviewWindowBuilder::new(&app, label, WebviewUrl::App(format!("index.html#/files/{session}").into()))
+    WebviewWindowBuilder::new(app, label, WebviewUrl::App(format!("index.html#/files/{session}").into()))
         .title(title)
         .inner_size(1040.0, 640.0)
         .min_inner_size(760.0, 420.0)
@@ -556,10 +563,11 @@ fn open_files(app: AppHandle, state: State<AppState>, session: u32) -> CmdResult
 
 /// Files dropped on the session window: the file window uploads them, so their
 /// progress shows there. It picks them up with `take_drops` when it opens or is told.
+/// Async for the same reason as `open_files`.
 #[tauri::command]
-fn queue_drop(app: AppHandle, state: State<AppState>, session: u32, paths: Vec<String>) -> CmdResult<()> {
+async fn queue_drop(app: AppHandle, state: State<'_, AppState>, session: u32, paths: Vec<String>) -> CmdResult<()> {
     state.drops.lock().unwrap().entry(session).or_default().extend(paths);
-    open_files(app.clone(), state, session)?;
+    show_files_window(&app, &state, session)?;
     let _ = app.emit_to(format!("files-{session}"), "files-drop", session);
     Ok(())
 }

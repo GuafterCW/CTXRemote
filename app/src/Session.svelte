@@ -22,6 +22,9 @@
   let keysOpen = $state(false);
   let qualityOpen = $state(false);
   let quality = $state<Quality>("Balanced");
+  /** "fit" never enlarges a smaller remote screen; "fill" scales it to the window. */
+  let scaleMode = $state<"fit" | "fill">(loadScaleMode());
+  let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
   let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false });
@@ -36,6 +39,10 @@
   let fullscreen = $state(false);
 
   const appWindow = getCurrentWindow();
+  const SCALES: ["fit" | "fill", string, string][] = [
+    ["fit", "Nicht vergrößern", "kleinere Bildschirme in Originalgröße"],
+    ["fill", "Fenster füllen", "immer auf Fenstergröße skalieren"],
+  ];
   const QUALITIES: [Quality, string, string][] = [
     ["Speed", "Schnell", "für langsame Verbindungen"],
     ["Balanced", "Ausgewogen", "Standard"],
@@ -59,6 +66,9 @@
       const view = new DataView(buffer);
       const kind = view.getUint8(0);
       if (kind === 1) {
+        const width = view.getUint32(4, true);
+        const height = view.getUint32(8, true);
+        if (width !== video.width || height !== video.height) video = { width, height };
         player.push(view.getUint8(1) === 1, view.getUint32(4, true), view.getUint32(8, true), new Uint8Array(buffer, 12));
       } else if (kind === 3) {
         showCursor(view.getUint32(4, true), view.getUint32(8, true), buffer);
@@ -241,6 +251,25 @@
     keysOpen = false;
   }
 
+  function loadScaleMode(): "fit" | "fill" {
+    try {
+      return localStorage.getItem("ctxremote.scale") === "fill" ? "fill" : "fit";
+    } catch {
+      return "fit";
+    }
+  }
+
+  function chooseScale(mode: "fit" | "fill") {
+    scaleMode = mode;
+    try {
+      localStorage.setItem("ctxremote.scale", mode);
+    } catch {
+      // Not remembered, but still applied.
+    }
+    qualityOpen = false;
+    canvas?.focus();
+  }
+
   function chooseQuality(value: Quality) {
     quality = value;
     api.setQuality(session, value);
@@ -295,6 +324,8 @@
     bind:this={canvas}
     class:live={streaming}
     style:cursor={streaming ? cursor : "default"}
+    style:max-width={scaleMode === "fit" && video.width ? `${video.width / devicePixelRatio}px` : null}
+    style:max-height={scaleMode === "fit" && video.height ? `${video.height / devicePixelRatio}px` : null}
     tabindex="-1"
     onpointermove={onMove}
     onmousedown={(e) => onButton(e, true)}
@@ -384,30 +415,37 @@
           </div>
         {/if}
       </div>
-      {#if features.quality}
-        <div class="menu-anchor">
-          <button
-            class="tool"
-            title="Bildqualität"
-            onclick={() => {
-              qualityOpen = !qualityOpen;
-              keysOpen = false;
-            }}
-          >
-            <Icon name="sliders" size={17} />
-          </button>
-          {#if qualityOpen}
-            <div class="menu" role="menu">
+      <div class="menu-anchor">
+        <button
+          class="tool"
+          title="Bild"
+          onclick={() => {
+            qualityOpen = !qualityOpen;
+            keysOpen = false;
+          }}
+        >
+          <Icon name="sliders" size={17} />
+        </button>
+        {#if qualityOpen}
+          <div class="menu" role="menu">
+            {#if features.quality}
               {#each QUALITIES as [value, title, hint] (value)}
                 <button role="menuitemradio" aria-checked={quality === value} onclick={() => chooseQuality(value)}>
                   <span class="mark">{#if quality === value}<Icon name="check" size={14} />{/if}</span>
                   <span class="label">{title}<small>{hint}</small></span>
                 </button>
               {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
+              <div class="menu-sep"></div>
+            {/if}
+            {#each SCALES as [value, title, hint] (value)}
+              <button role="menuitemradio" aria-checked={scaleMode === value} onclick={() => chooseScale(value)}>
+                <span class="mark">{#if scaleMode === value}<Icon name="check" size={14} />{/if}</span>
+                <span class="label">{title}<small>{hint}</small></span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
       {#if features.chat}
         <button class="tool chat-tool" class:active={chatOpen} title="Chat" onclick={toggleChat}>
           <Icon name="chat" size={17} />

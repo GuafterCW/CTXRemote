@@ -81,6 +81,17 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
   - Release-Builds haben die Serveradresse eingebaut.
   - **Vor der ersten Nutzung** müssen Server, Secrets und Variablen eingerichtet werden (Abschnitt „Einrichtung Schritt für Schritt“).
 
+### Erster Test durch den Nutzer (4. Oktober, abends)
+
+- **Funktioniert:**
+  - Auslieferung per Pipeline
+  - Direktverbindung („Direkt verbunden über 10.10.0.11:21301“)
+  - Chat
+- **Behoben:**
+  - Das Dateifenster blieb weiß, und die App fror ein. Ursache war, dass `open_files` und `queue_drop` synchron ein Fenster gebaut haben, was unter Windows den Hauptthread blockiert. Beide sind jetzt `async`.
+  - Ein vergrößertes Sitzungsfenster hat kleinere Fernbildschirme riesig hochskaliert. Jetzt wird standardmäßig nicht mehr vergrößert, umschaltbar im Menü „Bild“ (Schieberegler-Symbol).
+- **Offen:** Ob die Auflösung des fernen Geräts der Fenstergröße folgen soll (dynamische Auflösung wie bei RDP), ist noch nicht entschieden. Dafür müsste der Host seine Bildschirmauflösung ändern.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
