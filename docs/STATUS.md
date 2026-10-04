@@ -85,7 +85,7 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
 
 - **Funktioniert:**
   - Auslieferung per Pipeline
-  - Direktverbindung („Direkt verbunden über 10.10.0.11:21301“)
+  - Direktverbindung („Direkt verbunden über 10.10.0.11:…“)
   - Chat
 - **Behoben:**
   - Das Dateifenster blieb weiß, und die App fror ein. Ursache war, dass `open_files` und `queue_drop` synchron ein Fenster gebaut haben, was unter Windows den Hauptthread blockiert. Beide sind jetzt `async`.
