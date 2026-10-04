@@ -10,8 +10,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use ctxremote_core::config::Config;
+use ctxremote_core::files::client::{FileClient, TransferEvent};
+use ctxremote_core::files::{self, UserContext};
 use ctxremote_core::host::{Host, Presence};
-use ctxremote_core::proto::session::{HostInfo, InputEvent, VideoFrame, ViewerMsg};
+use ctxremote_core::proto::session::{HostInfo, InputEvent, Listing, VideoFrame, ViewerMsg};
 use ctxremote_core::proto::DeviceId;
 #[cfg(not(feature = "quick"))]
 use ctxremote_core::ui_link::UiRequest;
@@ -251,6 +253,9 @@ async fn connect(
                     let _ = channel.send(InvokeResponseBody::Raw(video_packet(&frame)));
                 }
             }
+            ViewerEvent::Transfer(event) => {
+                let _ = app.emit("transfer", TransferUpdate { session: number, event });
+            }
             ViewerEvent::Clipboard(text) => {
                 if let Some(clipboard) = &link.lock().unwrap().clipboard {
                     clipboard.apply(text);
@@ -363,6 +368,137 @@ fn send_sas(state: State<AppState>, session: u32) {
     with_viewer(&state, session, |s| s.send(ViewerMsg::SecureAttention));
 }
 
+/// A transfer event for the file window of `session`.
+#[derive(Serialize, Clone)]
+struct TransferUpdate {
+    session: u32,
+    #[serde(flatten)]
+    event: TransferEvent,
+}
+
+/// Opens (or focuses) the file transfer window of a session.
+#[tauri::command]
+fn open_files(app: AppHandle, state: State<AppState>, session: u32) -> CmdResult<()> {
+    let label = format!("files-{session}");
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.unminimize();
+        return window.set_focus().map_err(err);
+    }
+    let title = {
+        let viewers = state.viewers.lock().unwrap();
+        let viewer = viewers.get(&session).ok_or("Die Sitzung ist bereits beendet")?;
+        let name = state
+            .config
+            .read()
+            .unwrap()
+            .peer(viewer.target)
+            .map_or(viewer.session.host.hostname.clone(), |p| p.label().to_string());
+        format!("Dateien · {name}")
+    };
+    WebviewWindowBuilder::new(&app, label, WebviewUrl::App(format!("index.html#/files/{session}").into()))
+        .title(title)
+        .inner_size(1040.0, 640.0)
+        .min_inner_size(760.0, 420.0)
+        .build()
+        .map_err(err)?;
+    Ok(())
+}
+
+fn file_client(state: &AppState, session: u32) -> CmdResult<Arc<FileClient>> {
+    let viewers = state.viewers.lock().unwrap();
+    let viewer = viewers.get(&session).ok_or("Die Sitzung ist beendet")?;
+    Ok(viewer.session.files().clone())
+}
+
+fn chain(e: anyhow::Error) -> String {
+    format!("{e:#}")
+}
+
+#[tauri::command]
+async fn remote_list(state: State<'_, AppState>, session: u32, path: String) -> CmdResult<Listing> {
+    file_client(&state, session)?.list(path).await.map_err(chain)
+}
+
+#[tauri::command]
+async fn remote_create_dir(state: State<'_, AppState>, session: u32, path: String) -> CmdResult<()> {
+    file_client(&state, session)?.create_dir(path).await.map_err(chain)
+}
+
+#[tauri::command]
+async fn remote_rename(state: State<'_, AppState>, session: u32, path: String, name: String) -> CmdResult<()> {
+    file_client(&state, session)?.rename(path, name).await.map_err(chain)
+}
+
+#[tauri::command]
+async fn remote_delete(state: State<'_, AppState>, session: u32, paths: Vec<String>) -> CmdResult<()> {
+    file_client(&state, session)?.delete(paths).await.map_err(chain)
+}
+
+/// Sends a local file or folder into the host's folder `dir`; returns the transfer id.
+#[tauri::command]
+async fn upload(state: State<'_, AppState>, session: u32, path: String, dir: String) -> CmdResult<u32> {
+    file_client(&state, session)?.upload(path.into(), dir).await.map_err(chain)
+}
+
+/// Fetches the host's file or folder `path` into the local folder `dir`.
+#[tauri::command]
+async fn download(state: State<'_, AppState>, session: u32, path: String, dir: String) -> CmdResult<u32> {
+    file_client(&state, session)?.download(path, dir.into()).await.map_err(chain)
+}
+
+#[tauri::command]
+fn cancel_transfer(state: State<AppState>, session: u32, id: u32) {
+    if let Ok(files) = file_client(&state, session) {
+        files.cancel(id);
+    }
+}
+
+/// Runs local file work off the UI thread.
+async fn local<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(err)?.map_err(chain)
+}
+
+#[tauri::command]
+async fn local_list(path: String) -> CmdResult<Listing> {
+    local(move || files::list(&path, &UserContext::current())).await
+}
+
+#[tauri::command]
+async fn local_create_dir(path: String) -> CmdResult<()> {
+    local(move || files::create_dir(&path)).await
+}
+
+#[tauri::command]
+async fn local_rename(path: String, name: String) -> CmdResult<()> {
+    local(move || files::rename(&path, &name)).await
+}
+
+#[tauri::command]
+async fn local_delete(paths: Vec<String>) -> CmdResult<()> {
+    local(move || files::delete(&paths)).await
+}
+
+/// Where the local pane starts: the user's downloads, or the top level.
+#[tauri::command]
+fn local_home() -> String {
+    files::client::default_download_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// Shows a local file or folder in the system's file manager.
+#[tauri::command]
+fn reveal(path: String) -> CmdResult<()> {
+    #[cfg(windows)]
+    let result = std::process::Command::new("explorer").arg(format!("/select,{path}")).spawn();
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = {
+        let dir = std::path::Path::new(&path).parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        std::process::Command::new("xdg-open").arg(dir).spawn()
+    };
+    result.map(|_| ()).map_err(err)
+}
+
 #[tauri::command]
 fn disconnect(state: State<AppState>, session: u32) {
     // Dropping the session sends `Bye`.
@@ -400,6 +536,20 @@ macro_rules! handlers {
             lock_screen,
             disconnect,
             end_hosted_session,
+            open_files,
+            remote_list,
+            remote_create_dir,
+            remote_rename,
+            remote_delete,
+            upload,
+            download,
+            cancel_transfer,
+            local_list,
+            local_create_dir,
+            local_rename,
+            local_delete,
+            local_home,
+            reveal,
             $($extra),*
         ]
     };

@@ -38,6 +38,7 @@ features = [
     "Win32_Security_Authentication_Identity",
     "Win32_Security_Authorization",
     "Win32_System_Pipes",
+    "Win32_System_Com",
     "Win32_System_RemoteDesktop",
     "Win32_Storage_FileSystem",
     "Win32_System_Services",
@@ -48,6 +49,7 @@ features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
 ]
 
 [dev-dependencies]

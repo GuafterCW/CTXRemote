@@ -15,6 +15,7 @@ use tracing::{debug, warn};
 use crate::capture::{self, Capturer};
 use crate::clipboard::ClipboardSync;
 use crate::encoder::{pack_bgra, VideoEncoder};
+use crate::files::service::FileService;
 use crate::input::Injector;
 
 const FPS: f32 = 30.0;
@@ -67,6 +68,8 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
             let _ = clip_tx.send(text);
         })
     };
+    // Started on the first file request; most sessions never need it.
+    let mut files: Option<FileService> = None;
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -90,6 +93,12 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                             clipboard.apply(text);
                         }
                     }
+                    Some(msg @ (ViewerMsg::File { .. } | ViewerMsg::Transfer { .. })) => {
+                        if files.is_none() {
+                            files = Some(FileService::start(outbox.clone())?);
+                        }
+                        files.as_ref().expect("started above").handle(msg);
+                    }
                     Some(ViewerMsg::LockScreen) => {
                         if let Err(e) = crate::sas::lock() {
                             warn!("Sperren fehlgeschlagen: {e:#}");
@@ -105,6 +114,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     .await;
 
     injector.release_all();
+    drop(files);
     drop(clipboard);
     drop(clip_tx);
     drop(commands);

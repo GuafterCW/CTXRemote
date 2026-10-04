@@ -1,0 +1,644 @@
+//! The viewer side: requests to the host's file browser and running transfers.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::mpsc as std_mpsc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+use anyhow::{anyhow, bail, Result};
+use ctxremote_proto::session::{FileOp, FileReply, Listing, Transfer, ViewerMsg};
+use serde::Serialize;
+use tokio::sync::{mpsc, oneshot};
+
+use super::{Incoming, Outgoing, WINDOW};
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
+/// An upload waiting this long for an acknowledgement gives up.
+const ACK_TIMEOUT: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TransferEvent {
+    Progress { id: u32, done: u64, total: u64 },
+    /// `path` is where a download landed locally; uploads report `None`.
+    Finished { id: u32, path: Option<String> },
+    Failed { id: u32, message: String },
+}
+
+type EventSink = Arc<dyn Fn(TransferEvent) + Send + Sync>;
+
+struct Upload {
+    /// Bytes acknowledged by the host.
+    acked: Mutex<u64>,
+    wake: Condvar,
+    stopped: AtomicBool,
+    total: u64,
+    reported: Mutex<Instant>,
+}
+
+impl Upload {
+    fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        self.wake.notify_all();
+    }
+}
+
+/// Lives as long as the session; dropped transfers clean up after themselves.
+pub struct FileClient {
+    outbox: mpsc::UnboundedSender<ViewerMsg>,
+    next: AtomicU32,
+    pending: Mutex<HashMap<u32, oneshot::Sender<Result<FileReply, String>>>>,
+    uploads: Mutex<HashMap<u32, Arc<Upload>>>,
+    downloads: Mutex<HashMap<u32, std_mpsc::Sender<Transfer>>>,
+    events: EventSink,
+}
+
+impl FileClient {
+    pub fn new(outbox: mpsc::UnboundedSender<ViewerMsg>, events: EventSink) -> Arc<Self> {
+        Arc::new(Self {
+            outbox,
+            next: AtomicU32::new(1),
+            pending: Mutex::default(),
+            uploads: Mutex::default(),
+            downloads: Mutex::default(),
+            events,
+        })
+    }
+
+    fn number(&self) -> u32 {
+        self.next.fetch_add(1, Ordering::Relaxed)
+    }
+
+    async fn request(&self, op: FileOp) -> Result<FileReply> {
+        let req = self.number();
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().unwrap().insert(req, tx);
+        if self.outbox.send(ViewerMsg::File { req, op }).is_err() {
+            self.pending.lock().unwrap().remove(&req);
+            bail!("Die Sitzung ist beendet");
+        }
+        let reply = tokio::time::timeout(REQUEST_TIMEOUT, rx).await;
+        self.pending.lock().unwrap().remove(&req);
+        match reply {
+            Ok(Ok(reply)) => reply.map_err(|e| anyhow!(e)),
+            Ok(Err(_)) => bail!("Die Sitzung ist beendet"),
+            Err(_) => bail!("Die Gegenstelle antwortet nicht"),
+        }
+    }
+
+    async fn done(&self, op: FileOp) -> Result<()> {
+        match self.request(op).await? {
+            FileReply::Done => Ok(()),
+            FileReply::Listing(_) => bail!("Unerwartete Antwort"),
+        }
+    }
+
+    pub async fn list(&self, path: String) -> Result<Listing> {
+        match self.request(FileOp::List { path }).await? {
+            FileReply::Listing(listing) => Ok(listing),
+            FileReply::Done => bail!("Unerwartete Antwort"),
+        }
+    }
+
+    pub async fn create_dir(&self, path: String) -> Result<()> {
+        self.done(FileOp::CreateDir { path }).await
+    }
+
+    pub async fn rename(&self, path: String, name: String) -> Result<()> {
+        self.done(FileOp::Rename { path, name }).await
+    }
+
+    pub async fn delete(&self, paths: Vec<String>) -> Result<()> {
+        self.done(FileOp::Delete { paths }).await
+    }
+
+    /// Sends the local file or folder `local` into the host's folder `remote_dir`.
+    /// Progress and the outcome arrive as [`TransferEvent`]s under the returned id.
+    pub async fn upload(self: &Arc<Self>, local: PathBuf, remote_dir: String) -> Result<u32> {
+        let mut outgoing = tokio::task::spawn_blocking(move || Outgoing::open(&local)).await??;
+        let id = self.number();
+        let upload = Arc::new(Upload {
+            acked: Mutex::new(0),
+            wake: Condvar::new(),
+            stopped: AtomicBool::new(false),
+            total: outgoing.total(),
+            reported: Mutex::new(Instant::now()),
+        });
+        self.uploads.lock().unwrap().insert(id, upload.clone());
+        if let Err(e) = self.done(FileOp::Upload { id, dir: remote_dir }).await {
+            self.uploads.lock().unwrap().remove(&id);
+            return Err(e);
+        }
+        let this = self.clone();
+        std::thread::Builder::new().name("ctxremote-upload".into()).spawn(move || {
+            if let Err(e) = this.send_upload(id, &upload, &mut outgoing) {
+                if !upload.stopped.load(Ordering::SeqCst) {
+                    let _ = this.outbox.send(ViewerMsg::Transfer { id, msg: Transfer::Failed(format!("{e:#}")) });
+                    this.fail(id, format!("{e:#}"));
+                }
+            }
+        })?;
+        Ok(id)
+    }
+
+    fn send_upload(&self, id: u32, upload: &Upload, outgoing: &mut Outgoing) -> Result<()> {
+        let mut sent = 0u64;
+        while let Some(msg) = outgoing.next_msg()? {
+            if let Transfer::Data(data) = &msg {
+                sent += data.len() as u64;
+                // Keep at most a window unacknowledged, so memory and the
+                // connection's queue stay small however large the upload.
+                let mut acked = upload.acked.lock().unwrap();
+                let mut waited = Instant::now();
+                let mut last = *acked;
+                while sent.saturating_sub(*acked) > WINDOW && !upload.stopped.load(Ordering::SeqCst) {
+                    acked = upload.wake.wait_timeout(acked, Duration::from_millis(500)).unwrap().0;
+                    if *acked != last {
+                        last = *acked;
+                        waited = Instant::now();
+                    } else if waited.elapsed() > ACK_TIMEOUT {
+                        bail!("Die Gegenstelle bestätigt keine Daten mehr");
+                    }
+                }
+            }
+            if upload.stopped.load(Ordering::SeqCst) {
+                return Ok(());
+            }
+            self.outbox
+                .send(ViewerMsg::Transfer { id, msg })
+                .map_err(|_| anyhow!("Die Sitzung ist beendet"))?;
+        }
+        Ok(())
+    }
+
+    /// Fetches the host's file or folder `remote` into the local folder `local_dir`.
+    pub async fn download(self: &Arc<Self>, remote: String, local_dir: PathBuf) -> Result<u32> {
+        let incoming = Incoming::new(&local_dir)?;
+        let id = self.number();
+        let (tx, rx) = std_mpsc::channel();
+        self.downloads.lock().unwrap().insert(id, tx);
+        let this = self.clone();
+        std::thread::Builder::new()
+            .name("ctxremote-download".into())
+            .spawn(move || this.receive_download(id, incoming, rx))?;
+        if let Err(e) = self.done(FileOp::Download { id, path: remote }).await {
+            // Dropping the sender ends the thread without an event.
+            self.downloads.lock().unwrap().remove(&id);
+            return Err(e);
+        }
+        Ok(id)
+    }
+
+    fn receive_download(&self, id: u32, mut incoming: Incoming, rx: std_mpsc::Receiver<Transfer>) {
+        let mut reported = Instant::now();
+        loop {
+            let Ok(msg) = rx.recv() else {
+                // Cancelled or the session ended; dropping `incoming` removes the partial copy.
+                return;
+            };
+            // Messages still queued after a cancel are not applied.
+            if !self.downloads.lock().unwrap().contains_key(&id) {
+                return;
+            }
+            match incoming.apply(msg) {
+                Ok(true) => {
+                    if self.downloads.lock().unwrap().remove(&id).is_none() {
+                        // Cancelled while the last chunk was written: honour the cancel.
+                        if let Some(path) = incoming.finished() {
+                            let _ = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+                        }
+                        return;
+                    }
+                    self.progress(id, incoming.written(), incoming.total());
+                    let path = incoming.finished().map(|p| p.to_string_lossy().into_owned());
+                    (self.events)(TransferEvent::Finished { id, path });
+                    // Keeps the result: dropping a finished transfer removes nothing.
+                    return;
+                }
+                Ok(false) => {
+                    if reported.elapsed() >= PROGRESS_INTERVAL {
+                        reported = Instant::now();
+                        self.progress(id, incoming.written(), incoming.total());
+                    }
+                }
+                Err(e) => {
+                    if self.downloads.lock().unwrap().remove(&id).is_some() {
+                        let _ = self.outbox.send(ViewerMsg::Transfer { id, msg: Transfer::Cancel });
+                    }
+                    self.fail(id, format!("{e:#}"));
+                    return;
+                }
+            }
+        }
+    }
+
+    pub fn cancel(&self, id: u32) {
+        let upload = self.uploads.lock().unwrap().remove(&id);
+        let download = self.downloads.lock().unwrap().remove(&id);
+        if let Some(upload) = &upload {
+            upload.stop();
+        }
+        if upload.is_some() || download.is_some() {
+            let _ = self.outbox.send(ViewerMsg::Transfer { id, msg: Transfer::Cancel });
+            self.fail(id, "Abgebrochen".into());
+        }
+    }
+
+    /// Routes a reply from the host.
+    pub fn reply(&self, req: u32, result: Result<FileReply, String>) {
+        if let Some(tx) = self.pending.lock().unwrap().remove(&req) {
+            let _ = tx.send(result);
+        }
+    }
+
+    /// Routes a transfer message from the host: download content, or the
+    /// outcome of an upload.
+    pub fn transfer(&self, id: u32, msg: Transfer) {
+        if let Some(tx) = self.downloads.lock().unwrap().get(&id) {
+            let _ = tx.send(msg);
+            return;
+        }
+        let Some(upload) = self.uploads.lock().unwrap().remove(&id) else { return };
+        upload.stop();
+        match msg {
+            Transfer::End => {
+                self.progress(id, upload.total, upload.total);
+                (self.events)(TransferEvent::Finished { id, path: None });
+            }
+            Transfer::Failed(message) => self.fail(id, message),
+            _ => self.fail(id, "Unerwartete Antwort".into()),
+        }
+    }
+
+    /// Routes an upload acknowledgement from the host.
+    pub fn ack(&self, id: u32, bytes: u64) {
+        let Some(upload) = self.uploads.lock().unwrap().get(&id).cloned() else { return };
+        *upload.acked.lock().unwrap() = bytes;
+        upload.wake.notify_all();
+        let mut reported = upload.reported.lock().unwrap();
+        if reported.elapsed() >= PROGRESS_INTERVAL {
+            *reported = Instant::now();
+            self.progress(id, bytes, upload.total);
+        }
+    }
+
+    /// The session ended: every running transfer fails.
+    pub fn closed(&self) {
+        for (_, tx) in self.pending.lock().unwrap().drain() {
+            let _ = tx.send(Err("Die Sitzung ist beendet".into()));
+        }
+        let uploads: Vec<_> = self.uploads.lock().unwrap().drain().collect();
+        let downloads: Vec<_> = self.downloads.lock().unwrap().drain().map(|(id, _)| id).collect();
+        for (id, upload) in uploads {
+            upload.stop();
+            self.fail(id, "Verbindung getrennt".into());
+        }
+        for id in downloads {
+            self.fail(id, "Verbindung getrennt".into());
+        }
+    }
+
+    fn progress(&self, id: u32, done: u64, total: u64) {
+        (self.events)(TransferEvent::Progress { id, done, total });
+    }
+
+    fn fail(&self, id: u32, message: String) {
+        (self.events)(TransferEvent::Failed { id, message });
+    }
+}
+
+/// The local default target for downloads.
+pub fn default_download_dir() -> Option<PathBuf> {
+    super::UserContext::current().downloads()
+}
+
+#[cfg(test)]
+mod tests {
+    //! Host and viewer wired together through channels, no network.
+
+    use std::path::Path;
+
+    use ctxremote_proto::session::{EntryKind, HostMsg};
+
+    use super::super::service::FileService;
+    use super::*;
+
+    const WAIT: Duration = Duration::from_secs(30);
+
+    struct Rig {
+        client: Arc<FileClient>,
+        events: mpsc::UnboundedReceiver<TransferEvent>,
+        /// While set, upload acknowledgements from the host are dropped.
+        hold_acks: Arc<AtomicBool>,
+    }
+
+    fn rig() -> Rig {
+        let (viewer_tx, mut viewer_rx) = mpsc::unbounded_channel::<ViewerMsg>();
+        let (host_tx, mut host_rx) = mpsc::channel::<HostMsg>(2);
+        let (event_tx, events) = mpsc::unbounded_channel();
+        let client = FileClient::new(viewer_tx, Arc::new(move |e| drop(event_tx.send(e))));
+        let service = FileService::start(host_tx).unwrap();
+        tokio::spawn(async move {
+            while let Some(msg) = viewer_rx.recv().await {
+                service.handle(msg);
+            }
+        });
+        let hold_acks = Arc::new(AtomicBool::new(false));
+        let (route, hold) = (client.clone(), hold_acks.clone());
+        tokio::spawn(async move {
+            while let Some(msg) = host_rx.recv().await {
+                match msg {
+                    HostMsg::FileReply { req, result } => route.reply(req, result),
+                    HostMsg::Transfer { id, msg } => route.transfer(id, msg),
+                    HostMsg::TransferAck { id, bytes } => {
+                        if !hold.load(Ordering::SeqCst) {
+                            route.ack(id, bytes);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
+        Rig { client, events, hold_acks }
+    }
+
+    impl Rig {
+        /// The final event of transfer `id` (`Finished` or `Failed`).
+        async fn outcome(&mut self, id: u32) -> TransferEvent {
+            tokio::time::timeout(WAIT, async {
+                loop {
+                    match self.events.recv().await.expect("event channel closed") {
+                        TransferEvent::Progress { .. } => {}
+                        e @ (TransferEvent::Finished { id: i, .. } | TransferEvent::Failed { id: i, .. }) if i == id => {
+                            return e
+                        }
+                        _ => {}
+                    }
+                }
+            })
+            .await
+            .expect("timeout waiting for the end of the transfer")
+        }
+    }
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ctxremote-e2e-{label}-{}", rand::random::<u32>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn s(path: &Path) -> String {
+        path.to_str().unwrap().to_string()
+    }
+
+    fn pattern(len: usize, seed: usize) -> Vec<u8> {
+        (0..len).map(|i| ((i * 31 + seed) % 251) as u8).collect()
+    }
+
+    /// A tree with an empty folder, a nested file, a small and an empty file, and a file > 3 MiB.
+    fn make_tree(root: &Path) -> (PathBuf, Vec<u8>) {
+        let tree = root.join("Projekt");
+        std::fs::create_dir_all(tree.join("leer")).unwrap();
+        std::fs::create_dir_all(tree.join("sub/tief")).unwrap();
+        let big = pattern(3 * 1024 * 1024 + 12345, 7);
+        std::fs::write(tree.join("sub/big.bin"), &big).unwrap();
+        std::fs::write(tree.join("sub/tief/x.txt"), "tief").unwrap();
+        std::fs::write(tree.join("a.txt"), "hallo").unwrap();
+        std::fs::write(tree.join("null.txt"), "").unwrap();
+        (tree, big)
+    }
+
+    fn assert_tree(copy: &Path, big: &[u8]) {
+        assert_eq!(std::fs::read(copy.join("sub/big.bin")).unwrap(), big);
+        assert_eq!(std::fs::read_to_string(copy.join("sub/tief/x.txt")).unwrap(), "tief");
+        assert_eq!(std::fs::read_to_string(copy.join("a.txt")).unwrap(), "hallo");
+        assert_eq!(std::fs::read(copy.join("null.txt")).unwrap(), b"");
+        assert!(copy.join("leer").is_dir());
+        assert_eq!(std::fs::read_dir(copy.join("leer")).unwrap().count(), 0);
+    }
+
+    fn is_empty(dir: &Path) -> bool {
+        std::fs::read_dir(dir).unwrap().count() == 0
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lists_top_level_and_folders() {
+        let rig = rig();
+        let top = rig.client.list(String::new()).await.unwrap();
+        assert!(top.parent.is_none());
+        assert!(top.entries.iter().any(|e| e.kind == EntryKind::Drive));
+
+        let dir = temp_dir("list");
+        std::fs::create_dir(dir.join("Zeta")).unwrap();
+        std::fs::write(dir.join("alpha.txt"), "hello").unwrap();
+        let listing = rig.client.list(s(&dir)).await.unwrap();
+        let names: Vec<_> = listing.entries.iter().map(|e| (e.name.as_str(), e.kind, e.size)).collect();
+        assert_eq!(names, [("Zeta", EntryKind::Dir, 0), ("alpha.txt", EntryKind::File, 5)]);
+        assert_eq!(listing.parent.as_deref(), dir.parent().map(|p| p.to_str().unwrap()));
+
+        assert!(rig.client.list(s(&dir.join("gibt-es-nicht"))).await.is_err());
+        assert!(rig.client.list("relativ".into()).await.is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn create_rename_delete() {
+        let rig = rig();
+        let dir = temp_dir("ops");
+
+        rig.client.create_dir(s(&dir.join("a"))).await.unwrap();
+        assert!(dir.join("a").is_dir());
+        assert!(rig.client.create_dir(s(&dir.join("a"))).await.is_err(), "already exists");
+
+        rig.client.create_dir(s(&dir.join("b"))).await.unwrap();
+        assert!(rig.client.rename(s(&dir.join("a")), "b".into()).await.is_err());
+        assert!(dir.join("a").is_dir() && dir.join("b").is_dir());
+        assert!(rig.client.rename(s(&dir.join("a")), "../x".into()).await.is_err());
+
+        rig.client.rename(s(&dir.join("a")), "c".into()).await.unwrap();
+        assert!(!dir.join("a").exists() && dir.join("c").is_dir());
+
+        std::fs::write(dir.join("c/file.txt"), "x").unwrap();
+        std::fs::write(dir.join("single.txt"), "y").unwrap();
+        rig.client.delete(vec![s(&dir.join("c")), s(&dir.join("single.txt"))]).await.unwrap();
+        assert!(!dir.join("c").exists() && !dir.join("single.txt").exists());
+        assert!(dir.join("b").is_dir());
+        assert!(rig.client.delete(vec![s(&dir.join("weg"))]).await.is_err());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn uploads_a_tree_twice() {
+        let mut rig = rig();
+        let src = temp_dir("up-src");
+        let dst = temp_dir("up-dst");
+        let (tree, big) = make_tree(&src);
+
+        let id = rig.client.upload(tree.clone(), s(&dst)).await.unwrap();
+        match rig.outcome(id).await {
+            TransferEvent::Finished { path, .. } => assert_eq!(path, None),
+            e => panic!("unexpected {e:?}"),
+        }
+        assert_tree(&dst.join("Projekt"), &big);
+
+        let id = rig.client.upload(tree.clone(), s(&dst)).await.unwrap();
+        assert!(matches!(rig.outcome(id).await, TransferEvent::Finished { .. }));
+        assert_tree(&dst.join("Projekt (2)"), &big);
+
+        // A single file works, too.
+        let id = rig.client.upload(tree.join("a.txt"), s(&dst)).await.unwrap();
+        assert!(matches!(rig.outcome(id).await, TransferEvent::Finished { .. }));
+        assert_eq!(std::fs::read_to_string(dst.join("a.txt")).unwrap(), "hallo");
+
+        // No leftovers of temporary names.
+        let names: Vec<_> = std::fs::read_dir(&dst).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        assert!(names.iter().all(|n| !n.ends_with(".ctxpart")), "{names:?}");
+
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&dst).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn downloads_a_file_and_a_folder() {
+        let mut rig = rig();
+        let src = temp_dir("down-src");
+        let dst = temp_dir("down-dst");
+        let (tree, big) = make_tree(&src);
+
+        let id = rig.client.download(s(&tree.join("sub/big.bin")), dst.clone()).await.unwrap();
+        match rig.outcome(id).await {
+            TransferEvent::Finished { path, .. } => assert_eq!(path, Some(s(&dst.join("big.bin")))),
+            e => panic!("unexpected {e:?}"),
+        }
+        assert_eq!(std::fs::read(dst.join("big.bin")).unwrap(), big);
+
+        let id = rig.client.download(s(&tree), dst.clone()).await.unwrap();
+        match rig.outcome(id).await {
+            TransferEvent::Finished { path, .. } => assert_eq!(path, Some(s(&dst.join("Projekt")))),
+            e => panic!("unexpected {e:?}"),
+        }
+        assert_tree(&dst.join("Projekt"), &big);
+
+        // Again: a free name, the first copy stays.
+        let id = rig.client.download(s(&tree), dst.clone()).await.unwrap();
+        match rig.outcome(id).await {
+            TransferEvent::Finished { path, .. } => assert_eq!(path, Some(s(&dst.join("Projekt (2)")))),
+            e => panic!("unexpected {e:?}"),
+        }
+        assert_tree(&dst.join("Projekt (2)"), &big);
+
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&dst).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failing_requests_report_errors() {
+        let rig = rig();
+        let src = temp_dir("err-src");
+        let dst = temp_dir("err-dst");
+        std::fs::write(src.join("f.txt"), "x").unwrap();
+
+        assert!(rig.client.download(s(&src.join("gibt-es-nicht")), dst.clone()).await.is_err());
+        assert!(rig.client.download(s(&src.join("f.txt")), dst.join("kein-ordner")).await.is_err());
+        assert!(rig.client.upload(src.join("f.txt"), s(&dst.join("kein-ordner"))).await.is_err());
+        assert!(rig.client.upload(src.join("gibt-es-nicht"), s(&dst)).await.is_err());
+
+        // Nothing stays registered or on disk.
+        assert!(rig.client.uploads.lock().unwrap().is_empty());
+        assert!(rig.client.downloads.lock().unwrap().is_empty());
+        assert!(is_empty(&dst));
+
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&dst).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancelled_download_leaves_nothing() {
+        let mut rig = rig();
+        let src = temp_dir("cancel-src");
+        let dst = temp_dir("cancel-dst");
+        std::fs::write(src.join("huge.bin"), pattern(20 * 1024 * 1024, 3)).unwrap();
+
+        let id = rig.client.download(s(&src.join("huge.bin")), dst.clone()).await.unwrap();
+        rig.client.cancel(id);
+        match rig.outcome(id).await {
+            TransferEvent::Failed { message, .. } => assert_eq!(message, "Abgebrochen"),
+            e => panic!("unexpected {e:?}"),
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(is_empty(&dst), "partial download remains: {:?}", std::fs::read_dir(&dst).unwrap().collect::<Vec<_>>());
+        assert!(rig.client.downloads.lock().unwrap().is_empty());
+
+        // The host stopped sending: the session is still usable and no stray event arrives.
+        rig.client.list(s(&src)).await.unwrap();
+        while let Ok(e) = rig.events.try_recv() {
+            assert!(!matches!(e, TransferEvent::Finished { .. }), "{e:?}");
+        }
+
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&dst).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancelled_upload_leaves_nothing() {
+        let mut rig = rig();
+        let src = temp_dir("cancelup-src");
+        let dst = temp_dir("cancelup-dst");
+        std::fs::write(src.join("huge.bin"), pattern(20 * 1024 * 1024, 5)).unwrap();
+
+        rig.hold_acks.store(true, Ordering::SeqCst);
+        let id = rig.client.upload(src.join("huge.bin"), s(&dst)).await.unwrap();
+        // Without acknowledgements the sender stalls after one window.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        rig.client.cancel(id);
+        match rig.outcome(id).await {
+            TransferEvent::Failed { message, .. } => assert_eq!(message, "Abgebrochen"),
+            e => panic!("unexpected {e:?}"),
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(is_empty(&dst), "partial upload remains: {:?}", std::fs::read_dir(&dst).unwrap().collect::<Vec<_>>());
+
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&dst).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn closing_fails_running_transfers() {
+        let mut rig = rig();
+        let src = temp_dir("close-src");
+        let dst = temp_dir("close-dst");
+        std::fs::write(src.join("huge.bin"), pattern(20 * 1024 * 1024, 9)).unwrap();
+
+        // An upload that cannot progress (no acknowledgements) ...
+        rig.hold_acks.store(true, Ordering::SeqCst);
+        let up = rig.client.upload(src.join("huge.bin"), s(&dst)).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(rig.client.uploads.lock().unwrap().contains_key(&up));
+        rig.client.closed();
+        match rig.outcome(up).await {
+            TransferEvent::Failed { message, .. } => assert_eq!(message, "Verbindung getrennt"),
+            e => panic!("unexpected {e:?}"),
+        }
+        assert!(rig.client.uploads.lock().unwrap().is_empty());
+
+        // ... and a download that is just starting.
+        let down_dir = temp_dir("close-down");
+        let down = rig.client.download(s(&src.join("huge.bin")), down_dir.clone()).await.unwrap();
+        rig.client.closed();
+        match rig.outcome(down).await {
+            TransferEvent::Failed { message, .. } => assert_eq!(message, "Verbindung getrennt"),
+            e => panic!("unexpected {e:?}"),
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(is_empty(&down_dir), "partial download remains");
+        assert!(rig.client.downloads.lock().unwrap().is_empty());
+
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&dst).unwrap();
+        std::fs::remove_dir_all(&down_dir).unwrap();
+    }
+}

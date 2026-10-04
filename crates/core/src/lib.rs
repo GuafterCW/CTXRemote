@@ -7,6 +7,7 @@ pub mod clipboard;
 pub mod config;
 pub mod desktop;
 pub mod encoder;
+pub mod files;
 pub mod host;
 pub mod input;
 pub mod keymap;
