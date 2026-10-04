@@ -47,6 +47,8 @@ Einmalig nötig, etwa 30 Minuten. Du brauchst:
 
 In den Befehlen steht `remote.ctx.ink` für deinen Server; ggf. ersetzen. Befehle mit `PS>` gehören in die PowerShell auf deinem PC, Befehle mit `#` laufen als root auf dem Server.
 
+**Neuer Server ohne bisherige CTXRemote-Installation?** Dann Schritt 1 und 4 überspringen und in Schritt 5 den zweiten Parameter (Datenordner) weglassen.
+
 ### Schritt 1: Alten Datenordner finden und sichern
 
 Der Server merkt sich in `devices.json`, welche Geräte-ID zu welchem Gerät gehört. Diese Datei muss erhalten bleiben, sonst bekommen alle Geräte neue IDs.

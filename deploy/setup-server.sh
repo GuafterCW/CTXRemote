@@ -20,6 +20,20 @@ if [ $# -lt 1 ] || [[ "$1" != ssh-* ]]; then
   exit 1
 fi
 deploy_key="$1"
+
+# Minimal Debian images come without sudo; the deployment needs it for one restart.
+if ! command -v sudo >/dev/null || ! command -v visudo >/dev/null; then
+  if command -v apt-get >/dev/null; then
+    apt-get update -q >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q sudo >/dev/null
+  else
+    echo "Bitte zuerst sudo installieren." >&2
+    exit 1
+  fi
+fi
+if [ ! -x /usr/bin/systemctl ]; then
+  echo "systemd (/usr/bin/systemctl) fehlt; dieser Server wird nicht unterstützt." >&2
+  exit 1
+fi
 old_data="${2:-}"
 here="$(cd "$(dirname "$0")" && pwd)"
 
