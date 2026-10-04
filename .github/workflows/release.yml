@@ -1,0 +1,139 @@
+# Builds a release from every push to master and delivers it:
+#   1. the server (static Linux binary) to the VPS, with rollback if it does not start
+#   2. the signed Windows installer to the server's update folder, from where
+#      installed clients update themselves
+# One-time setup (secrets, variables, server): docs/DEPLOY.md. Without the
+# secrets the builds still run and the files are kept as workflow artifacts.
+name: Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        # major.minor from the workspace, the run number as patch: always increasing.
+        run: |
+          base=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([0-9]+)\.([0-9]+)\..*/\1.\2/')
+          echo "version=$base.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+  server:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      CTXREMOTE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - name: Tests
+        run: cargo test --locked -p ctxremote-proto -p ctxremote-server
+      - name: Server (statisch)
+        run: cargo build --release --locked -p ctxremote-server --target x86_64-unknown-linux-musl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server
+          path: target/x86_64-unknown-linux-musl/release/ctxremote-server
+
+  client:
+    needs: version
+    runs-on: windows-latest
+    env:
+      CTXREMOTE_VERSION: ${{ needs.version.outputs.version }}
+      # Built into the clients: where they connect and which key updates must carry.
+      CTXREMOTE_DEFAULT_SERVER: ${{ vars.CTXREMOTE_SERVER }}
+      CTXREMOTE_UPDATE_KEY: ${{ vars.CTXREMOTE_UPDATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Frontend
+        working-directory: app
+        run: npm ci
+      - name: Dienst
+        working-directory: app
+        run: node scripts/prepare-service.mjs
+      - name: Installer
+        working-directory: app
+        shell: bash
+        run: |
+          printf '{"version":"%s"}' "$CTXREMOTE_VERSION" > src-tauri/tauri.version.json
+          npm run tauri build -- --config src-tauri/tauri.version.json
+      - name: Schnellhilfe
+        if: vars.CTXREMOTE_SERVER != ''
+        working-directory: app
+        shell: bash
+        env:
+          CTXREMOTE_QUICK_SERVER: ${{ vars.CTXREMOTE_SERVER }}
+        run: npm run build:quick -- --config src-tauri/tauri.version.json
+      - name: Dateien einsammeln
+        shell: bash
+        run: |
+          mkdir out
+          cp target/release/bundle/nsis/*-setup.exe "out/CTXRemote-$CTXREMOTE_VERSION-setup.exe"
+          if [ -f target/release/CTXRemote-Hilfe.exe ]; then cp target/release/CTXRemote-Hilfe.exe out/; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client
+          path: out/
+
+  deploy:
+    needs: [version, server, client]
+    runs-on: ubuntu-latest
+    # Only from master, and only once the server is set up (docs/DEPLOY.md).
+    if: github.ref == 'refs/heads/master' && vars.DEPLOY_HOST != ''
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Update signieren
+        env:
+          CTXREMOTE_UPDATE_SIGNING_KEY: ${{ secrets.CTXREMOTE_UPDATE_SIGNING_KEY }}
+          NOTES: ${{ github.event.head_commit.message }}
+        run: |
+          chmod +x artifacts/server/ctxremote-server
+          mkdir -p incoming
+          cp artifacts/server/ctxremote-server deploy/remote-deploy.sh incoming/
+          if [ -n "$CTXREMOTE_UPDATE_SIGNING_KEY" ]; then
+            artifacts/server/ctxremote-server update-sign \
+              --platform windows-x86_64 --version "$VERSION" \
+              --file "artifacts/client/CTXRemote-$VERSION-setup.exe" \
+              --out incoming/updates --notes "$(printf '%s' "$NOTES" | head -n 1)"
+          else
+            echo "::warning::Kein CTXREMOTE_UPDATE_SIGNING_KEY: Client-Update wird nicht veröffentlicht."
+          fi
+      - name: Ausliefern
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          TARGET: ${{ vars.DEPLOY_USER || 'ctxremote' }}@${{ vars.DEPLOY_HOST }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_deploy ~/.ssh/known_hosts
+          ssh_opts="-i $HOME/.ssh/id_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes"
+          ssh $ssh_opts "$TARGET" 'rm -rf ~/incoming'
+          scp $ssh_opts -r incoming "$TARGET":incoming
+          ssh $ssh_opts "$TARGET" 'bash ~/incoming/remote-deploy.sh'

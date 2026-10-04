@@ -10,6 +10,7 @@ Selbst gehosteter Fernzugriff für eigene Geräte, eine Alternative zu RustDesk,
 - **Physische Tastatur:** Übertragen werden Scancodes statt Zeichen, Tastaturlayouts funktionieren daher auf beiden Seiten korrekt.
 - **Dateiübertragung** in beide Richtungen mit Dateifenster (zwei Spalten), ganzen Ordnern und Drag & Drop. Bestehende Dateien werden nicht überschrieben.
 - **Remote-Mauszeiger, Neustart aus der Ferne und Bildqualität** (Schnell, Ausgewogen, Scharf) während der Sitzung.
+- **Automatische Updates:** Eine Pipeline liefert jeden Stand von `master` an den eigenen Server aus. Die Clients holen sich von dort signierte Updates (siehe `docs/DEPLOY.md`).
 - **Direktverbindung:** Ist das Gerät erreichbar (LAN, IPv6, Portweiterleitung auf TCP 21301), wechselt die laufende Sitzung vom Server auf den direkten Weg, ohne Unterbrechung und mit denselben Schlüsseln.
 
 ## Aufbau

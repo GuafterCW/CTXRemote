@@ -66,7 +66,7 @@ Keine ausführliche Nacherzählung der Agent-Ausgaben.
 
 Vor jeder Arbeit an CTXRemote **`docs/STATUS.md`** lesen. Dort stehen der aktuelle Stand, die ungetesteten Teile mit einer Testliste, die nächsten Schritte und die Gestaltungsregeln. Am Ende einer Sitzung `docs/STATUS.md` aktualisieren, damit die nächste Sitzung (lokal oder in der Cloud) nahtlos weitermachen kann.
 
-- Fachliche Einzeldokumente: `docs/WINDOWS-SERVICE.md` (Dienst, Agent, UI-Pipe), `docs/FILE-TRANSFER.md` (Dateiübertragung, Protokoll, Rechte) und `docs/DIRECT.md` (Direktverbindung, Fähigkeiten-Aushandlung)
+- Fachliche Einzeldokumente: `docs/WINDOWS-SERVICE.md` (Dienst, Agent, UI-Pipe), `docs/FILE-TRANSFER.md` (Dateiübertragung, Protokoll, Rechte) und `docs/DIRECT.md` (Direktverbindung, Fähigkeiten-Aushandlung) und `docs/DEPLOY.md` (Release-Pipeline, Server-Auslieferung, signierte Updates)
 - Ohne Windows: `scripts/check-windows.sh` prüft den Windows-Code auf Typfehler. Tests: `cargo test -p ctxremote-proto -p ctxremote-core -p ctxremote-server`. Frontend: in `app/` `npm run check && npm run build`.
 - Protokolländerungen nur durch **angehängte** Enum-Varianten (postcard ist positionsbasiert), und neue Nachrichten nur an Gegenstellen mit passendem `Features`-Bit senden (siehe `docs/DIRECT.md`). `PROTOCOL_VERSION` erhöhen erzwingt auch ein Server-Update.
 - Ganze Sitzungen mit echtem Server testet `cargo test -p ctxremote-server --test sessions`.

@@ -74,6 +74,13 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
   - Tippen im Chatfeld geht nicht an das ferne Gerät.
   - Der Verlauf liegt nur im Fenster und wird nicht gespeichert.
 
+- **Release-Pipeline, Updates und Standardserver** (Details und Einrichtung in `docs/DEPLOY.md`):
+  - Jeder Push auf `master` baut Server und Installer und liefert den Server per SSH auf den VPS aus, mit Rückfall auf die vorige Version, wenn der neue nicht startet.
+  - Die Pipeline veröffentlicht außerdem ein signiertes Client-Update.
+  - Installierte Clients holen Updates vom eigenen Server: mit Dienst automatisch, sobald niemand verbunden ist, ohne Dienst über einen Knopf in der App.
+  - Release-Builds haben die Serveradresse eingebaut.
+  - **Vor der ersten Nutzung** müssen Server, Secrets und Variablen eingerichtet werden (Abschnitt „Einmalige Einrichtung“).
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -113,6 +120,7 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
 
 ## Nächste Schritte
 
+0. Die Pipeline einrichten (`docs/DEPLOY.md`, Abschnitt „Einmalige Einrichtung“), dann den Branch nach `master` mergen. Den ersten Installer von Hand installieren, danach zweimal pushen und prüfen, ob sich ein Gerät selbst aktualisiert.
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
 2. Direktverbindung durch NAT ohne Portweiterleitung (UDP-Hole-Punching, siehe `docs/DIRECT.md`), Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig).
 3. Adressbuch und Geräteverwaltung über den Server, Code-Signatur (braucht ein Konto bei Microsoft Trusted Signing).

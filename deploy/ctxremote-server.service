@@ -1,0 +1,27 @@
+[Unit]
+Description=CTXRemote-Server (Vermittlung, Relay, Updates)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ctxremote
+Group=ctxremote
+ExecStart=/opt/ctxremote/ctxremote-server --listen 0.0.0.0:21300 --data /var/lib/ctxremote
+Restart=always
+RestartSec=2
+Environment=RUST_LOG=info
+
+# The server only needs its data folder and the network.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/ctxremote
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target
