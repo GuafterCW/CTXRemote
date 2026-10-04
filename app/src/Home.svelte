@@ -46,6 +46,21 @@
 
   const myId = $derived(presence.state === "online" ? presence.id : null);
 
+  let updating = $state(false);
+  let updateError = $state("");
+
+  // The installer asks for administrator rights, then closes and restarts the app.
+  async function installUpdate() {
+    updating = true;
+    updateError = "";
+    try {
+      await api.installUpdate();
+    } catch (e) {
+      updateError = errorText(e);
+      updating = false;
+    }
+  }
+
   async function refresh() {
     overview = await api.overview();
     presence = overview.presence;
@@ -55,6 +70,7 @@
   onMount(() => {
     refresh();
     const subscriptions = [
+      listen<string>("update-available", () => refresh()),
       listen<Presence>("presence", (e) => {
         presence = e.payload;
         // The service reports its sessions with its state; resync after a reconnect.
@@ -213,6 +229,16 @@
       <span>CTXRemote</span>
     </div>
     <div class="header-end">
+      {#if overview?.update}
+        <button
+          class="update"
+          disabled={updating}
+          title={updateError || `Version ${overview.update} herunterladen und installieren`}
+          onclick={installUpdate}
+        >
+          {updating ? "Wird geladen …" : `Update auf ${overview.update}`}
+        </button>
+      {/if}
       <span class="status" title={presence.state === "offline" ? presence.reason : ""}>
         <span class="dot" data-state={presence.state}></span>
         {statusText}
@@ -414,6 +440,27 @@
     display: flex;
     align-items: center;
     gap: 14px;
+  }
+
+  .update {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .update:hover:not(:disabled) {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .update:disabled {
+    cursor: default;
+    opacity: 0.7;
   }
 
   .status {

@@ -35,6 +35,8 @@ struct AppState {
     next_viewer: AtomicU32,
     /// Local paths dropped on a session window, waiting for its file window.
     drops: Mutex<HashMap<u32, Vec<String>>>,
+    /// A newer signed release on the server (app mode only; the service updates itself).
+    update: Mutex<Option<ctxremote_core::proto::update::UpdateInfo>>,
 }
 
 /// Who hosts this device: the app itself, or the installed Windows service.
@@ -136,6 +138,8 @@ struct Overview {
     peers: Vec<PeerView>,
     hosted: Vec<Hosted>,
     version: &'static str,
+    /// Version of an available update the app can install, if any.
+    update: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -199,7 +203,8 @@ fn overview(state: State<AppState>) -> Overview {
             .into_iter()
             .map(|(session, peer)| Hosted { session, peer, chat: chat.contains(&session) })
             .collect(),
-        version: env!("CARGO_PKG_VERSION"),
+        version: ctxremote_core::update::VERSION,
+        update: state.update.lock().unwrap().as_ref().map(|u| u.version.clone()),
     }
 }
 
@@ -670,6 +675,43 @@ fn end_hosted_session(state: State<AppState>, session: u64) {
     state.host.end_session(session);
 }
 
+/// Downloads the available update and starts its installer, which asks for
+/// administrator rights, closes this app and starts the new version.
+#[tauri::command]
+async fn install_update(state: State<'_, AppState>) -> CmdResult<()> {
+    let info = state.update.lock().unwrap().clone().ok_or("Kein Update verfügbar")?;
+    let server = state.config.read().unwrap().server_addr();
+    let dir = std::env::temp_dir().join("ctxremote-update");
+    let _ = std::fs::remove_dir_all(&dir);
+    let installer = ctxremote_core::update::download(&server, &info, &dir).await.map_err(chain)?;
+    ctxremote_core::update::launch(&installer, ctxremote_core::update::InstallMode::Interactive).map_err(chain)
+}
+
+/// App mode without the service: looks for updates now and then and tells the window.
+#[cfg(not(feature = "quick"))]
+fn watch_updates(app: &AppHandle) {
+    if !ctxremote_core::update::enabled() {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        loop {
+            let server = app.state::<AppState>().config.read().unwrap().server_addr();
+            match ctxremote_core::update::check(&server).await {
+                Ok(Some(info)) => {
+                    let version = info.version.clone();
+                    *app.state::<AppState>().update.lock().unwrap() = Some(info);
+                    let _ = app.emit("update-available", version);
+                }
+                Ok(None) => {}
+                Err(e) => tracing::info!("Update-Prüfung fehlgeschlagen: {e:#}"),
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
+        }
+    });
+}
+
 fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
@@ -701,6 +743,7 @@ macro_rules! handlers {
             set_quality,
             disconnect,
             end_hosted_session,
+            install_update,
             open_files,
             queue_drop,
             take_drops,
@@ -847,10 +890,16 @@ fn main() {
                 viewers: Mutex::default(),
                 next_viewer: AtomicU32::new(1),
                 drops: Mutex::default(),
+                update: Mutex::default(),
             });
 
             #[cfg(not(feature = "quick"))]
             build_tray(app)?;
+            // With the service installed, the service updates everything itself.
+            #[cfg(not(feature = "quick"))]
+            if matches!(app.state::<AppState>().host, Side::Local(_)) {
+                watch_updates(app.handle());
+            }
 
             show_main(app.handle());
             Ok(())

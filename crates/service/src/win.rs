@@ -587,12 +587,59 @@ fn start_host(config: Config, screen: Arc<dyn ScreenSource>) -> Host {
     let config = Arc::new(RwLock::new(config));
     let host = Host::start_with(config.clone(), screen);
     let link_host = host.clone();
+    let link_config = config.clone();
     tokio::spawn(async move {
-        if let Err(e) = ui_link::serve(link_host, config).await {
+        if let Err(e) = ui_link::serve(link_host, link_config).await {
             tracing::error!("Verbindung zur App beendet: {e:#}");
         }
     });
+    tokio::spawn(auto_update(host.clone(), config));
     host
+}
+
+// ------------------------------------------------------------ updates
+
+/// First check a little after start, so a boot is not slowed down.
+const UPDATE_FIRST_CHECK: Duration = Duration::from_secs(120);
+const UPDATE_INTERVAL: Duration = Duration::from_secs(6 * 3600);
+/// While someone is connected, check again this often whether they are done.
+const UPDATE_IDLE_POLL: Duration = Duration::from_secs(300);
+
+/// Installs signed releases from the server on its own, but only while
+/// nobody controls this device: the installer restarts the service.
+async fn auto_update(host: Host, config: Arc<RwLock<Config>>) {
+    if !ctxremote_core::update::enabled() {
+        tracing::info!("Automatische Updates sind in diesem Build nicht eingerichtet");
+        return;
+    }
+    tokio::time::sleep(UPDATE_FIRST_CHECK).await;
+    loop {
+        if let Err(e) = update_once(&host, &config).await {
+            tracing::warn!("Update fehlgeschlagen: {e:#}");
+        }
+        tokio::time::sleep(UPDATE_INTERVAL).await;
+    }
+}
+
+async fn update_once(host: &Host, config: &RwLock<Config>) -> Result<()> {
+    use ctxremote_core::update;
+    let server = config.read().unwrap().server_addr();
+    let Some(info) = update::check(&server).await? else { return Ok(()) };
+    tracing::info!(version = %info.version, "Update verfügbar");
+    while !host.sessions().is_empty() {
+        tokio::time::sleep(UPDATE_IDLE_POLL).await;
+    }
+    // Below the service's data folder, which only SYSTEM and administrators may
+    // write: nobody can swap the installer between check and start.
+    let dir = data_dir().join("updates");
+    let _ = std::fs::remove_dir_all(&dir);
+    let installer = update::download(&server, &info, &dir).await?;
+    // Someone may have connected during the download; then wait for the next round.
+    if !host.sessions().is_empty() {
+        return Ok(());
+    }
+    tracing::info!(version = %info.version, "Update wird installiert, der Dienst startet gleich neu");
+    update::launch(&installer, update::InstallMode::Silent)
 }
 
 // ------------------------------------------------------------ configure

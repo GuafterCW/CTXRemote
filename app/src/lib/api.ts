@@ -58,6 +58,8 @@ export interface Overview {
   peers: Peer[];
   hosted: Hosted[];
   version: string;
+  /** A newer version the app can install (app mode; the service updates itself). */
+  update: string | null;
 }
 
 export interface DisplayInfo {
@@ -144,6 +146,7 @@ export const api = {
   setQuality: (session: number, quality: Quality) => invoke<void>("set_quality", { session, quality }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
   endHostedSession: (session: number) => invoke<void>("end_hosted_session", { session }),
+  installUpdate: () => invoke<void>("install_update"),
   /** Viewer side: rejects with the reason, e.g. an empty message. */
   sendChat: (session: number, text: string) => invoke<void>("send_chat", { session, text }),
   /** Host side. */
