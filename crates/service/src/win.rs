@@ -318,6 +318,7 @@ fn service_body() -> Result<()> {
         let screen = screen_source()?;
         let host = start_host(config, screen);
         tracing::info!("Dienst gestartet");
+        relaunch_app_after_update();
         handle.set_service_status(status(ServiceState::Running, 0))?;
         let _ = stop_rx.recv();
         handle.set_service_status(status(ServiceState::StopPending, 0))?;
@@ -639,7 +640,32 @@ async fn update_once(host: &Host, config: &RwLock<Config>) -> Result<()> {
         return Ok(());
     }
     tracing::info!(version = %info.version, "Update wird installiert, der Dienst startet gleich neu");
+    // The installer closes the app; the next service start brings it back.
+    let _ = std::fs::write(data_dir().join(RELAUNCH_MARKER), b"");
     update::launch(&installer, update::InstallMode::Silent)
+}
+
+/// Written before a silent update; its presence at start means "start the app again".
+const RELAUNCH_MARKER: &str = "relaunch-app";
+
+/// After a silent update: starts the app (in the tray) for the signed-in user,
+/// since the installer had to close it.
+fn relaunch_app_after_update() {
+    let marker = data_dir().join(RELAUNCH_MARKER);
+    if std::fs::remove_file(&marker).is_err() {
+        return;
+    }
+    let Some(app) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("ctxremote.exe"))) else {
+        return;
+    };
+    std::thread::spawn(move || {
+        // Give the desktop a moment if the update ran right after sign-in.
+        std::thread::sleep(Duration::from_secs(3));
+        match ctxremote_core::update::start_for_console_user(&app, "--tray") {
+            Ok(()) => tracing::info!("App nach dem Update wieder gestartet"),
+            Err(e) => tracing::info!("App nach dem Update nicht gestartet: {e:#}"),
+        }
+    });
 }
 
 // ------------------------------------------------------------ configure

@@ -90,6 +90,11 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
 - **Behoben:**
   - Das Dateifenster blieb weiß, und die App fror ein. Ursache war, dass `open_files` und `queue_drop` synchron ein Fenster gebaut haben, was unter Windows den Hauptthread blockiert. Beide sind jetzt `async`.
   - Ein vergrößertes Sitzungsfenster hat kleinere Fernbildschirme riesig hochskaliert. Jetzt wird standardmäßig nicht mehr vergrößert, umschaltbar im Menü „Bild“ (Schieberegler-Symbol).
+- **Behoben, auch aus dem ersten Update-Test:** Das stille Update brach ab, und der Dienst blieb gestoppt. Ursache: Der Tauri-Installer will die laufende App per Restart Manager schließen. Aus der Dienstsitzung (SYSTEM, Sitzung 0) erreicht er die App in der Benutzersitzung nicht und bricht im stillen Modus wortlos ab. Jetzt gilt:
+  - Der Installer-Hook beendet die App im stillen Modus per `taskkill`.
+  - Der Installer läuft über `cmd /C "installer /S & sc start CTXRemote"`. Der Dienst kommt also auch nach einem Abbruch zurück.
+  - Nach dem Update startet der Dienst die App für den angemeldeten Benutzer wieder, mit `--tray`, also ohne Fenster.
+  - Die Fehlermeldung im Installer-Hook hat `/SD IDOK`, damit sie ein stilles Update nicht blockiert.
 - **Offen:** Ob die Auflösung des fernen Geräts der Fenstergröße folgen soll (dynamische Auflösung wie bei RDP), ist noch nicht entschieden. Dafür müsste der Host seine Bildschirmauflösung ändern.
 
 ### Testliste für den nächsten Windows-Termin

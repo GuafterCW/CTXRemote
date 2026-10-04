@@ -142,12 +142,23 @@ pub fn launch(installer: &Path, mode: InstallMode) -> Result<()> {
     imp::launch(installer, mode)
 }
 
+/// From the service (SYSTEM): starts `exe` as the user signed in at the
+/// console, on their desktop, with their environment. Used to bring the app
+/// back after a silent update closed it. Fails while nobody is signed in.
+pub fn start_for_console_user(exe: &Path, args: &str) -> Result<()> {
+    imp::start_for_console_user(exe, args)
+}
+
 #[cfg(not(windows))]
 mod imp {
     use super::*;
 
     pub fn launch(_: &Path, _: InstallMode) -> Result<()> {
         bail!("Updates gibt es nur unter Windows")
+    }
+
+    pub fn start_for_console_user(_: &Path, _: &str) -> Result<()> {
+        bail!("Nur unter Windows")
     }
 }
 
@@ -156,22 +167,82 @@ mod imp {
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::process::CommandExt;
 
-    use windows::core::PCWSTR;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+
+    use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+    use windows::Win32::System::RemoteDesktop::{WTSGetActiveConsoleSessionId, WTSQueryUserToken};
+    use windows::Win32::System::Threading::{
+        CreateProcessAsUserW, CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION, STARTUPINFOW,
+    };
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
     use super::*;
 
+    /// Must match the name `ctxremote-service` registers.
+    const SERVICE_NAME: &str = "CTXRemote";
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 
+    pub fn start_for_console_user(exe: &Path, args: &str) -> Result<()> {
+        unsafe {
+            let session = WTSGetActiveConsoleSessionId();
+            if session == u32::MAX {
+                bail!("Keine Konsolensitzung aktiv");
+            }
+            let mut token = HANDLE::default();
+            WTSQueryUserToken(session, &mut token).context("Niemand ist angemeldet")?;
+            let token = OwnedHandle::from_raw_handle(token.0);
+            // The user's own environment (APPDATA, TEMP, …), not SYSTEM's.
+            let mut environment = std::ptr::null_mut();
+            CreateEnvironmentBlock(&mut environment, Some(HANDLE(token.as_raw_handle())), false)
+                .context("Umgebung des Benutzers nicht lesbar")?;
+
+            let mut desktop: Vec<u16> = "winsta0\\default".encode_utf16().chain(Some(0)).collect();
+            let startup = STARTUPINFOW {
+                cb: size_of::<STARTUPINFOW>() as u32,
+                lpDesktop: PWSTR(desktop.as_mut_ptr()),
+                ..Default::default()
+            };
+            let app: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
+            let mut command: Vec<u16> =
+                format!("\"{}\" {args}", exe.display()).encode_utf16().chain(Some(0)).collect();
+            let mut info = PROCESS_INFORMATION::default();
+            let started = CreateProcessAsUserW(
+                Some(HANDLE(token.as_raw_handle())),
+                PCWSTR(app.as_ptr()),
+                Some(PWSTR(command.as_mut_ptr())),
+                None,
+                None,
+                false,
+                CREATE_UNICODE_ENVIRONMENT,
+                Some(environment),
+                PCWSTR::null(),
+                &startup,
+                &mut info,
+            );
+            let _ = DestroyEnvironmentBlock(environment);
+            started.context("Programm konnte nicht gestartet werden")?;
+            let _ = CloseHandle(info.hThread);
+            let _ = CloseHandle(info.hProcess);
+            Ok(())
+        }
+    }
+
     pub fn launch(installer: &Path, mode: InstallMode) -> Result<()> {
         match mode {
             InstallMode::Silent => {
-                // Detached and, where allowed, out of the service's job, so stopping
-                // the service (which the installer does) does not end the installer.
-                let spawn = |flags: u32| std::process::Command::new(installer).arg("/S").creation_flags(flags).spawn();
+                // The installer stops the service. Whatever happens next (success or
+                // an aborted install), `sc start` brings the service back, so the
+                // device never stays unreachable. Detached and, where allowed, out of
+                // the service's job, so stopping the service does not end the chain.
+                let chain = format!("/S /C \"\"{}\" /S & sc.exe start {SERVICE_NAME}\"", installer.display());
+                let spawn = |flags: u32| {
+                    std::process::Command::new("cmd.exe").raw_arg(&chain).creation_flags(flags).spawn()
+                };
                 spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB)
                     .or_else(|_| spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP))
                     .context("Installer konnte nicht gestartet werden")?;

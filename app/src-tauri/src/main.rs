@@ -909,7 +909,10 @@ fn main() {
                 watch_updates(app.handle());
             }
 
-            show_main(app.handle());
+            // `--tray`: started by the service after an update; stay in the tray.
+            if !std::env::args().any(|a| a == "--tray") {
+                show_main(app.handle());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
