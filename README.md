@@ -8,6 +8,8 @@ Selbst gehosteter Fernzugriff für eigene Geräte, eine Alternative zu RustDesk,
 - **H.264-Bildübertragung** (OpenH264) mit DXGI-Bildschirmaufnahme. Dekodiert wird im Viewer hardwarebeschleunigt per WebCodecs.
 - **Aliase:** Geräte lassen sich benennen („Büro-PC“) und im Verbindungsfeld per Alias statt ID finden.
 - **Physische Tastatur:** Übertragen werden Scancodes statt Zeichen, Tastaturlayouts funktionieren daher auf beiden Seiten korrekt.
+- **Dateiübertragung** in beide Richtungen mit Dateifenster (zwei Spalten), ganzen Ordnern und Drag & Drop. Bestehende Dateien werden nicht überschrieben.
+- **Remote-Mauszeiger, Neustart aus der Ferne und Bildqualität** (Schnell, Ausgewogen, Scharf) während der Sitzung.
 
 ## Aufbau
 
@@ -86,12 +88,11 @@ Zum lokalen Testen zweier Instanzen auf einem PC: `CTXREMOTE_CONFIG=C:pfadzweite
 
 Funktioniert (v0.1): ID und Passwort, Bild, Maus, Tastatur, mehrere Monitore, Vollbild, Tray-Betrieb, Geräteliste mit Aliasen.
 
+Seitdem dazugekommen: Zwischenablage (Text), Windows-Dienst (Anmeldebildschirm, UAC, Strg+Alt+Entf), Schnellhilfe. Gebaut, aber noch nicht auf Windows getestet: Dateiübertragung, Remote-Mauszeiger, Neustart und Bildqualität (siehe `docs/STATUS.md`).
+
 Als Nächstes:
-1. Zwischenablage synchronisieren (Protokoll steht schon)
-2. Dateiübertragung
-3. Windows-Dienst für Anmeldebildschirm, UAC-Dialoge und Strg+Alt+Entf
-4. Direkte P2P-Verbindung (UDP-Hole-Punching), Relay nur als Rückfall
-5. Remote-Mauszeiger, Qualitätsregelung, Hardware-Encoder (NVENC/QSV/AMF)
-6. Adressbuch und Geräteverwaltung über den Server (die „Pro“-Funktionen)
-7. Linux-Host (X11), dann macOS-Host, dann Wayland
-8. Code-Signatur der Windows-Builds
+1. Direkte P2P-Verbindung (UDP-Hole-Punching), Relay nur als Rückfall
+2. Automatische Qualitätsregelung, Hardware-Encoder (NVENC/QSV/AMF)
+3. Adressbuch und Geräteverwaltung über den Server (die „Pro“-Funktionen)
+4. Linux-Host (X11), dann macOS-Host, dann Wayland
+5. Code-Signatur der Windows-Builds

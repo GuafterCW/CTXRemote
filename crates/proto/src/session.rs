@@ -16,6 +16,27 @@ pub enum HostMsg {
     Transfer { id: u32, msg: Transfer },
     /// Bytes of an upload written so far; the viewer keeps only a window unacknowledged.
     TransferAck { id: u32, bytes: u64 },
+    /// The host's mouse pointer changed shape; the viewer shows it over the image.
+    Cursor(CursorShape),
+}
+
+/// A mouse pointer image, straight (not premultiplied) RGBA, row by row.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CursorShape {
+    pub width: u32,
+    pub height: u32,
+    pub hot_x: u32,
+    pub hot_y: u32,
+    pub rgba: Vec<u8>,
+}
+
+impl std::fmt::Debug for CursorShape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CursorShape")
+            .field("size", &(self.width, self.height))
+            .field("hotspot", &(self.hot_x, self.hot_y))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +56,20 @@ pub enum ViewerMsg {
     File { req: u32, op: FileOp },
     /// Part of an upload (viewer → host), see [`Transfer`].
     Transfer { id: u32, msg: Transfer },
+    /// Restarts the host computer; the host ends the session with `Bye`.
+    Restart,
+    /// Trades image quality against bandwidth for the rest of the session.
+    SetQuality(Quality),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Quality {
+    /// Fewer bits for slow links.
+    Speed,
+    #[default]
+    Balanced,
+    /// More bits for crisp text on fast links.
+    Sharp,
 }
 
 /// File operations on the host. Paths are absolute and in the host's own syntax;

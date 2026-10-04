@@ -24,4 +24,8 @@ impl Capturer {
     pub fn next_frame(&mut self, _: u32, _: impl FnOnce(&[u8], usize, u32, u32)) -> Result<bool> {
         bail!(super::UNSUPPORTED)
     }
+
+    pub fn take_pointer(&mut self) -> Option<ctxremote_proto::session::CursorShape> {
+        None
+    }
 }

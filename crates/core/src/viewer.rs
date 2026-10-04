@@ -7,7 +7,7 @@ use anyhow::{bail, Result};
 use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::viewer_handshake;
-use ctxremote_proto::session::{HostInfo, HostMsg, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, HostInfo, HostMsg, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -22,6 +22,8 @@ const WELCOME_TIMEOUT: Duration = Duration::from_secs(90);
 pub enum ViewerEvent {
     Video(VideoFrame),
     Clipboard(String),
+    /// The host's pointer changed shape.
+    Cursor(CursorShape),
     /// Progress or outcome of a file transfer started through [`ViewerSession::files`].
     Transfer(TransferEvent),
     /// The session ended; carries the reason if it was not the viewer's choice.
@@ -80,6 +82,7 @@ impl ViewerSession {
                     Ok(Some(HostMsg::Video(frame))) => on_event(ViewerEvent::Video(frame)),
                     Ok(Some(HostMsg::Clipboard(text))) => on_event(ViewerEvent::Clipboard(text)),
                     Ok(Some(HostMsg::Bye(reason))) => break Some(reason),
+                    Ok(Some(HostMsg::Cursor(shape))) => on_event(ViewerEvent::Cursor(shape)),
                     Ok(Some(HostMsg::FileReply { req, result })) => router.reply(req, result),
                     Ok(Some(HostMsg::Transfer { id, msg })) => router.transfer(id, msg),
                     Ok(Some(HostMsg::TransferAck { id, bytes })) => router.ack(id, bytes),

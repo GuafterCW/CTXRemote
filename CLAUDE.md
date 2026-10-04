@@ -61,3 +61,12 @@ Bei Unklarheit oder Blocker: abbrechen und Rückfrage melden statt raten.
 
 Am Ende kurz: was erledigt wurde, welche Teile delegiert waren, was geprüft wurde, offene Punkte.
 Keine ausführliche Nacherzählung der Agent-Ausgaben.
+
+## 7. Projektgedächtnis (zuerst lesen)
+
+Vor jeder Arbeit an CTXRemote **`docs/STATUS.md`** lesen. Dort stehen der aktuelle Stand, die ungetesteten Teile mit einer Testliste, die nächsten Schritte und die Gestaltungsregeln. Am Ende einer Sitzung `docs/STATUS.md` aktualisieren, damit die nächste Sitzung (lokal oder in der Cloud) nahtlos weitermachen kann.
+
+- Fachliche Einzeldokumente: `docs/WINDOWS-SERVICE.md` (Dienst, Agent, UI-Pipe) und `docs/FILE-TRANSFER.md` (Dateiübertragung, Protokoll, Rechte)
+- Ohne Windows: `scripts/check-windows.sh` prüft den Windows-Code auf Typfehler. Tests: `cargo test -p ctxremote-proto -p ctxremote-core -p ctxremote-server`. Frontend: in `app/` `npm run check && npm run build`.
+- Protokolländerungen nur durch **angehängte** Enum-Varianten (postcard ist positionsbasiert). `PROTOCOL_VERSION` erhöhen erzwingt auch ein Server-Update.
+- Texte in der App und Doku auf Deutsch, Code-Kommentare auf Englisch.

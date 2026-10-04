@@ -13,7 +13,7 @@ use ctxremote_core::config::Config;
 use ctxremote_core::files::client::{FileClient, TransferEvent};
 use ctxremote_core::files::{self, UserContext};
 use ctxremote_core::host::{Host, Presence};
-use ctxremote_core::proto::session::{HostInfo, InputEvent, Listing, VideoFrame, ViewerMsg};
+use ctxremote_core::proto::session::{CursorShape, HostInfo, InputEvent, Listing, Quality, VideoFrame, ViewerMsg};
 use ctxremote_core::proto::DeviceId;
 #[cfg(not(feature = "quick"))]
 use ctxremote_core::ui_link::UiRequest;
@@ -33,6 +33,8 @@ struct AppState {
     host: Side,
     viewers: Mutex<HashMap<u32, Viewer>>,
     next_viewer: AtomicU32,
+    /// Local paths dropped on a session window, waiting for its file window.
+    drops: Mutex<HashMap<u32, Vec<String>>>,
 }
 
 /// Who hosts this device: the app itself, or the installed Windows service.
@@ -66,6 +68,8 @@ struct Link {
     closed: Option<Option<String>>,
     /// Keeps the clipboard watcher alive for the session's lifetime.
     clipboard: Option<ctxremote_core::clipboard::ClipboardSync>,
+    /// The host's pointer, sent again when a window attaches.
+    cursor: Option<Vec<u8>>,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -77,6 +81,7 @@ fn err(e: impl std::fmt::Display) -> String {
 // Binary messages to session windows: a 12-byte header, then the payload.
 const PACKET_VIDEO: u8 = 1;
 const PACKET_CLOSED: u8 = 2;
+const PACKET_CURSOR: u8 = 3;
 
 fn packet(kind: u8, keyframe: bool, width: u32, height: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(12 + payload.len());
@@ -89,6 +94,15 @@ fn packet(kind: u8, keyframe: bool, width: u32, height: u32, payload: &[u8]) -> 
 
 fn video_packet(frame: &VideoFrame) -> Vec<u8> {
     packet(PACKET_VIDEO, frame.keyframe, frame.width, frame.height, &frame.data)
+}
+
+/// Header carries the size; the payload is the hotspot (2 × u32) and RGBA.
+fn cursor_packet(shape: &CursorShape) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(8 + shape.rgba.len());
+    payload.extend_from_slice(&shape.hot_x.to_le_bytes());
+    payload.extend_from_slice(&shape.hot_y.to_le_bytes());
+    payload.extend_from_slice(&shape.rgba);
+    packet(PACKET_CURSOR, false, shape.width, shape.height, &payload)
 }
 
 fn closed_packet(reason: &Option<String>) -> Vec<u8> {
@@ -253,6 +267,14 @@ async fn connect(
                     let _ = channel.send(InvokeResponseBody::Raw(video_packet(&frame)));
                 }
             }
+            ViewerEvent::Cursor(shape) => {
+                let packet = cursor_packet(&shape);
+                let mut link = link.lock().unwrap();
+                if let Some(channel) = &link.channel {
+                    let _ = channel.send(InvokeResponseBody::Raw(packet.clone()));
+                }
+                link.cursor = Some(packet);
+            }
             ViewerEvent::Transfer(event) => {
                 let _ = app.emit("transfer", TransferUpdate { session: number, event });
             }
@@ -326,6 +348,9 @@ fn attach(
     if let Some(reason) = &link.closed {
         let _ = channel.send(InvokeResponseBody::Raw(closed_packet(reason)));
     }
+    if let Some(cursor) = &link.cursor {
+        let _ = channel.send(InvokeResponseBody::Raw(cursor.clone()));
+    }
     link.channel = Some(channel);
     viewer.session.send(ViewerMsg::RequestKeyframe);
     let label = state
@@ -361,6 +386,16 @@ fn request_keyframe(state: State<AppState>, session: u32) {
 #[tauri::command]
 fn lock_screen(state: State<AppState>, session: u32) {
     with_viewer(&state, session, |s| s.send(ViewerMsg::LockScreen));
+}
+
+#[tauri::command]
+fn set_quality(state: State<AppState>, session: u32, quality: Quality) {
+    with_viewer(&state, session, |s| s.send(ViewerMsg::SetQuality(quality)));
+}
+
+#[tauri::command]
+fn restart_host(state: State<AppState>, session: u32) {
+    with_viewer(&state, session, |s| s.send(ViewerMsg::Restart));
 }
 
 #[tauri::command]
@@ -402,6 +437,21 @@ fn open_files(app: AppHandle, state: State<AppState>, session: u32) -> CmdResult
         .build()
         .map_err(err)?;
     Ok(())
+}
+
+/// Files dropped on the session window: the file window uploads them, so their
+/// progress shows there. It picks them up with `take_drops` when it opens or is told.
+#[tauri::command]
+fn queue_drop(app: AppHandle, state: State<AppState>, session: u32, paths: Vec<String>) -> CmdResult<()> {
+    state.drops.lock().unwrap().entry(session).or_default().extend(paths);
+    open_files(app.clone(), state, session)?;
+    let _ = app.emit_to(format!("files-{session}"), "files-drop", session);
+    Ok(())
+}
+
+#[tauri::command]
+fn take_drops(state: State<AppState>, session: u32) -> Vec<String> {
+    state.drops.lock().unwrap().remove(&session).unwrap_or_default()
 }
 
 fn file_client(state: &AppState, session: u32) -> CmdResult<Arc<FileClient>> {
@@ -534,9 +584,13 @@ macro_rules! handlers {
             request_keyframe,
             send_sas,
             lock_screen,
+            restart_host,
+            set_quality,
             disconnect,
             end_hosted_session,
             open_files,
+            queue_drop,
+            take_drops,
             remote_list,
             remote_create_dir,
             remote_rename,
@@ -679,6 +733,7 @@ fn main() {
                 host,
                 viewers: Mutex::default(),
                 next_viewer: AtomicU32::new(1),
+                drops: Mutex::default(),
             });
 
             #[cfg(not(feature = "quick"))]

@@ -362,6 +362,16 @@ async fn run_session(
                             warn!("Strg+Alt+Entf fehlgeschlagen: {e:#}");
                         }
                     }
+                    // Needs SeShutdownPrivilege, which the service has; the agent might not.
+                    Some(ViewerMsg::Restart) => {
+                        let reason = match crate::sas::restart() {
+                            Ok(()) => "Das Gerät wird neu gestartet".to_string(),
+                            Err(e) => format!("Neustart fehlgeschlagen: {e:#}"),
+                        };
+                        info!("{reason}");
+                        let _ = tx.send(&HostMsg::Bye(reason)).await;
+                        return Ok(());
+                    }
                     Some(msg) => {
                         // A failed send means the agent is gone; the branch above notices.
                         let _ = to_agent.send(msg).await;

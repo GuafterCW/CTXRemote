@@ -7,6 +7,7 @@ use openh264::encoder::{
 };
 use openh264::formats::{BgraSliceU8, YUVBuffer};
 use openh264::OpenH264API;
+use ctxremote_proto::session::Quality;
 
 pub struct VideoEncoder {
     encoder: Encoder,
@@ -23,11 +24,16 @@ pub struct Encoded<'a> {
 
 impl VideoEncoder {
     /// H.264 needs even dimensions; callers crop the odd edge pixel away.
-    pub fn new(width: u32, height: u32, fps: f32) -> Result<Self> {
+    pub fn new(width: u32, height: u32, fps: f32, quality: Quality) -> Result<Self> {
         let (width, height) = (width & !1, height & !1);
         let pixels = width as f32 * height as f32;
         // Roughly 0.1 bit per pixel at 30 fps keeps text crisp without flooding slow links.
-        let bitrate = (pixels * fps * 0.1).clamp(1_500_000.0, 20_000_000.0) as u32;
+        let (bits_per_pixel, min, max) = match quality {
+            Quality::Speed => (0.04, 600_000.0, 6_000_000.0),
+            Quality::Balanced => (0.1, 1_500_000.0, 20_000_000.0),
+            Quality::Sharp => (0.2, 3_000_000.0, 40_000_000.0),
+        };
+        let bitrate = (pixels * fps * bits_per_pixel).clamp(min, max) as u32;
         let config = EncoderConfig::new()
             .usage_type(UsageType::ScreenContentRealTime)
             .profile(Profile::Baseline)
@@ -97,7 +103,7 @@ mod tests {
 
     #[test]
     fn first_frame_is_a_keyframe() {
-        let mut enc = VideoEncoder::new(320, 240, 30.0).unwrap();
+        let mut enc = VideoEncoder::new(320, 240, 30.0, Quality::Balanced).unwrap();
         let frame = vec![128u8; 320 * 240 * 4];
         let first = enc.encode(&frame).unwrap();
         assert!(first.keyframe);

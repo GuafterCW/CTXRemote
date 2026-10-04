@@ -29,3 +29,37 @@ export function since(unixSeconds: number): string {
   }
   return relative.format(Math.round(value), "year");
 }
+
+const sizeNumber = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
+const UNITS = ["B", "KB", "MB", "GB", "TB"];
+
+function unitFor(bytes: number): number {
+  let i = 0;
+  while (bytes >= 1024 ** (i + 1) && i < UNITS.length - 1) i++;
+  return i;
+}
+
+/** "1,4 MB". */
+export function formatSize(bytes: number): string {
+  const i = unitFor(bytes);
+  return `${sizeNumber.format(i === 0 ? Math.round(bytes) : bytes / 1024 ** i)} ${UNITS[i]}`;
+}
+
+/** "x MB von y MB", both in the unit of the total. */
+export function formatProgress(done: number, total: number): string {
+  const i = unitFor(total);
+  const n = (v: number) => sizeNumber.format(i === 0 ? Math.round(v) : v / 1024 ** i);
+  return `${n(done)} von ${n(total)} ${UNITS[i]}`;
+}
+
+/** "04.10.2026, 14:03", empty if unknown (0). */
+export function formatDate(unixSeconds: number): string {
+  if (!unixSeconds) return "";
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(unixSeconds * 1000));
+}

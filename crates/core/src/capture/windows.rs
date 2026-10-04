@@ -4,6 +4,7 @@
 //! nothing. Each frame is copied into a CPU-readable staging texture.
 
 use anyhow::{bail, Context, Result};
+use ctxremote_proto::session::CursorShape;
 use windows::core::Interface;
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
@@ -16,10 +17,12 @@ use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SA
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput, IDXGIOutput1,
     IDXGIOutputDuplication, IDXGIResource, DXGI_ERROR_ACCESS_LOST, DXGI_ERROR_NOT_FOUND,
-    DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
+    DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO, DXGI_OUTDUPL_POINTER_SHAPE_INFO,
+    DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR,
+    DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME,
 };
 
-use super::Display;
+use super::{pointer_rgba, Display, PointerFormat};
 
 struct Output {
     adapter: IDXGIAdapter1,
@@ -81,6 +84,10 @@ pub struct Capturer {
     /// Since when duplication keeps failing; a fresh device may be needed.
     failing_since: Option<std::time::Instant>,
     staging: Option<ID3D11Texture2D>,
+    /// The last pointer shape seen, and whether it is still to be picked up.
+    pointer: Option<CursorShape>,
+    pointer_new: bool,
+    pointer_buffer: Vec<u8>,
 }
 
 // The COM objects are only ever used from the capture thread that owns the Capturer.
@@ -115,6 +122,9 @@ impl Capturer {
             duplication: None,
             failing_since: None,
             staging: None,
+            pointer: None,
+            pointer_new: false,
+            pointer_buffer: Vec::new(),
         };
         // On a desktop we cannot reach yet (secure desktop), `next_frame` keeps retrying.
         let _ = capturer.duplicate();
@@ -174,6 +184,12 @@ impl Capturer {
             }
         }
 
+        if info.PointerShapeBufferSize > 0 {
+            if let Err(e) = self.read_pointer(&dup, info.PointerShapeBufferSize) {
+                tracing::debug!("Mauszeiger nicht lesbar: {e:#}");
+            }
+        }
+
         let result = (|| {
             // Mouse-only updates carry no new image.
             if info.LastPresentTime == 0 {
@@ -197,6 +213,46 @@ impl Capturer {
             let _ = dup.ReleaseFrame();
         }
         result
+    }
+
+    /// The pointer shape if it changed since the last call (or since a new
+    /// duplication, which reports the current shape again).
+    pub fn take_pointer(&mut self) -> Option<CursorShape> {
+        std::mem::take(&mut self.pointer_new).then(|| self.pointer.clone()).flatten()
+    }
+
+    fn read_pointer(&mut self, dup: &IDXGIOutputDuplication, size: u32) -> Result<()> {
+        self.pointer_buffer.resize(size as usize, 0);
+        let mut required = 0;
+        let mut info = DXGI_OUTDUPL_POINTER_SHAPE_INFO::default();
+        unsafe {
+            dup.GetFramePointerShape(
+                size,
+                self.pointer_buffer.as_mut_ptr().cast(),
+                &mut required,
+                &mut info,
+            )?;
+        }
+        let (format, height) = match info.Type as i32 {
+            t if t == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME.0 => (PointerFormat::Monochrome, info.Height / 2),
+            t if t == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 => (PointerFormat::Color, info.Height),
+            t if t == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR.0 => (PointerFormat::MaskedColor, info.Height),
+            other => bail!("unbekanntes Zeigerformat {other}"),
+        };
+        let rgba = pointer_rgba(format, info.Width, height, info.Pitch as usize, &self.pointer_buffer)
+            .context("Zeigerdaten unvollständig")?;
+        let shape = CursorShape {
+            width: info.Width,
+            height,
+            hot_x: info.HotSpot.x.max(0) as u32,
+            hot_y: info.HotSpot.y.max(0) as u32,
+            rgba,
+        };
+        if self.pointer.as_ref() != Some(&shape) {
+            self.pointer = Some(shape);
+            self.pointer_new = true;
+        }
+        Ok(())
     }
 
     fn staging_for(&mut self, frame: &ID3D11Texture2D) -> Result<ID3D11Texture2D> {

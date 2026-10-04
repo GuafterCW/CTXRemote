@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Channel } from "@tauri-apps/api/core";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { api, errorText, type HostInfo, type InputEvent, type MouseButton } from "./lib/api";
+  import { api, errorText, type HostInfo, type InputEvent, type MouseButton, type Quality } from "./lib/api";
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
 
@@ -17,9 +18,19 @@
   let closed = $state<string | null>(null);
   let toolbarVisible = $state(true);
   let keysOpen = $state(false);
+  let qualityOpen = $state(false);
+  let quality = $state<Quality>("Balanced");
+  let confirmRestart = $state(false);
+  /** CSS cursor showing the host's pointer shape, once it has sent one. */
+  let cursor = $state("default");
   let fullscreen = $state(false);
 
   const appWindow = getCurrentWindow();
+  const QUALITIES: [Quality, string, string][] = [
+    ["Speed", "Schnell", "für langsame Verbindungen"],
+    ["Balanced", "Ausgewogen", "Standard"],
+    ["Sharp", "Scharf", "für schnelle Verbindungen"],
+  ];
   const BUTTONS: MouseButton[] = ["Left", "Middle", "Right", "Back", "Forward"];
   const send = (event: InputEvent) => {
     if (closed === null) api.sendInput(session, event);
@@ -39,6 +50,8 @@
       const kind = view.getUint8(0);
       if (kind === 1) {
         player.push(view.getUint8(1) === 1, view.getUint32(4, true), view.getUint32(8, true), new Uint8Array(buffer, 12));
+      } else if (kind === 3) {
+        showCursor(view.getUint32(4, true), view.getUint32(8, true), buffer);
       } else if (kind === 2) {
         closed = new TextDecoder().decode(new Uint8Array(buffer, 12)) || "Die Verbindung wurde beendet.";
         player.close();
@@ -56,8 +69,39 @@
       .catch((e) => (closed = errorText(e)));
 
     hideToolbarSoon();
-    return () => player.close();
+
+    // Files dropped from the OS go to the remote desktop; the files window shows the progress.
+    const unlistenDrop = getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === "drop") uploadToDesktop(event.payload.paths);
+    });
+
+    return () => {
+      player.close();
+      unlistenDrop.then((off) => off());
+    };
   });
+
+  // The files window does the upload, so its progress and errors show there.
+  function uploadToDesktop(paths: string[]) {
+    if (closed !== null || paths.length === 0) return;
+    api.queueDrop(session, paths).catch(() => {});
+  }
+
+  // The host's pointer image becomes the local cursor over the stream, so text
+  // fields, resize handles and busy states look as they do on the host.
+  function showCursor(width: number, height: number, buffer: ArrayBuffer) {
+    if (width === 0 || height === 0 || width > 128 || height > 128) return;
+    if (buffer.byteLength < 20 + width * height * 4) return;
+    const view = new DataView(buffer);
+    const hotX = view.getUint32(12, true);
+    const hotY = view.getUint32(16, true);
+    const pixels = new Uint8ClampedArray(buffer, 20, width * height * 4);
+    const draw = document.createElement("canvas");
+    draw.width = width;
+    draw.height = height;
+    draw.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(pixels), width, height), 0, 0);
+    cursor = `url(${draw.toDataURL("image/png")}) ${hotX} ${hotY}, default`;
+  }
 
   // Mouse moves are coalesced to one message per animation frame.
   let pendingMove: { x: number; y: number } | null = null;
@@ -136,6 +180,23 @@
     canvas?.focus();
   }
 
+  function restart() {
+    if (!confirmRestart) {
+      confirmRestart = true;
+      return;
+    }
+    api.restartHost(session);
+    confirmRestart = false;
+    keysOpen = false;
+  }
+
+  function chooseQuality(value: Quality) {
+    quality = value;
+    api.setQuality(session, value);
+    qualityOpen = false;
+    canvas?.focus();
+  }
+
   function chooseDisplay(index: number) {
     display = index;
     api.selectDisplay(session, index);
@@ -156,7 +217,7 @@
   function hideToolbarSoon() {
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (!keysOpen) toolbarVisible = false;
+      if (!keysOpen && !qualityOpen) toolbarVisible = false;
     }, 2400);
   }
 
@@ -182,6 +243,7 @@
   <canvas
     bind:this={canvas}
     class:live={streaming}
+    style:cursor={streaming ? cursor : "default"}
     tabindex="-1"
     onpointermove={onMove}
     onmousedown={(e) => onButton(e, true)}
@@ -241,7 +303,15 @@
 
       <div class="sep"></div>
       <div class="menu-anchor">
-        <button class="tool" title="Tastenkombinationen" onclick={() => (keysOpen = !keysOpen)}>
+        <button
+          class="tool"
+          title="Tastenkombinationen"
+          onclick={() => {
+            keysOpen = !keysOpen;
+            qualityOpen = false;
+            confirmRestart = false;
+          }}
+        >
           <Icon name="keyboard" size={17} />
         </button>
         {#if keysOpen}
@@ -251,9 +321,38 @@
             <button role="menuitem" onclick={() => combo("AltLeft", "Tab")}>Alt + Tab</button>
             <button role="menuitem" onclick={() => combo("ControlLeft", "ShiftLeft", "Escape")}>Task-Manager</button>
             <button role="menuitem" onclick={lockScreen}>Sperren</button>
+            <div class="menu-sep"></div>
+            <button role="menuitem" class:danger={confirmRestart} onclick={restart}>
+              {confirmRestart ? "Wirklich neu starten?" : "Neu starten …"}
+            </button>
           </div>
         {/if}
       </div>
+      <div class="menu-anchor">
+        <button
+          class="tool"
+          title="Bildqualität"
+          onclick={() => {
+            qualityOpen = !qualityOpen;
+            keysOpen = false;
+          }}
+        >
+          <Icon name="sliders" size={17} />
+        </button>
+        {#if qualityOpen}
+          <div class="menu" role="menu">
+            {#each QUALITIES as [value, title, hint] (value)}
+              <button role="menuitemradio" aria-checked={quality === value} onclick={() => chooseQuality(value)}>
+                <span class="mark">{#if quality === value}<Icon name="check" size={14} />{/if}</span>
+                <span class="label">{title}<small>{hint}</small></span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <button class="tool" title="Dateien" onclick={() => api.openFiles(session)}>
+        <Icon name="folder" size={17} />
+      </button>
       <button class="tool" title={fullscreen ? "Vollbild verlassen" : "Vollbild"} onclick={toggleFullscreen}>
         <Icon name={fullscreen ? "shrink" : "expand"} size={17} />
       </button>
@@ -455,5 +554,40 @@
 
   .menu button:hover {
     background: #262624;
+  }
+
+  .menu button.danger {
+    color: #e07a66;
+  }
+
+  .menu-sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: #2f2e2b;
+  }
+
+  .menu button[role="menuitemradio"] {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: auto;
+    padding: 6px 10px 6px 6px;
+  }
+
+  .mark {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    color: #4fb495;
+  }
+
+  .label {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .label small {
+    color: #85837c;
+    font-size: 11.5px;
   }
 </style>

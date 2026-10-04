@@ -63,6 +63,9 @@ export interface HostInfo {
   active_display: number;
 }
 
+/** Mirrors `Quality` in crates/proto/src/session.rs. */
+export type Quality = "Speed" | "Balanced" | "Sharp";
+
 export type MouseButton = "Left" | "Right" | "Middle" | "Back" | "Forward";
 
 /** Mirrors `InputEvent` in crates/proto/src/session.rs (serde external tagging). */
@@ -72,6 +75,29 @@ export type InputEvent =
   | { Wheel: { dx: number; dy: number } }
   | { Key: { code: string; down: boolean } }
   | "ReleaseAll";
+
+export type FileKind = "File" | "Dir" | "Drive" | "Place";
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  kind: FileKind;
+  size: number;
+  /** Unix seconds, 0 if unknown. */
+  modified: number;
+}
+
+export interface Listing {
+  path: string;
+  /** null at the top level; "" if the top level lies above. */
+  parent: string | null;
+  entries: FileEntry[];
+}
+
+export type TransferUpdate =
+  | { session: number; kind: "progress"; id: number; done: number; total: number }
+  | { session: number; kind: "finished"; id: number; path: string | null }
+  | { session: number; kind: "failed"; id: number; message: string };
 
 export const api = {
   overview: () => invoke<Overview>("overview"),
@@ -89,8 +115,28 @@ export const api = {
   requestKeyframe: (session: number) => invoke<void>("request_keyframe", { session }),
   sendSas: (session: number) => invoke<void>("send_sas", { session }),
   lockScreen: (session: number) => invoke<void>("lock_screen", { session }),
+  restartHost: (session: number) => invoke<void>("restart_host", { session }),
+  setQuality: (session: number, quality: Quality) => invoke<void>("set_quality", { session, quality }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
   endHostedSession: (session: number) => invoke<void>("end_hosted_session", { session }),
+  openFiles: (session: number) => invoke<void>("open_files", { session }),
+  /** Files dropped on the session window, uploaded by its file window. */
+  queueDrop: (session: number, paths: string[]) => invoke<void>("queue_drop", { session, paths }),
+  takeDrops: (session: number) => invoke<string[]>("take_drops", { session }),
+  remoteList: (session: number, path: string) => invoke<Listing>("remote_list", { session, path }),
+  remoteCreateDir: (session: number, path: string) => invoke<void>("remote_create_dir", { session, path }),
+  remoteRename: (session: number, path: string, name: string) =>
+    invoke<void>("remote_rename", { session, path, name }),
+  remoteDelete: (session: number, paths: string[]) => invoke<void>("remote_delete", { session, paths }),
+  localList: (path: string) => invoke<Listing>("local_list", { path }),
+  localCreateDir: (path: string) => invoke<void>("local_create_dir", { path }),
+  localRename: (path: string, name: string) => invoke<void>("local_rename", { path, name }),
+  localDelete: (paths: string[]) => invoke<void>("local_delete", { paths }),
+  upload: (session: number, path: string, dir: string) => invoke<number>("upload", { session, path, dir }),
+  download: (session: number, path: string, dir: string) => invoke<number>("download", { session, path, dir }),
+  cancelTransfer: (session: number, id: number) => invoke<void>("cancel_transfer", { session, id }),
+  localHome: () => invoke<string>("local_home"),
+  reveal: (path: string) => invoke<void>("reveal", { path }),
   /** Quick build only. */
   answerApproval: (id: number, allow: boolean) => invoke<void>("answer_approval", { id, allow }),
 };

@@ -8,7 +8,7 @@ use std::sync::mpsc as std_mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use ctxremote_proto::session::{HostInfo, HostMsg, VideoCodec, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, HostInfo, HostMsg, Quality, VideoCodec, VideoFrame, ViewerMsg};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -48,7 +48,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     // Capture and encoding block, so they live on their own thread. The small
     // channel applies backpressure: on a slow link we capture less often
     // instead of queueing stale frames.
-    let (frames_tx, mut frames_rx) = mpsc::channel::<VideoFrame>(2);
+    let (frames_tx, mut frames_rx) = mpsc::channel::<Captured>(2);
     let (commands, commands_rx) = std_mpsc::channel::<VideoCommand>();
     let first_display = active.index;
     let video = std::thread::Builder::new()
@@ -75,7 +75,8 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
             tokio::select! {
                 Some(text) = clip_rx.recv() => outbox.send(HostMsg::Clipboard(text)).await?,
                 frame = frames_rx.recv() => match frame {
-                    Some(frame) => outbox.send(HostMsg::Video(frame)).await?,
+                    Some(Captured::Frame(frame)) => outbox.send(HostMsg::Video(frame)).await?,
+                    Some(Captured::Pointer(shape)) => outbox.send(HostMsg::Cursor(shape)).await?,
                     None => anyhow::bail!("Bildschirmaufnahme nicht verfügbar"),
                 },
                 msg = inbox.recv() => match msg {
@@ -88,6 +89,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                             let _ = commands.send(VideoCommand::Display(index));
                         }
                     }
+                    Some(ViewerMsg::SetQuality(quality)) => { let _ = commands.send(VideoCommand::Quality(quality)); }
                     Some(ViewerMsg::Clipboard(text)) => {
                         if let Some(clipboard) = &clipboard {
                             clipboard.apply(text);
@@ -105,7 +107,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                         }
                     }
                     // Windows accepts SendSAS only from the service itself, so the host handles it.
-                    Some(ViewerMsg::SecureAttention) | Some(ViewerMsg::Hello { .. }) => {}
+                    Some(ViewerMsg::SecureAttention | ViewerMsg::Restart | ViewerMsg::Hello { .. }) => {}
                     Some(ViewerMsg::Bye) | None => return Ok(()),
                 },
             }
@@ -123,25 +125,33 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     result
 }
 
+/// What the capture thread produces.
+enum Captured {
+    Frame(VideoFrame),
+    Pointer(CursorShape),
+}
+
 enum VideoCommand {
     Keyframe,
     Display(u8),
+    Quality(Quality),
 }
 
 fn video_loop(
     mut display: u8,
     commands: std_mpsc::Receiver<VideoCommand>,
-    frames: mpsc::Sender<VideoFrame>,
+    frames: mpsc::Sender<Captured>,
 ) -> Result<()> {
     let frame_time = Duration::from_secs_f32(1.0 / FPS);
     let started = Instant::now();
+    let mut quality = Quality::default();
     'display: loop {
         let mut capturer = match Capturer::new(display) {
             Ok(capturer) => capturer,
             Err(e) => {
                 // E.g. during a session switch; the session survives and capture resumes.
                 debug!("Bildschirmaufnahme nicht bereit: {e:#}");
-                if pause(&commands, &mut display) {
+                if pause(&commands, &mut display, &mut quality) {
                     return Ok(());
                 }
                 continue 'display;
@@ -161,6 +171,12 @@ fn video_loop(
                         continue 'display;
                     }
                     Ok(VideoCommand::Display(_)) => {}
+                    Ok(VideoCommand::Quality(q)) if q != quality => {
+                        quality = q;
+                        // A new encoder starts with a keyframe at the new rate.
+                        encoder = None;
+                    }
+                    Ok(VideoCommand::Quality(_)) => {}
                     Err(std_mpsc::TryRecvError::Empty) => break,
                     Err(std_mpsc::TryRecvError::Disconnected) => return Ok(()),
                 }
@@ -172,12 +188,18 @@ fn video_loop(
                 Ok(changed) => changed,
                 Err(e) => {
                     debug!("Bildschirmaufnahme unterbrochen: {e:#}");
-                    if pause(&commands, &mut display) {
+                    if pause(&commands, &mut display, &mut quality) {
                         return Ok(());
                     }
                     continue 'display;
                 }
             };
+            // Pointer shapes also arrive without a new image.
+            if let Some(shape) = capturer.take_pointer() {
+                if frames.blocking_send(Captured::Pointer(shape)).is_err() {
+                    return Ok(());
+                }
+            }
             have_frame |= changed;
             if !have_frame || !(changed || force_key) {
                 continue;
@@ -185,7 +207,8 @@ fn video_loop(
 
             let (width, height) = (capturer.display().width, capturer.display().height);
             if encoder.as_ref().map(|e| e.size()) != Some((width & !1, height & !1)) {
-                encoder = Some(VideoEncoder::new(width, height, FPS)?);
+                encoder = Some(VideoEncoder::new(width, height, FPS, quality)?);
+                force_key = true;
             }
             let encoder = encoder.as_mut().expect("created above");
             if force_key {
@@ -207,7 +230,7 @@ fn video_loop(
                 timestamp_us: started.elapsed().as_micros() as u64,
                 data: encoded.data.to_vec(),
             };
-            if frames.blocking_send(frame).is_err() {
+            if frames.blocking_send(Captured::Frame(frame)).is_err() {
                 return Ok(());
             }
             if let Some(rest) = frame_time.checked_sub(tick.elapsed()) {
@@ -219,11 +242,12 @@ fn video_loop(
 
 /// Waits a moment before capture is retried. Applies display changes meanwhile;
 /// returns `true` if the session is over.
-fn pause(commands: &std_mpsc::Receiver<VideoCommand>, display: &mut u8) -> bool {
+fn pause(commands: &std_mpsc::Receiver<VideoCommand>, display: &mut u8, quality: &mut Quality) -> bool {
     std::thread::sleep(Duration::from_millis(500));
     loop {
         match commands.try_recv() {
             Ok(VideoCommand::Display(index)) => *display = index,
+            Ok(VideoCommand::Quality(q)) => *quality = q,
             // A fresh capturer starts with a keyframe anyway.
             Ok(VideoCommand::Keyframe) => {}
             Err(std_mpsc::TryRecvError::Empty) => return false,

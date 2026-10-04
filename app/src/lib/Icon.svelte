@@ -18,6 +18,15 @@
     chevron: "M8 5l5 5-5 5",
     pencil: "M12.5 4.5l3 3M4 16l.8-3.6L13.3 3.9a1.4 1.4 0 0 1 2 0l.8.8a1.4 1.4 0 0 1 0 2l-8.5 8.5L4 16Z",
     plus: "M10 4v12M4 10h12",
+    folder: "M2.5 5.5a1 1 0 0 1 1-1h4l1.7 2h7.3a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-9Z",
+    file: "M5.5 2.5h6l3.5 3.5v10.5a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1ZM11.5 2.5V6H15",
+    drive: "M3 11.5l2-6.5h10l2 6.5v3.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-3.5ZM3 11.5h14M14 13.75h.01",
+    upload: "M10 13V4M6 8l4-4 4 4M4 15.5h12",
+    download: "M10 4v9M6 9l4 4 4-4M4 15.5h12",
+    trash: "M4 6h12M8 6V4h4v2M5.5 6l.7 10a1 1 0 0 0 1 .9h5.6a1 1 0 0 0 1-.9L14.5 6M8.5 9v5M11.5 9v5",
+    folderPlus: "M2.5 5.5a1 1 0 0 1 1-1h4l1.7 2h7.3a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-9ZM10 9.5v4M8 11.5h4",
+    arrowUp: "M10 16V4M5 9l5-5 5 5",
+    home: "M3 9.5 10 3.5l7 6M5 8.5v7.5h3.5v-4.5h3V16H15V8.5",
   } as const;
 
   export type IconName = keyof typeof paths;
