@@ -8,7 +8,7 @@ name: Release
 
 on:
   push:
-    branches: [master]
+    branches: [master, claude/vigilant-lovelace-rvm0ax]  # TEMP: Probelauf
   workflow_dispatch:
 
 concurrency:
