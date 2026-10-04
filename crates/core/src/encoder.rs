@@ -11,6 +11,9 @@ use ctxremote_proto::session::Quality;
 
 pub struct VideoEncoder {
     encoder: Encoder,
+    /// The quality preset's bitrate; congestion control scales it down.
+    base_bitrate: u32,
+    bitrate: u32,
     yuv: YUVBuffer,
     width: u32,
     height: u32,
@@ -53,6 +56,8 @@ impl VideoEncoder {
             .context("H.264-Encoder konnte nicht gestartet werden")?;
         Ok(Self {
             encoder,
+            base_bitrate: bitrate,
+            bitrate,
             yuv: YUVBuffer::new(width as usize, height as usize),
             width,
             height,
@@ -62,6 +67,34 @@ impl VideoEncoder {
 
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.height)
+    }
+
+    /// Sets the bitrate to `factor` (0..=1) of the preset's. Takes effect with
+    /// the next frame, without a keyframe.
+    pub fn set_bitrate_factor(&mut self, factor: f32) {
+        let bitrate = (self.base_bitrate as f32 * factor.clamp(0.0, 1.0)).max(250_000.0) as u32;
+        if bitrate == self.bitrate {
+            return;
+        }
+        let mut info = openh264_sys2::SBitrateInfo {
+            iLayer: openh264_sys2::SPATIAL_LAYER_ALL,
+            iBitrate: bitrate as i32,
+        };
+        // SAFETY: the encoder is initialised; SetOption copies the struct.
+        let result = unsafe {
+            self.encoder
+                .raw_api()
+                .set_option(openh264_sys2::ENCODER_OPTION_BITRATE, std::ptr::addr_of_mut!(info).cast())
+        };
+        if result == 0 {
+            self.bitrate = bitrate;
+        } else {
+            tracing::debug!(result, "Bitrate konnte nicht geändert werden");
+        }
+    }
+
+    pub fn bitrate(&self) -> u32 {
+        self.bitrate
     }
 
     pub fn force_keyframe(&mut self) {
@@ -100,6 +133,18 @@ pub fn pack_bgra(src: &[u8], pitch: usize, width: u32, height: u32, dst: &mut Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bitrate_changes_without_keyframe() {
+        let mut enc = VideoEncoder::new(320, 240, 30.0, Quality::Sharp).unwrap();
+        let mut frame = vec![128u8; 320 * 240 * 4];
+        assert!(enc.encode(&frame).unwrap().keyframe);
+        let base = enc.bitrate();
+        enc.set_bitrate_factor(0.5);
+        assert_eq!(enc.bitrate(), base / 2);
+        frame[0] = 0;
+        assert!(!enc.encode(&frame).unwrap().keyframe);
+    }
 
     #[test]
     fn first_frame_is_a_keyframe() {

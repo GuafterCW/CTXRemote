@@ -755,6 +755,7 @@ dependencies = [
  "futures",
  "hex",
  "openh264",
+ "openh264-sys2",
  "postcard",
  "rand",
  "serde",

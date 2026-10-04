@@ -21,6 +21,7 @@ rand.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
 openh264 = "0.9"
+openh264-sys2 = "0.9"
 directories = "6"
 whoami = "1"
 arboard = { version = "3", default-features = false }

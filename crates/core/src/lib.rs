@@ -5,6 +5,7 @@ pub mod agent_process;
 pub mod capture;
 pub mod clipboard;
 pub mod config;
+mod congestion;
 pub mod desktop;
 pub mod direct;
 pub mod encoder;

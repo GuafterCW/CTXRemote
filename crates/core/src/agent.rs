@@ -14,6 +14,7 @@ use tracing::{debug, warn};
 
 use crate::capture::{self, Capturer};
 use crate::clipboard::ClipboardSync;
+use crate::congestion::Congestion;
 use crate::encoder::{pack_bgra, VideoEncoder};
 use crate::files::service::FileService;
 use crate::input::Injector;
@@ -145,6 +146,8 @@ fn video_loop(
     let frame_time = Duration::from_secs_f32(1.0 / FPS);
     let started = Instant::now();
     let mut quality = Quality::default();
+    // Survives display and quality changes: the link stays the same.
+    let mut congestion = Congestion::new(Instant::now());
     'display: loop {
         let mut capturer = match Capturer::new(display) {
             Ok(capturer) => capturer,
@@ -207,7 +210,9 @@ fn video_loop(
 
             let (width, height) = (capturer.display().width, capturer.display().height);
             if encoder.as_ref().map(|e| e.size()) != Some((width & !1, height & !1)) {
-                encoder = Some(VideoEncoder::new(width, height, FPS, quality)?);
+                let mut fresh = VideoEncoder::new(width, height, FPS, quality)?;
+                fresh.set_bitrate_factor(congestion.factor());
+                encoder = Some(fresh);
                 force_key = true;
             }
             let encoder = encoder.as_mut().expect("created above");
@@ -230,8 +235,14 @@ fn video_loop(
                 timestamp_us: started.elapsed().as_micros() as u64,
                 data: encoded.data.to_vec(),
             };
+            let handing_over = Instant::now();
             if frames.blocking_send(Captured::Frame(frame)).is_err() {
                 return Ok(());
+            }
+            // Time spent waiting here is time the connection was full.
+            if let Some(factor) = congestion.record(handing_over.elapsed(), Instant::now()) {
+                encoder.set_bitrate_factor(factor);
+                debug!(factor, bitrate = encoder.bitrate(), "Bitrate angepasst");
             }
             if let Some(rest) = frame_time.checked_sub(tick.elapsed()) {
                 std::thread::sleep(rest);
