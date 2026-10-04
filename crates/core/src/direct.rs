@@ -40,6 +40,7 @@ pub struct DirectListener {
     waiting: Arc<Waiting>,
     /// Extra addresses offered verbatim, e.g. a forwarded port on the router.
     extra: Vec<String>,
+    tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 /// A registered offer; dropping it withdraws the token.
@@ -76,10 +77,18 @@ impl DirectListener {
         let waiting: Arc<Waiting> = Arc::default();
         let gate = Arc::new(Semaphore::new(MAX_PENDING));
         let per_ip: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::default();
-        for listener in listeners {
-            tokio::spawn(accept_loop(listener, waiting.clone(), gate.clone(), per_ip.clone()));
+        let tasks = listeners
+            .into_iter()
+            .map(|listener| tokio::spawn(accept_loop(listener, waiting.clone(), gate.clone(), per_ip.clone())))
+            .collect();
+        Some(Arc::new(Self { port, waiting, extra, tasks: Mutex::new(tasks) }))
+    }
+
+    /// Stops accepting and frees the port. Sessions that already moved over keep running.
+    pub fn stop(&self) {
+        for task in self.tasks.lock().unwrap().drain(..) {
+            task.abort();
         }
-        Some(Arc::new(Self { port, waiting, extra }))
     }
 
     /// Registers a fresh token and lists the addresses this host is likely
@@ -279,5 +288,15 @@ mod tests {
         drop(offer);
         assert!(listener.waiting.lock().unwrap().is_empty());
         assert!(dial(&[format!("127.0.0.1:{port}")], token).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn stop_frees_the_port() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let listener = DirectListener::start(port, vec![]).await.unwrap();
+        listener.stop();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(dial(&[format!("127.0.0.1:{port}")], [0; 32]).await.is_err());
+        assert!(DirectListener::start(port, vec![]).await.is_some());
     }
 }

@@ -32,7 +32,7 @@ Der Server bleibt unverändert und muss nicht aktualisiert werden.
 | `direct_port` | `21301` | Port des Listeners. Für Direktverbindungen aus dem Internet am Router weiterleiten. |
 | `direct_addresses` | `[]` | Zusätzliche Adressen im Format `host:port`, z. B. `["meinhaus.dyndns.org:21301"]` bei Portweiterleitung |
 
-Eine Oberfläche für diese Felder gibt es noch nicht. Die Firewall-Regel entsteht nur bei `--install`, nach einer Änderung von `direct_port` den Dienst also neu installieren. `ctxremote-service --install` legt die Windows-Firewall-Regel „CTXRemote Direktverbindung“ für den Dienst an, `--uninstall` entfernt sie. Ohne Dienst fragt Windows beim ersten Start nach der Firewall-Freigabe.
+Die Felder sind in der App unter Einstellungen > Direktverbindung bearbeitbar und wirken ohne Neustart (der Listener wird neu gestartet, laufende Sitzungen bleiben). Im Dienstmodus braucht das Speichern eine Administrator-Bestätigung; der erhöhte Helfer passt dann auch die Firewall-Regel an. `ctxremote-service --install` legt die Windows-Firewall-Regel „CTXRemote Direktverbindung“ für den Dienst an, `--uninstall` entfernt sie. Ohne Dienst fragt Windows beim ersten Start nach der Firewall-Freigabe.
 
 ## Fähigkeiten-Aushandlung (`Features`)
 

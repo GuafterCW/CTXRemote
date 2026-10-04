@@ -34,11 +34,21 @@ export interface Hosted {
   peer: string;
 }
 
+/** Mirrors `DirectSettings` in crates/core/src/config.rs. */
+export interface DirectSettings {
+  enabled: boolean;
+  port: number;
+  addresses: string[];
+}
+
 export interface Overview {
   presence: Presence;
   password: string;
   server: string;
   unattended: boolean;
+  direct: DirectSettings;
+  /** The listener for direct connections is running. */
+  directActive: boolean;
   /** The installed Windows service hosts this device. */
   service: boolean;
   hostSupported: boolean;
@@ -111,6 +121,7 @@ export const api = {
   refreshPassword: () => invoke<string>("refresh_password"),
   saveSettings: (server: string, permanentPassword: string | null) =>
     invoke<void>("save_settings", { server, permanentPassword }),
+  saveDirect: (settings: DirectSettings) => invoke<void>("save_direct", { settings }),
   forgetPeer: (id: string) => invoke<void>("forget_peer", { id }),
   setAlias: (id: string, alias: string | null) => invoke<void>("set_alias", { id, alias }),
   /** `target` is an ID or an alias. */

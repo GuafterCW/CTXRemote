@@ -55,6 +55,18 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
 - **Fähigkeiten-Aushandlung** (`Features` als Anhang an Hello und Welcome): Ältere und neuere Versionen vertragen sich jetzt. Neue Nachrichten gehen nur an Gegenstellen, die sie kennen. Das Sitzungsfenster blendet Knöpfe aus, die das ferne Gerät nicht unterstützt. Regeln für neue Funktionen stehen in `docs/DIRECT.md`.
 - **Direktverbindung:** Die Sitzung startet über den Server und wechselt dann ohne Unterbrechung auf eine direkte TCP-Verbindung (Port 21301), wenn das ferne Gerät erreichbar ist. Das gilt im LAN, mit IPv6 oder mit Portweiterleitung. Das Sitzungsfenster zeigt „Direkt“ oder „Über Server“ an. `ctxremote-service --install` legt die Firewall-Regel an. Details stehen in `docs/DIRECT.md`, getestet ist es unter Linux mit echtem Server (`crates/server/tests/sessions.rs`).
 
+### Danach (weitere Cloud-Sitzung)
+
+- **Automatische Bitratenregelung** (`crates/core/src/congestion.rs`):
+  - Der Aufnahme-Thread misst, wie lange die Übergabe eines Bildes blockiert. Blockiert er mehr als 25 % einer Sekunde, sinkt die Bitrate auf 70 %, höchstens bis 20 %.
+  - Nach drei ruhigen Sekunden steigt sie wieder, bis zur gewählten Qualitätsstufe.
+  - Die Änderung kommt ohne neuen Keyframe aus (`VideoEncoder::set_bitrate_factor`).
+- **Einstellungen der Direktverbindung** in der App (Ein/Aus, Port, zusätzliche Adressen):
+  - Die Einstellungen wirken ohne Neustart.
+  - Im Dienstmodus laufen sie über den erhöhten Helfer, der auch die Firewall-Regel anpasst.
+  - Gespeichert wird nur, was sich geändert hat, damit nicht unnötig UAC-Abfragen kommen.
+- **Start-Skript für Claude-Code-Cloud-Sitzungen** (`.claude/hooks/session-start.sh`): Es installiert die Linux-Bibliotheken für Tauri, führt `npm ci` aus, richtet das Windows-Target ein und lädt die Crates per `cargo fetch`. Es wirkt erst, wenn es im Standard-Branch liegt.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -77,12 +89,17 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
    - Bild, Maus, Tastatur und Dateien müssen danach normal weiterlaufen.
    - Gegenprobe ohne Firewall-Regel: Dort muss „Über Server“ stehen bleiben, ohne Abbruch.
 9. Alte Version gegen neue: Ein Host mit dem Stand vom 2. Oktober muss sich mit dem neuen Viewer bedienen lassen. Die neuen Knöpfe sind dort ausgeblendet.
+10. Einstellungen, Bereich Direktverbindung, mit Dienst:
+    - Den Port ändern: Es muss eine UAC-Abfrage kommen, danach „Aktiv auf Port X“.
+    - Die Firewall-Regel muss den neuen Port haben (`wf.msc`).
+    - Abschalten muss „Aus“ zeigen, und neue Sitzungen bleiben dann „Über Server“.
+11. Bitratenregelung: Eine Sitzung über eine gedrosselte Leitung, z. B. einen Handy-Hotspot oder die Netzwerkdrosselung in einer VM. Das Bild muss flüssig bleiben, statt immer weiter hinterherzuhinken. Im Log stehen „Bitrate angepasst“-Zeilen (`RUST_LOG=debug`).
 
 ## Nächste Schritte
 
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
 2. Direktverbindung durch NAT ohne Portweiterleitung (UDP-Hole-Punching, siehe `docs/DIRECT.md`), Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig).
-3. Einstellungsoberfläche für `direct`, `direct_port` und `direct_addresses`.
+3. Eventuell ein Chat für die Schnellhilfe. Hilfreich für den Support, braucht aber auf der Host-Seite im Dienstmodus einen Weg über die UI-Pipe.
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 

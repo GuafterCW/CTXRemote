@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
-use ctxremote_core::config::Config;
+use ctxremote_core::config::{Config, DirectSettings};
 use ctxremote_core::agent_process::{self, AgentProcess};
 use ctxremote_core::host::{Host, ScreenSource};
 use ctxremote_core::ui_link::{self, ServiceLink, UiEvent, UiRequest};
@@ -419,7 +419,8 @@ fn install(server: Option<&str>) -> Result<()> {
     };
 
     enable_sas_policy()?;
-    allow_direct_connections(&Config::load()?);
+    let config = Config::load()?;
+    allow_direct_connections(config.direct, config.direct_port);
     service.set_description(SERVICE_DESCRIPTION)?;
     service
         .update_failure_actions(ServiceFailureActions {
@@ -500,9 +501,9 @@ const FIREWALL_RULE: &str = "CTXRemote Direktverbindung";
 
 /// Opens the direct-connection port for the service only. Failures are
 /// reported but not fatal: sessions then simply stay on the relay.
-fn allow_direct_connections(config: &Config) {
+fn allow_direct_connections(enabled: bool, port: u16) {
     remove_firewall_rule();
-    if !config.direct {
+    if !enabled {
         return;
     }
     let Ok(exe) = std::env::current_exe() else { return };
@@ -510,12 +511,12 @@ fn allow_direct_connections(config: &Config) {
         .args(["advfirewall", "firewall", "add", "rule"])
         .arg(format!("name={FIREWALL_RULE}"))
         .args(["dir=in", "action=allow", "protocol=TCP", "profile=any", "enable=yes"])
-        .arg(format!("localport={}", config.direct_port))
+        .arg(format!("localport={port}"))
         .arg(format!("program={}", exe.display()))
         .stdout(std::process::Stdio::null())
         .status();
     match status {
-        Ok(s) if s.success() => println!("Firewall: Port {} für Direktverbindungen geöffnet.", config.direct_port),
+        Ok(s) if s.success() => println!("Firewall: Port {port} für Direktverbindungen geöffnet."),
         _ => eprintln!("Firewall-Regel konnte nicht angelegt werden; Sitzungen laufen dann über den Server."),
     }
 }
@@ -598,8 +599,12 @@ fn start_host(config: Config, screen: Arc<dyn ScreenSource>) -> Host {
 
 #[derive(serde::Deserialize)]
 struct SettingsRequest {
+    #[serde(default)]
     server: String,
     permanent_password: Option<String>,
+    /// Set instead of the server settings when only the direct connection changes.
+    #[serde(default)]
+    direct: Option<DirectSettings>,
 }
 
 /// The app's elevated helper: hands the settings in `file` to the running
@@ -635,13 +640,22 @@ fn apply_settings(request: &[u8]) -> Result<(), String> {
         })
         .await
         .map_err(|e| format!("{e:#}"))?;
-        link.send(UiRequest::Configure {
-            server: request.server,
-            permanent_password: request.permanent_password,
-        });
-        match tokio::time::timeout(Duration::from_secs(10), answer.recv()).await {
+        let direct = request.direct.clone();
+        match &direct {
+            Some(settings) => link.send(UiRequest::ConfigureDirect(settings.clone())),
+            None => link.send(UiRequest::Configure {
+                server: request.server,
+                permanent_password: request.permanent_password,
+            }),
+        }
+        let result = match tokio::time::timeout(Duration::from_secs(10), answer.recv()).await {
             Ok(Some(result)) => result,
             _ => Err("Der Dienst hat nicht geantwortet".into()),
+        };
+        // This helper runs elevated, so it may adjust the firewall; the service cannot.
+        if let (Ok(()), Some(settings)) = (&result, &direct) {
+            allow_direct_connections(settings.enabled, settings.port);
         }
+        result
     })
 }

@@ -33,6 +33,16 @@ pub struct Config {
     pub direct_addresses: Vec<String>,
 }
 
+/// The direct-connection part of the settings form.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DirectSettings {
+    pub enabled: bool,
+    pub port: u16,
+    pub addresses: Vec<String>,
+}
+
+const MAX_DIRECT_ADDRESSES: usize = 8;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Peer {
     pub id: DeviceId,
@@ -150,6 +160,42 @@ impl Config {
         Ok(changed)
     }
 
+    pub fn direct_settings(&self) -> DirectSettings {
+        DirectSettings {
+            enabled: self.direct,
+            port: self.direct_port,
+            addresses: self.direct_addresses.clone(),
+        }
+    }
+
+    /// Validates and applies the direct-connection form. Returns whether anything changed.
+    pub fn apply_direct(&mut self, s: &DirectSettings) -> Result<bool> {
+        if s.port < 1024 {
+            bail!("Der Port muss zwischen 1024 und 65535 liegen");
+        }
+        let addresses: Vec<String> = s
+            .addresses
+            .iter()
+            .map(|a| a.trim())
+            .filter(|a| !a.is_empty())
+            .map(str::to_string)
+            .collect();
+        if addresses.len() > MAX_DIRECT_ADDRESSES {
+            bail!("Es sind höchstens {MAX_DIRECT_ADDRESSES} zusätzliche Adressen möglich");
+        }
+        for address in &addresses {
+            if !valid_host_port(address) {
+                bail!("„{address}“ ist keine gültige Adresse (Format: host:port)");
+            }
+        }
+        let new = DirectSettings { enabled: s.enabled, port: s.port, addresses };
+        let changed = self.direct_settings() != new;
+        self.direct = new.enabled;
+        self.direct_port = new.port;
+        self.direct_addresses = new.addresses;
+        Ok(changed)
+    }
+
     pub fn server_addr(&self) -> String {
         let server = self.server.trim();
         if server.rsplit_once(':').is_some_and(|(_, port)| port.parse::<u16>().is_ok()) {
@@ -233,6 +279,18 @@ impl Config {
     }
 }
 
+/// `host:port` with a numeric port 1-65535; IPv6 literals need brackets.
+fn valid_host_port(address: &str) -> bool {
+    let Some((host, port)) = address.rsplit_once(':') else { return false };
+    if !port.parse::<u16>().is_ok_and(|p| p != 0) {
+        return false;
+    }
+    if let Some(inner) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        return inner.parse::<std::net::Ipv6Addr>().is_ok();
+    }
+    !host.is_empty() && !host.contains(|c: char| c.is_whitespace() || c == ':' || c == '[' || c == ']')
+}
+
 /// A one-time password that is easy to read aloud: no 0/O, 1/l/I.
 pub fn generate_password() -> String {
     const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
@@ -272,6 +330,40 @@ mod tests {
         // Clearing the alias of a never-connected device removes it again.
         config.set_alias(id(111_111_111), None).unwrap();
         assert!(config.peers.is_empty());
+    }
+
+    fn direct(enabled: bool, port: u16, addresses: &[&str]) -> DirectSettings {
+        DirectSettings { enabled, port, addresses: addresses.iter().map(|a| a.to_string()).collect() }
+    }
+
+    #[test]
+    fn direct_settings_apply_and_report_changes() {
+        let mut config = Config::default();
+        assert!(!config.apply_direct(&config.direct_settings()).unwrap());
+        let s = direct(false, 4000, &["  a.example.org:21301 ", "", "[::1]:5000", "1.2.3.4:1"]);
+        assert!(config.apply_direct(&s).unwrap());
+        assert!(!config.direct);
+        assert_eq!(config.direct_port, 4000);
+        assert_eq!(config.direct_addresses, ["a.example.org:21301", "[::1]:5000", "1.2.3.4:1"]);
+        assert!(!config.apply_direct(&config.direct_settings()).unwrap());
+    }
+
+    #[test]
+    fn direct_settings_are_validated() {
+        let mut config = Config::default();
+        let before = config.direct_settings();
+        assert!(config.apply_direct(&direct(true, 1023, &[])).is_err());
+        assert!(config.apply_direct(&direct(true, 1024, &[])).is_ok());
+        for bad in ["host", "host:", "host:0", "host:70000", "ho st:1", ":1", "::1:5", "[::1]", "[x]:5", "a:b"] {
+            assert!(config.apply_direct(&direct(true, 21301, &[bad])).is_err(), "{bad}");
+        }
+        let nine: Vec<&str> = vec!["a.de:1"; 9];
+        assert!(config.apply_direct(&direct(true, 21301, &nine)).is_err());
+        assert!(config.apply_direct(&direct(true, 21301, &nine[..8])).is_ok());
+        // A rejected form leaves the config untouched.
+        let mut other = Config::default();
+        let _ = other.apply_direct(&direct(false, 5000, &["bad"]));
+        assert_eq!(other.direct_settings(), before);
     }
 
     #[test]

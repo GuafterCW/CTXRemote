@@ -342,6 +342,8 @@
   <Settings
     server={overview.server}
     unattended={overview.unattended}
+    direct={overview.direct}
+    directActive={overview.directActive}
     service={overview.service}
     version={overview.version}
     onclose={() => {

@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use ctxremote_core::config::DirectSettings;
 use ctxremote_core::host::{HostEvent, Presence};
 use ctxremote_core::ui_link::{ServiceLink, ServiceState, UiEvent, UiRequest};
 use tauri::{AppHandle, Emitter};
@@ -28,6 +29,8 @@ impl Service {
             server: String::new(),
             unattended: false,
             sessions: Vec::new(),
+            direct: DirectSettings { enabled: false, port: 0, addresses: Vec::new() },
+            direct_active: false,
         });
         let service = Arc::new(Service { link: Mutex::new(None), state });
         match tokio::time::timeout(Duration::from_secs(2), establish(service.clone(), app.clone()))
@@ -120,10 +123,23 @@ fn reconnect(service: Arc<Service>, app: AppHandle) {
 struct Request<'a> {
     server: &'a str,
     permanent_password: Option<&'a str>,
+    /// When set, the helper only changes the direct connection (and the firewall rule).
+    direct: Option<&'a DirectSettings>,
 }
 
 /// Applies settings through the service executable, elevated via UAC.
 pub async fn configure(server: String, permanent_password: Option<String>) -> Result<(), String> {
+    elevated(move |file, exe| run_elevated(exe, file, &server, permanent_password.as_deref(), None)).await
+}
+
+/// Applies the direct-connection settings the same way.
+pub async fn configure_direct(settings: DirectSettings) -> Result<(), String> {
+    elevated(move |file, exe| run_elevated(exe, file, "", None, Some(&settings))).await
+}
+
+async fn elevated(
+    run: impl FnOnce(&std::path::Path, &std::path::Path) -> Result<(), String> + Send + 'static,
+) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let exe = std::env::current_exe()
             .map_err(|e| e.to_string())?
@@ -132,7 +148,7 @@ pub async fn configure(server: String, permanent_password: Option<String>) -> Re
             return Err("ctxremote-service.exe fehlt neben der App. Bitte CTXRemote neu installieren.".to_string());
         }
         let file = request_file()?;
-        let result = run_elevated(&exe, &file, &server, permanent_password.as_deref());
+        let result = run(&file, &exe);
         let _ = std::fs::remove_file(&file);
         result
     })
@@ -166,8 +182,9 @@ fn run_elevated(
     file: &std::path::Path,
     server: &str,
     permanent_password: Option<&str>,
+    direct: Option<&DirectSettings>,
 ) -> Result<(), String> {
-    let request = serde_json::to_vec(&Request { server, permanent_password })
+    let request = serde_json::to_vec(&Request { server, permanent_password, direct })
         .map_err(|e| e.to_string())?;
     std::fs::write(file, &request).map_err(|e| format!("Temporäre Datei nicht beschreibbar: {e}"))?;
     // The file is writable by any of the user's processes; the elevated helper

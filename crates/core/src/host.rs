@@ -20,7 +20,7 @@ use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 
 use crate::agent;
-use crate::config::{generate_password, Config};
+use crate::config::{generate_password, Config, DirectSettings};
 use crate::direct::{DirectListener, Offer};
 use crate::net;
 
@@ -62,6 +62,8 @@ struct Shared {
     approver: Mutex<Option<Approver>>,
     /// Set once the listener for direct connections runs.
     direct: Mutex<Option<Arc<DirectListener>>>,
+    /// Serializes listener changes.
+    direct_turn: tokio::sync::Mutex<()>,
 }
 
 #[derive(Clone)]
@@ -91,6 +93,7 @@ impl Host {
             screen,
             approver: Mutex::new(None),
             direct: Mutex::new(None),
+            direct_turn: tokio::sync::Mutex::new(()),
         });
         tokio::spawn(presence_loop(shared.clone()));
         let (enabled, port, extra) = {
@@ -98,12 +101,21 @@ impl Host {
             (config.direct, config.direct_port, config.direct_addresses.clone())
         };
         if enabled {
-            let shared = shared.clone();
-            tokio::spawn(async move {
-                *shared.direct.lock().unwrap() = DirectListener::start(port, extra).await;
-            });
+            tokio::spawn(restart_direct(shared.clone(), DirectSettings { enabled, port, addresses: extra }));
         }
         Self { shared }
+    }
+
+    /// Applies new direct-connection settings without a restart: stops the
+    /// listener and starts a new one if enabled. Running sessions are unaffected.
+    /// The caller updates the config. Needs a tokio runtime.
+    pub fn set_direct(&self, settings: DirectSettings) {
+        tokio::spawn(restart_direct(self.shared.clone(), settings));
+    }
+
+    /// Whether the listener for direct connections runs.
+    pub fn direct_active(&self) -> bool {
+        self.shared.direct.lock().unwrap().is_some()
     }
 
     pub fn presence(&self) -> watch::Receiver<Presence> {
@@ -146,6 +158,30 @@ impl Host {
         let mut list: Vec<_> = sessions.iter().map(|(n, (peer, _))| (*n, peer.clone())).collect();
         list.sort_unstable_by_key(|(n, _)| *n);
         list
+    }
+}
+
+async fn restart_direct(shared: Arc<Shared>, settings: DirectSettings) {
+    // One change at a time, so two quick saves cannot leave two listeners.
+    let _turn = shared.direct_turn.lock().await;
+    let old = shared.direct.lock().unwrap().take();
+    let restarting = old.is_some();
+    if let Some(old) = old {
+        old.stop();
+    }
+    if !settings.enabled {
+        return;
+    }
+    // The old sockets close once their aborted tasks are dropped; on a restart
+    // the port may take a moment to come free, so try a few times.
+    for attempt in 0..if restarting { 10 } else { 1 } {
+        if attempt > 0 || restarting {
+            sleep(Duration::from_millis(150)).await;
+        }
+        if let Some(listener) = DirectListener::start(settings.port, settings.addresses.clone()).await {
+            *shared.direct.lock().unwrap() = Some(listener);
+            return;
+        }
     }
 }
 

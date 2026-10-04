@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use ctxremote_core::config::Config;
+use ctxremote_core::config::{Config, DirectSettings};
 use ctxremote_core::files::client::{FileClient, TransferEvent};
 use ctxremote_core::files::{self, UserContext};
 use ctxremote_core::host::{Host, Presence};
@@ -118,6 +118,8 @@ struct Overview {
     password: String,
     server: String,
     unattended: bool,
+    direct: DirectSettings,
+    direct_active: bool,
     service: bool,
     host_supported: bool,
     peers: Vec<PeerView>,
@@ -143,7 +145,7 @@ struct Hosted {
 #[tauri::command]
 fn overview(state: State<AppState>) -> Overview {
     let config = state.config.read().unwrap();
-    let (presence, password, server, unattended, sessions, service) = match &state.host {
+    let (presence, password, server, unattended, sessions, service, direct, direct_active) = match &state.host {
         Side::Local(host) => (
             host.presence().borrow().clone(),
             host.password(),
@@ -151,11 +153,13 @@ fn overview(state: State<AppState>) -> Overview {
             config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
             host.sessions(),
             false,
+            config.direct_settings(),
+            host.direct_active(),
         ),
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => {
             let s = service.state();
-            (s.presence, s.password, s.server, s.unattended, s.sessions, true)
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active)
         }
     };
     Overview {
@@ -163,6 +167,8 @@ fn overview(state: State<AppState>) -> Overview {
         password,
         server,
         unattended,
+        direct,
+        direct_active,
         service,
         host_supported: ctxremote_core::capture::HOST_SUPPORTED,
         peers: config
@@ -222,6 +228,38 @@ async fn save_settings(
         host.reconnect();
     }
     Ok(())
+}
+
+/// Direct-connection settings; not available in the quick build, which never listens.
+#[tauri::command]
+async fn save_direct(state: State<'_, AppState>, settings: DirectSettings) -> CmdResult<()> {
+    #[cfg(feature = "quick")]
+    {
+        let _ = (state, settings);
+        Err("Die Schnellhilfe nimmt keine Direktverbindungen an".into())
+    }
+    #[cfg(not(feature = "quick"))]
+    {
+        let host = match &state.host {
+            Side::Local(host) => host,
+            Side::Service(_) => {
+                // The service validates and applies; the new state arrives over the link.
+                return service::configure_direct(settings).await;
+            }
+        };
+        let changed = {
+            let mut config = state.config.write().unwrap();
+            let changed = config.apply_direct(&settings).map_err(err)?;
+            config.save().map_err(err)?;
+            changed
+        };
+        if changed {
+            host.set_direct(settings);
+            // Lets the listener settle, so the overview shows the real state.
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        }
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -607,6 +645,7 @@ macro_rules! handlers {
             overview,
             refresh_password,
             save_settings,
+            save_direct,
             forget_peer,
             set_alias,
             connect,

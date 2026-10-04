@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::DirectSettings;
 use crate::host::{HostEvent, Presence};
 
 pub const PIPE: &str = r"\\.\pipe\ctxremote-ui";
@@ -18,6 +19,9 @@ pub struct ServiceState {
     pub server: String,
     pub unattended: bool,
     pub sessions: Vec<(u64, String)>,
+    pub direct: DirectSettings,
+    /// The listener for direct connections runs.
+    pub direct_active: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +30,9 @@ pub enum UiRequest {
     EndSession(u64),
     /// As [`crate::config::Config::apply_settings`]; elevated administrators only.
     Configure { server: String, permanent_password: Option<String> },
+    /// As [`crate::config::Config::apply_direct`]; elevated administrators only.
+    /// Appended last: the JSON enum is matched by name, but keep the order anyway.
+    ConfigureDirect(DirectSettings),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +163,8 @@ mod imp {
             server: config.server.clone(),
             unattended: config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
             sessions: host.sessions(),
+            direct: config.direct_settings(),
+            direct_active: host.direct_active(),
         }
     }
 
@@ -196,6 +205,19 @@ mod imp {
                             }
                             UiEvent::Configured(answer)
                         }
+                        UiRequest::ConfigureDirect(settings) => {
+                            let answer = if is_elevated_admin(HANDLE(handle as _)) {
+                                configure_direct(&host, &config, &settings)
+                            } else {
+                                Err("Nur Administratoren dürfen die Einstellungen des Dienstes ändern".into())
+                            };
+                            if answer.is_ok() {
+                                // The listener restarts in the background; let it settle so the state is current.
+                                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                                changed.send_replace(());
+                            }
+                            UiEvent::Configured(answer)
+                        }
                     }
                 }
                 _ = presence.changed() => UiEvent::State(state(&host, &config)),
@@ -232,6 +254,20 @@ mod imp {
         info!("Einstellungen des Dienstes geändert");
         if server_changed {
             host.reconnect();
+        }
+        Ok(())
+    }
+
+    fn configure_direct(host: &Host, config: &RwLock<Config>, settings: &DirectSettings) -> Result<(), String> {
+        let changed = {
+            let mut config = config.write().unwrap();
+            let changed = config.apply_direct(settings).map_err(|e| e.to_string())?;
+            config.save().map_err(|e| format!("Einstellungen nicht gespeichert: {e:#}"))?;
+            changed
+        };
+        info!("Direktverbindungs-Einstellungen des Dienstes geändert");
+        if changed {
+            host.set_direct(settings.clone());
         }
         Ok(())
     }

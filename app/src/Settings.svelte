@@ -1,15 +1,25 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { api, errorText } from "./lib/api";
+  import { api, errorText, type DirectSettings } from "./lib/api";
   import Icon from "./lib/Icon.svelte";
 
   let {
     server: initialServer,
     unattended,
+    direct: initialDirect,
+    directActive: initialActive,
     service,
     version,
     onclose,
-  }: { server: string; unattended: boolean; service: boolean; version: string; onclose: () => void } = $props();
+  }: {
+    server: string;
+    unattended: boolean;
+    direct: DirectSettings;
+    directActive: boolean;
+    service: boolean;
+    version: string;
+    onclose: () => void;
+  } = $props();
 
   // The form edits a copy; props are only the starting point.
   let server = $state(untrack(() => initialServer));
@@ -24,12 +34,55 @@
   );
   const needsPassword = $derived(enableUnattended && !unattended && newPassword.length < 8);
 
+  // Direct connections take effect at once and are saved only when changed.
+  let savedDirect = $state(untrack(() => initialDirect));
+  let directActive = $state(untrack(() => initialActive));
+  let directEnabled = $state(untrack(() => initialDirect.enabled));
+  let directPort = $state(String(untrack(() => initialDirect.port)));
+  let directAddresses = $state(untrack(() => initialDirect.addresses.join("\n")));
+  let directError = $state("");
+
+  const directAddressList = $derived(directAddresses.split("\n").map((a) => a.trim()).filter(Boolean));
+  const directChanged = $derived(
+    directEnabled !== savedDirect.enabled ||
+      String(directPort) !== String(savedDirect.port) ||
+      directAddressList.join("\n") !== savedDirect.addresses.join("\n"),
+  );
+  // In service mode every save asks for administrator approval, so only what changed is sent.
+  const settingsChanged = $derived(server.trim() !== initialServer || passwordChange !== null);
+
+  const directStatus = $derived(
+    !savedDirect.enabled
+      ? "Aus"
+      : directActive
+        ? `Aktiv auf Port ${savedDirect.port}`
+        : "Nicht aktiv (Port belegt?)",
+  );
+
+  /** Returns false if the direct settings were rejected; the error shows in their section. */
+  async function saveDirect(): Promise<boolean> {
+    directError = "";
+    try {
+      const port = Number(directPort);
+      if (!Number.isInteger(port)) throw "Bitte einen Port als Zahl angeben";
+      await api.saveDirect({ enabled: directEnabled, port, addresses: directAddressList });
+      const overview = await api.overview();
+      savedDirect = overview.direct;
+      directActive = overview.directActive;
+      return true;
+    } catch (err) {
+      directError = errorText(err);
+      return false;
+    }
+  }
+
   async function save(e: SubmitEvent) {
     e.preventDefault();
     saving = true;
     error = "";
     try {
-      await api.saveSettings(server, passwordChange);
+      if (directChanged && !(await saveDirect())) return;
+      if (settingsChanged) await api.saveSettings(server, passwordChange);
       onclose();
     } catch (err) {
       error = errorText(err);
@@ -87,6 +140,48 @@
     {#if error}
       <p class="error">{error}</p>
     {/if}
+
+    <section class="group section">
+      <h3>Direktverbindung</h3>
+      <label class="toggle">
+        <span>
+          <span class="name">Direkte Verbindungen anbieten</span>
+          <span class="note">
+            Sitzungen wechseln nach dem Aufbau auf eine direkte Verbindung, wenn sie erreichbar ist.
+          </span>
+        </span>
+        <input type="checkbox" class="switch" bind:checked={directEnabled} />
+      </label>
+
+      <label class="group">
+        <span class="name">Port</span>
+        <input
+          class="field"
+          type="number"
+          min="1024"
+          max="65535"
+          bind:value={directPort}
+        />
+        <span class="note">Für Verbindungen aus dem Internet am Router weiterleiten.</span>
+      </label>
+
+      <label class="group">
+        <span class="name">Zusätzliche Adressen</span>
+        <textarea
+          class="field area"
+          rows="3"
+          bind:value={directAddresses}
+          spellcheck="false"
+          placeholder="meinhaus.dyndns.org:21301"
+        ></textarea>
+        <span class="note">Eine Adresse pro Zeile, z. B. meinhaus.dyndns.org:21301 bei Portweiterleitung.</span>
+      </label>
+
+      <span class="note status">{directStatus}</span>
+      {#if directError}
+        <p class="error">{directError}</p>
+      {/if}
+    </section>
   </div>
 
   <footer>
@@ -209,6 +304,31 @@
 
   .switch:checked::after {
     transform: translateX(16px);
+  }
+
+  .section {
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    gap: 16px;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+
+  .area {
+    height: auto;
+    padding: 10px 14px;
+    line-height: 1.4;
+    resize: vertical;
+    font-family: inherit;
+  }
+
+  .status {
+    color: var(--ink-2);
   }
 
   .error {
