@@ -6,8 +6,9 @@ export type Presence =
   | { state: "offline"; reason: string };
 
 export type HostEvent =
-  | { kind: "sessionStarted"; session: number; peer: string }
+  | { kind: "sessionStarted"; session: number; peer: string; chat: boolean }
   | { kind: "sessionEnded"; session: number }
+  | { kind: "chat"; session: number; text: string }
   | { kind: "passwordChanged" };
 
 /** Quick build: a viewer waits for the user's decision. */
@@ -32,6 +33,8 @@ export function peerLabel(peer: Peer): string {
 export interface Hosted {
   session: number;
   peer: string;
+  /** The viewer's version understands chat messages. */
+  chat: boolean;
 }
 
 /** Mirrors `DirectSettings` in crates/core/src/config.rs. */
@@ -78,6 +81,7 @@ export interface HostFeatures {
   files: boolean;
   restart: boolean;
   quality: boolean;
+  chat: boolean;
 }
 
 /** Mirrors `Quality` in crates/proto/src/session.rs. */
@@ -140,6 +144,10 @@ export const api = {
   setQuality: (session: number, quality: Quality) => invoke<void>("set_quality", { session, quality }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
   endHostedSession: (session: number) => invoke<void>("end_hosted_session", { session }),
+  /** Viewer side: rejects with the reason, e.g. an empty message. */
+  sendChat: (session: number, text: string) => invoke<void>("send_chat", { session, text }),
+  /** Host side. */
+  hostChat: (session: number, text: string) => invoke<void>("host_chat", { session, text }),
   openFiles: (session: number) => invoke<void>("open_files", { session }),
   /** Files dropped on the session window, uploaded by its file window. */
   queueDrop: (session: number, paths: string[]) => invoke<void>("queue_drop", { session, paths }),

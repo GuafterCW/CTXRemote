@@ -9,6 +9,7 @@
     type Overview,
     type Presence,
   } from "./lib/api";
+  import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
 
   let overview = $state<Overview | null>(null);
@@ -17,6 +18,14 @@
   let requests = $state<ApprovalRequest[]>([]);
   let copied = $state<"id" | "password" | null>(null);
   let denyButton = $state<HTMLButtonElement>();
+
+  // Chat history per session number; it goes away with the session.
+  let chats = $state<Record<number, ChatMessage[]>>({});
+
+  async function sendChat(session: number, text: string) {
+    await api.hostChat(session, text);
+    chats[session] = [...(chats[session] ?? []), { mine: true, text, at: Date.now() }];
+  }
 
   const myId = $derived(presence.state === "online" ? presence.id : null);
   const request = $derived(requests[0] ?? null);
@@ -33,8 +42,15 @@
       listen<Presence>("presence", (e) => (presence = e.payload)),
       listen<HostEvent>("host-event", (e) => {
         const event = e.payload;
-        if (event.kind === "sessionStarted") hosted = [...hosted, { session: event.session, peer: event.peer }];
-        if (event.kind === "sessionEnded") hosted = hosted.filter((h) => h.session !== event.session);
+        if (event.kind === "sessionStarted")
+          hosted = [...hosted, { session: event.session, peer: event.peer, chat: event.chat }];
+        if (event.kind === "sessionEnded") {
+          hosted = hosted.filter((h) => h.session !== event.session);
+          delete chats[event.session];
+        }
+        if (event.kind === "chat") {
+          chats[event.session] = [...(chats[event.session] ?? []), { mine: false, text: event.text, at: Date.now() }];
+        }
         if (event.kind === "passwordChanged") refresh();
       }),
       listen<ApprovalRequest>("approval-request", (e) => {
@@ -108,10 +124,19 @@
       {#if hosted.length > 0}
         <section class="live-box">
           {#each hosted as h (h.session)}
-            <div class="live-row">
-              <span class="live"></span>
-              <span class="live-text">Verbunden mit <strong>{h.peer}</strong></span>
-              <button class="btn btn-quiet end" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
+            <div class="live-item">
+              <div class="live-row">
+                <span class="live"></span>
+                <span class="live-text">Verbunden mit <strong>{h.peer}</strong></span>
+                <button class="btn btn-quiet end" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
+              </div>
+              {#if h.chat}
+                <div class="chat-wrap">
+                  <ChatPanel messages={chats[h.session] ?? []} onsend={(text) => sendChat(h.session, text)} />
+                </div>
+              {:else}
+                <p class="hint no-chat">Die Gegenstelle hat eine ältere Version ohne Chat.</p>
+              {/if}
             </div>
           {/each}
         </section>
@@ -291,7 +316,7 @@
     padding: 12px 14px;
   }
 
-  .live-row + .live-row {
+  .live-item + .live-item {
     border-top: 1px solid var(--line);
   }
 
@@ -307,6 +332,19 @@
     flex: 1;
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+
+  .chat-wrap {
+    display: flex;
+    height: 260px;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+
+  .no-chat {
+    margin: 0;
+    padding: 0 14px 12px;
   }
 
   .end {

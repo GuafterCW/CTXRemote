@@ -67,6 +67,13 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
   - Gespeichert wird nur, was sich geändert hat, damit nicht unnötig UAC-Abfragen kommen.
 - **Start-Skript für Claude-Code-Cloud-Sitzungen** (`.claude/hooks/session-start.sh`): Es installiert die Linux-Bibliotheken für Tauri, führt `npm ci` aus, richtet das Windows-Target ein und lädt die Crates per `cargo fetch`. Es wirkt erst, wenn es im Standard-Branch liegt.
 
+- **Chat** in beiden Richtungen (Fähigkeits-Bit `CHAT`):
+  - Im Sitzungsfenster gibt es einen Chat-Knopf mit Zähler für ungelesene Nachrichten.
+  - Im Hauptfenster hat jede gehostete Sitzung einen Chat-Knopf. In der Schnellhilfe ist der Chat immer sichtbar.
+  - Eine eingehende Nachricht holt das Hauptfenster nach vorn.
+  - Tippen im Chatfeld geht nicht an das ferne Gerät.
+  - Der Verlauf liegt nur im Fenster und wird nicht gespeichert.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -94,12 +101,21 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
     - Die Firewall-Regel muss den neuen Port haben (`wf.msc`).
     - Abschalten muss „Aus“ zeigen, und neue Sitzungen bleiben dann „Über Server“.
 11. Bitratenregelung: Eine Sitzung über eine gedrosselte Leitung, z. B. einen Handy-Hotspot oder die Netzwerkdrosselung in einer VM. Das Bild muss flüssig bleiben, statt immer weiter hinterherzuhinken. Im Log stehen „Bitrate angepasst“-Zeilen (`RUST_LOG=debug`).
+12. Chat in drei Varianten:
+    - App gegen App
+    - App gegen Dienst: Der Chat muss über die UI-Pipe im Hauptfenster ankommen.
+    - App gegen Schnellhilfe
+
+    Dabei prüfen:
+    - Steht das Hauptfenster im Tray, muss es sich bei einer Nachricht öffnen.
+    - Kein Buchstabe aus dem Chatfeld darf beim fernen Gerät ankommen.
+    - Gegen einen alten Host muss der Chat-Knopf fehlen.
 
 ## Nächste Schritte
 
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
 2. Direktverbindung durch NAT ohne Portweiterleitung (UDP-Hole-Punching, siehe `docs/DIRECT.md`), Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig).
-3. Eventuell ein Chat für die Schnellhilfe. Hilfreich für den Support, braucht aber auf der Host-Seite im Dienstmodus einen Weg über die UI-Pipe.
+3. Adressbuch und Geräteverwaltung über den Server, Code-Signatur (braucht ein Konto bei Microsoft Trusted Signing).
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 

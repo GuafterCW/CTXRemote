@@ -12,6 +12,7 @@
     type Presence,
   } from "./lib/api";
   import { formatId, isCompleteId } from "./lib/format";
+  import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
   import PeerList from "./PeerList.svelte";
   import Settings from "./Settings.svelte";
@@ -22,6 +23,15 @@
   let revealed = $state(false);
   let copied = $state<"id" | "password" | null>(null);
   let settingsOpen = $state(false);
+  let chatOpen = $state<Record<number, boolean>>({});
+
+  // Chat history per session number; it goes away with the session.
+  let chats = $state<Record<number, ChatMessage[]>>({});
+
+  async function sendChat(session: number, text: string) {
+    await api.hostChat(session, text);
+    chats[session] = [...(chats[session] ?? []), { mine: true, text, at: Date.now() }];
+  }
 
   // Connect flow: ID or alias → password → connecting.
   let query = $state("");
@@ -52,8 +62,17 @@
       }),
       listen<HostEvent>("host-event", (e) => {
         const event = e.payload;
-        if (event.kind === "sessionStarted") hosted = [...hosted, { session: event.session, peer: event.peer }];
-        if (event.kind === "sessionEnded") hosted = hosted.filter((h) => h.session !== event.session);
+        if (event.kind === "sessionStarted")
+          hosted = [...hosted, { session: event.session, peer: event.peer, chat: event.chat }];
+        if (event.kind === "sessionEnded") {
+          hosted = hosted.filter((h) => h.session !== event.session);
+          delete chats[event.session];
+          delete chatOpen[event.session];
+        }
+        if (event.kind === "chat") {
+          chats[event.session] = [...(chats[event.session] ?? []), { mine: false, text: event.text, at: Date.now() }];
+          chatOpen[event.session] = true;
+        }
         if (event.kind === "passwordChanged") refresh();
       }),
     ];
@@ -165,10 +184,24 @@
         <div class="banner-row">
           <span class="live"></span>
           <span><strong>{h.peer}</strong> steuert dieses Gerät</span>
+          {#if h.chat}
+            <button class="banner-btn chat-btn" onclick={() => (chatOpen[h.session] = !chatOpen[h.session])}>
+              <Icon name="chat" size={14} /> Chat
+            </button>
+          {:else}
+            <span class="no-chat" title="Gegenstelle hat eine ältere Version ohne Chat">Kein Chat</span>
+          {/if}
           <button class="banner-btn" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
         </div>
       {/each}
     </div>
+    {#each hosted as h (h.session)}
+      {#if h.chat && chatOpen[h.session]}
+        <div class="chat-wrap">
+          <ChatPanel messages={chats[h.session] ?? []} onsend={(text) => sendChat(h.session, text)} />
+        </div>
+      {/if}
+    {/each}
   {/if}
 
   <header>
@@ -695,6 +728,31 @@
     color: inherit;
     font-size: 12.5px;
     font-weight: 600;
+  }
+
+  .chat-btn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .chat-btn + .banner-btn,
+  .no-chat + .banner-btn {
+    margin-left: 0;
+  }
+
+  .no-chat {
+    margin-left: auto;
+    opacity: 0.65;
+    font-size: 12.5px;
+  }
+
+  .chat-wrap {
+    display: flex;
+    height: 260px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
   }
 
   .banner-btn:hover {

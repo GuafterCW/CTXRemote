@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { Channel } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { api, errorText, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
+  import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
 
@@ -23,7 +24,11 @@
   let quality = $state<Quality>("Balanced");
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false });
+  let chatOpen = $state(false);
+  let chatMessages = $state<ChatMessage[]>([]);
+  let unread = $state(0);
+  let chatPanel = $state<ReturnType<typeof ChatPanel>>();
   /** Address of the direct connection, null while the server relays. */
   let direct = $state<string | null>(null);
   /** CSS cursor showing the host's pointer shape, once it has sent one. */
@@ -78,6 +83,14 @@
     hideToolbarSoon();
 
     const unlistenRoute = getCurrentWindow().listen<string>("route", (e) => (direct = e.payload));
+    const unlistenChat = getCurrentWindow().listen<string>("chat", (e) => {
+      chatMessages = [...chatMessages, { mine: false, text: e.payload, at: Date.now() }];
+      if (!chatOpen) {
+        unread += 1;
+        toolbarVisible = true;
+        hideToolbarSoon();
+      }
+    });
 
     // Files dropped from the OS go to the remote desktop; the files window shows the progress.
     const unlistenDrop = getCurrentWebview().onDragDropEvent((event) => {
@@ -88,6 +101,7 @@
       player.close();
       unlistenDrop.then((off) => off());
       unlistenRoute.then((off) => off());
+      unlistenChat.then((off) => off());
     };
   });
 
@@ -163,7 +177,34 @@
     }
   }
 
+  // Keys typed into the chat panel must stay local.
+  const inChat = (e: Event) => e.target instanceof Element && e.target.closest("[data-chat]") !== null;
+
+  async function sendChat(text: string) {
+    await api.sendChat(session, text);
+    chatMessages = [...chatMessages, { mine: true, text, at: Date.now() }];
+  }
+
+  function toggleChat() {
+    if (chatOpen) return closeChat();
+    // Keys still held on the remote device would otherwise stay pressed while typing here.
+    send("ReleaseAll");
+    chatOpen = true;
+    unread = 0;
+    keysOpen = false;
+    qualityOpen = false;
+    clearTimeout(hideTimer);
+    tick().then(() => chatPanel?.focus());
+  }
+
+  function closeChat() {
+    chatOpen = false;
+    canvas?.focus();
+    hideToolbarSoon();
+  }
+
   function onKey(e: KeyboardEvent, down: boolean) {
+    if (inChat(e)) return;
     if (!streaming || closed !== null || !e.code) return;
     e.preventDefault();
     e.stopPropagation();
@@ -227,7 +268,7 @@
   function hideToolbarSoon() {
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (!keysOpen && !qualityOpen) toolbarVisible = false;
+      if (!keysOpen && !qualityOpen && !chatOpen) toolbarVisible = false;
     }, 2400);
   }
 
@@ -367,6 +408,12 @@
           {/if}
         </div>
       {/if}
+      {#if features.chat}
+        <button class="tool chat-tool" class:active={chatOpen} title="Chat" onclick={toggleChat}>
+          <Icon name="chat" size={17} />
+          {#if unread > 0}<span class="badge">{unread > 9 ? "9+" : unread}</span>{/if}
+        </button>
+      {/if}
       {#if features.files}
         <button class="tool" title="Dateien" onclick={() => api.openFiles(session)}>
           <Icon name="folder" size={17} />
@@ -378,6 +425,19 @@
       <button class="tool end" title="Trennen" onclick={disconnect}>
         <Icon name="power" size={17} />
       </button>
+    </div>
+  {/if}
+
+  {#if chatOpen && features.chat}
+    <div class="chat-box">
+      <ChatPanel
+        bind:this={chatPanel}
+        variant="dark"
+        messages={chatMessages}
+        onsend={sendChat}
+        onclose={closeChat}
+        disabled={closed !== null}
+      />
     </div>
   {/if}
 </div>
@@ -544,6 +604,43 @@
 
   .menu-anchor {
     position: relative;
+  }
+
+  .chat-tool {
+    position: relative;
+  }
+
+  .chat-tool.active {
+    background: #2c2c29;
+    color: #fff;
+  }
+
+  .badge {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: #4fb495;
+    color: #0d1a16;
+    font-size: 10px;
+    line-height: 14px;
+  }
+
+  .chat-box {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    display: flex;
+    width: 320px;
+    max-height: 50%;
+    overflow: hidden;
+    border: 1px solid #2f2e2b;
+    border-radius: 10px;
+    background: #181816;
+    color: #d8d6d0;
   }
 
   .menu {
