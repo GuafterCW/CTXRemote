@@ -38,51 +38,189 @@ Ohne die Einstellungen unten laufen die Builds trotzdem. Installer und Schnellhi
   - `ctxremote-server update-keygen` erzeugt ein Schlüsselpaar.
   - `ctxremote-server update-sign …` signiert ein Update und legt es in `<data>/updates` ab. Der Server liest den Ordner bei jeder Anfrage, ein neues Release braucht also keinen Neustart.
 
-## Einmalige Einrichtung
+## Einrichtung Schritt für Schritt
 
-### 1. Server
+Einmalig nötig, etwa 30 Minuten. Du brauchst:
 
-Auf dem Server als root, im Ordner `deploy/` dieses Repos. Bitte zuerst ein Backup des bisherigen Datenordners machen:
+- **Server:** einen Linux-Server mit systemd (Debian, Ubuntu o. ä.) und Zugang als root per SSH.
+- **Windows-PC:** Git, Rust und das Repo. OpenSSH (`ssh`, `scp`, `ssh-keygen`) ist in Windows 10/11 eingebaut.
+
+In den Befehlen steht `remote.ctx.ink` für deinen Server; ggf. ersetzen. Befehle mit `PS>` gehören in die PowerShell auf deinem PC, Befehle mit `#` laufen als root auf dem Server.
+
+### Schritt 1: Alten Datenordner finden und sichern
+
+Der Server merkt sich in `devices.json`, welche Geräte-ID zu welchem Gerät gehört. Diese Datei muss erhalten bleiben, sonst bekommen alle Geräte neue IDs.
 
 ```bash
-bash setup-server.sh "<Inhalt von ctxremote-deploy.pub>" /pfad/zum/bisherigen/datenordner
-ufw allow 21300/tcp   # falls ufw läuft
+ssh root@remote.ctx.ink
+# find / -name devices.json -not -path "*/proc/*" 2>/dev/null
 ```
 
-Das Skript richtet Folgendes ein:
+Den gefundenen Ordner merken (im Folgenden `/pfad/zum/datenordner`) und sichern:
 
-- den Benutzer `ctxremote`
-- die Ordner `/opt/ctxremote` und `/var/lib/ctxremote`
-- die systemd-Unit `ctxremote-server`
-- eine sudo-Regel, die nur den Neustart dieses Dienstes erlaubt
+```bash
+# cp -a /pfad/zum/datenordner /root/ctxremote-backup-$(date +%F)
+```
 
-Die `devices.json` aus dem alten Datenordner übernimmt es, damit alle Geräte-IDs gültig bleiben. Den bisher von Hand gestarteten Server danach beenden, sonst ist Port 21300 belegt.
+### Schritt 2: Deploy-Schlüssel erzeugen
 
-### 2. Schlüssel (auf deinem Rechner)
+Damit meldet sich GitHub später auf dem Server an. In einem Ordner außerhalb des Repos, z. B. `C:\ctxremote-keys`:
 
 ```powershell
-ssh-keygen -t ed25519 -f ctxremote-deploy -N '""' -C ctxremote-deploy   # Deploy-Schlüssel
-ssh-keyscan remote.ctx.ink                                              # Ausgabe -> DEPLOY_KNOWN_HOSTS
-cargo run -p ctxremote-server -- update-keygen                           # Update-Schlüsselpaar
+PS> mkdir C:\ctxremote-keys; cd C:\ctxremote-keys
+PS> ssh-keygen -t ed25519 -f ctxremote-deploy -N '""' -C ctxremote-deploy
 ```
 
-### 3. GitHub: Settings → Secrets and variables → Actions
+Danach liegen dort zwei Dateien: `ctxremote-deploy` (privat) und `ctxremote-deploy.pub` (öffentlich).
 
-| Art | Name | Inhalt |
-|---|---|---|
-| Secret | `DEPLOY_SSH_KEY` | Inhalt der Datei `ctxremote-deploy` (privat) |
-| Secret | `DEPLOY_KNOWN_HOSTS` | Ausgabe von `ssh-keyscan` |
-| Secret | `CTXREMOTE_UPDATE_SIGNING_KEY` | privater Schlüssel aus `update-keygen` |
-| Variable | `CTXREMOTE_UPDATE_KEY` | öffentlicher Schlüssel aus `update-keygen` |
-| Variable | `CTXREMOTE_SERVER` | `remote.ctx.ink` |
-| Variable | `DEPLOY_HOST` | `remote.ctx.ink` (oder IP) |
-| Variable | `DEPLOY_USER` | optional, Standard `ctxremote` |
+### Schritt 3: Einrichtungsdateien auf den Server kopieren
 
-Den privaten Update-Schlüssel sicher aufbewahren, z. B. im Passwortmanager. Geht er verloren, nehmen bestehende Clients keine Updates mehr an, bis man sie einmal von Hand neu installiert.
+Im Repo-Ordner auf deinem PC:
 
-### 4. Erste Installation
+```powershell
+PS> scp -r deploy root@remote.ctx.ink:/root/ctxremote-deploy
+```
 
-Clients von vor der Pipeline kennen den Update-Schlüssel nicht. Den Installer aus dem ersten Pipeline-Lauf deshalb einmal von Hand installieren (Artefakt `client` am Workflow-Lauf). Danach aktualisieren sich die Geräte selbst.
+### Schritt 4: Alten Server stoppen
+
+Port 21300 muss frei sein, bevor der neue Dienst startet. Wie du den alten Server stoppst, hängt davon ab, wie du ihn gestartet hast:
+
+- **Von Hand / mit `nohup`, `screen` oder `tmux`:** `# pkill -f ctxremote-server`
+- **Mit einer eigenen systemd-Unit:** `# systemctl disable --now <name-der-unit>`
+- **In Docker:** `# docker stop <container>` und den Container aus dem Autostart nehmen (`docker update --restart=no <container>`)
+
+Prüfen: `# ss -ltnp | grep 21300` darf nichts mehr ausgeben.
+
+### Schritt 5: Einrichtung ausführen
+
+Den Inhalt von `ctxremote-deploy.pub` anzeigen und die eine Zeile kopieren (beginnt mit `ssh-ed25519`):
+
+```powershell
+PS> Get-Content C:\ctxremote-keys\ctxremote-deploy.pub
+```
+
+Auf dem Server, mit der kopierten Zeile in Anführungszeichen und dem Datenordner aus Schritt 1:
+
+```bash
+# cd /root/ctxremote-deploy
+# bash setup-server.sh "ssh-ed25519 AAAA…  ctxremote-deploy" /pfad/zum/datenordner
+```
+
+Erwartete Ausgabe: „Geräte-IDs aus … übernommen.“ und „Eingerichtet. Der Server startet mit der ersten Auslieferung …“.
+
+Firewall (nur falls `ufw` aktiv ist; bei einer Cloud-Firewall des Anbieters dort TCP 21300 freigeben):
+
+```bash
+# ufw allow 21300/tcp
+```
+
+### Schritt 6: Anmeldung testen
+
+Vom PC aus. Das muss **ohne** Passwortabfrage `ok` ausgeben:
+
+```powershell
+PS> ssh -i C:\ctxremote-keys\ctxremote-deploy ctxremote@remote.ctx.ink "echo ok"
+```
+
+Wird nach einem Passwort gefragt, stimmt der Schlüssel in Schritt 5 nicht. Den Befehl aus Schritt 5 dann mit der richtigen Zeile wiederholen; das Skript darf mehrfach laufen.
+
+### Schritt 7: Fingerabdruck des Servers holen
+
+```powershell
+PS> ssh-keyscan remote.ctx.ink
+```
+
+Die ganze Ausgabe (mehrere Zeilen) kopieren, sie wird in Schritt 9 gebraucht.
+
+### Schritt 8: Update-Schlüssel erzeugen
+
+Im Repo-Ordner:
+
+```powershell
+PS> cargo run -p ctxremote-server -- update-keygen
+```
+
+Die Ausgabe enthält einen **privaten** und einen **öffentlichen** Schlüssel. Den privaten sofort im Passwortmanager sichern. Geht er verloren, nehmen bestehende Geräte keine Updates mehr an, bis man sie einmal von Hand neu installiert.
+
+### Schritt 9: In GitHub eintragen
+
+Im Repo auf github.com: **Settings → Secrets and variables → Actions**.
+
+Reiter **Secrets**, je „New repository secret“:
+
+| Name | Inhalt |
+|---|---|
+| `DEPLOY_SSH_KEY` | kompletter Inhalt von `C:\ctxremote-keys\ctxremote-deploy` (ohne `.pub`), einschließlich der Zeilen `-----BEGIN…` und `-----END…`. Anzeigen mit `Get-Content C:\ctxremote-keys\ctxremote-deploy` |
+| `DEPLOY_KNOWN_HOSTS` | Ausgabe aus Schritt 7 |
+| `CTXREMOTE_UPDATE_SIGNING_KEY` | **privater** Schlüssel aus Schritt 8 |
+
+Reiter **Variables**, je „New repository variable“:
+
+| Name | Inhalt |
+|---|---|
+| `CTXREMOTE_UPDATE_KEY` | **öffentlicher** Schlüssel aus Schritt 8 |
+| `CTXREMOTE_SERVER` | `remote.ctx.ink` |
+| `DEPLOY_HOST` | `remote.ctx.ink` (oder die IP des Servers) |
+
+Danach die privaten Schlüsseldateien in `C:\ctxremote-keys` löschen oder sicher verwahren. Sie liegen jetzt in GitHub.
+
+### Schritt 10: Nach `master` bringen
+
+Entweder auf github.com einen Pull Request vom Arbeitsbranch nach `master` öffnen und mergen, oder lokal:
+
+```powershell
+PS> git checkout master
+PS> git pull
+PS> git merge claude/vigilant-lovelace-rvm0ax
+PS> git push
+```
+
+### Schritt 11: Ersten Lauf beobachten
+
+Auf github.com im Reiter **Actions** den Lauf „Release“ öffnen. Nach etwa 10–15 Minuten sind alle vier Jobs grün: version, server, client, deploy.
+
+Auf dem Server prüfen:
+
+```bash
+# systemctl status ctxremote-server      # „active (running)“
+# ls /var/lib/ctxremote/updates          # CTXRemote-0.1.N-windows-x86_64.exe und windows-x86_64.json
+# journalctl -u ctxremote-server -n 20   # Log; hier sieht man Anmeldungen und Update-Abrufe
+```
+
+Bei einem Fehler im Job „deploy“ zeigt dessen Log den Grund. Die häufigsten stehen unten unter „Wenn etwas nicht klappt“.
+
+### Schritt 12: Geräte einmal von Hand aktualisieren
+
+Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb jedes Gerät einmal von Hand aktualisieren:
+
+1. Im Lauf aus Schritt 11 unten unter **Artifacts** das Paket `client` herunterladen und entpacken.
+2. `CTXRemote-0.1.N-setup.exe` auf jedem Gerät ausführen, über die alte Installation drüber. Geräte-ID und Einstellungen bleiben erhalten.
+
+`CTXRemote-Hilfe.exe` im selben Paket ist die neue Schnellhilfe mit eingebauter Serveradresse.
+
+### Schritt 13: Automatisches Update prüfen
+
+1. Eine kleine Änderung nach `master` pushen und warten, bis der neue Release-Lauf grün ist.
+2. Auf einem Gerät mit Dienst (PowerShell als Administrator) den Dienst neu starten. Er prüft dann nach 2 Minuten statt erst nach bis zu 6 Stunden:
+
+   ```powershell
+   PS> Restart-Service CTXRemote
+   ```
+
+3. Nach etwa 3 Minuten muss die App-Version (unten in den Einstellungen) die neue Nummer zeigen.
+4. Das Protokoll steht in `C:\ProgramData\CTXRemote\logs\service.log` und enthält „Update verfügbar“ und „Update wird installiert“.
+
+## Wenn etwas nicht klappt
+
+| Symptom | Ursache und Lösung |
+|---|---|
+| Job „deploy“ wird übersprungen | Variable `DEPLOY_HOST` fehlt, oder der Lauf war nicht auf `master` |
+| `Permission denied (publickey)` | `DEPLOY_SSH_KEY` unvollständig (BEGIN/END-Zeilen fehlen) oder öffentlicher Schlüssel nicht auf dem Server (Schritt 5 wiederholen) |
+| `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` fehlt oder passt nicht zu `DEPLOY_HOST` (Schritt 7 mit genau dem Namen aus `DEPLOY_HOST` wiederholen) |
+| „Neuer Server startet nicht, vorherige Version wird wiederhergestellt“ | Port 21300 ist noch belegt (Schritt 4) oder es gibt einen echten Fehler: `journalctl -u ctxremote-server -n 50` |
+| Warnung „Kein CTXREMOTE_UPDATE_SIGNING_KEY“ | Secret fehlt; der Server wurde trotzdem aktualisiert, nur kein Client-Update veröffentlicht |
+| Geräte aktualisieren sich nicht | Gerät noch nicht einmal von Hand aktualisiert (Schritt 12), oder `CTXREMOTE_UPDATE_KEY` passt nicht zum privaten Schlüssel. Im `service.log` steht dann „nicht gültig signiert“ |
+| Alle Geräte haben neue IDs | `devices.json` wurde nicht übernommen: Server stoppen, Datei aus der Sicherung (Schritt 1) nach `/var/lib/ctxremote/` kopieren, `chown ctxremote:ctxremote` darauf, Server starten |
 
 ## Getestet
 
