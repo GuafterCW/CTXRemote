@@ -184,8 +184,13 @@ fn nonce(counter: u64) -> Nonce {
     Nonce::from(n)
 }
 
+/// The writing half of a transport, e.g. for [`SecureSender::reroute`].
+pub type TransportSink = SplitSink<Transport, Bytes>;
+/// The reading half of a transport, e.g. for [`SecureReceiver::reroute`].
+pub type TransportStream = SplitStream<Transport>;
+
 pub struct SecureSender {
-    sink: SplitSink<Transport, Bytes>,
+    sink: TransportSink,
     cipher: ChaCha20Poly1305,
     counter: u64,
 }
@@ -193,6 +198,21 @@ pub struct SecureSender {
 impl SecureSender {
     pub async fn send<T: Serialize>(&mut self, msg: &T) -> Result<()> {
         self.send_raw(&postcard::to_stdvec(msg)?).await
+    }
+
+    /// Sends `msg` with `trailer` appended in the same frame. Receivers that only
+    /// decode `msg` ignore the trailer, so it can carry optional extras.
+    pub async fn send_with_trailer<T: Serialize, U: Serialize>(&mut self, msg: &T, trailer: &U) -> Result<()> {
+        let mut plain = postcard::to_stdvec(msg)?;
+        plain.extend_from_slice(&postcard::to_stdvec(trailer)?);
+        self.send_raw(&plain).await
+    }
+
+    /// Continues on another transport and returns the old one's writing half.
+    /// The counter carries on, so the peer must read the new transport strictly
+    /// after everything sent on the old one.
+    pub fn reroute(&mut self, sink: TransportSink) -> TransportSink {
+        std::mem::replace(&mut self.sink, sink)
     }
 
     async fn send_raw(&mut self, plain: &[u8]) -> Result<()> {
@@ -211,7 +231,7 @@ impl SecureSender {
 }
 
 pub struct SecureReceiver {
-    stream: SplitStream<Transport>,
+    stream: TransportStream,
     cipher: ChaCha20Poly1305,
     counter: u64,
 }
@@ -224,6 +244,24 @@ impl SecureReceiver {
             Err(e) if e.is::<Closed>() => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    /// Like [`Self::recv`], plus the trailer if the peer sent one that decodes.
+    pub async fn recv_with_trailer<T: DeserializeOwned, U: DeserializeOwned>(&mut self) -> Result<Option<(T, Option<U>)>> {
+        let plain = match self.recv_raw().await {
+            Ok(plain) => plain,
+            Err(e) if e.is::<Closed>() => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let (msg, rest) = postcard::take_from_bytes::<T>(&plain)?;
+        let trailer = if rest.is_empty() { None } else { postcard::from_bytes(rest).ok() };
+        Ok(Some((msg, trailer)))
+    }
+
+    /// Continues reading from another transport and returns the old one's
+    /// reading half. Call it once the old transport delivered its last message.
+    pub fn reroute(&mut self, stream: TransportStream) -> TransportStream {
+        std::mem::replace(&mut self.stream, stream)
     }
 
     async fn recv_raw(&mut self) -> Result<Vec<u8>> {
@@ -269,6 +307,32 @@ mod tests {
         assert_eq!(slot, 1);
         vtx.send(&ViewerMsg::RequestKeyframe).await.unwrap();
         assert!(matches!(hrx.recv::<ViewerMsg>().await.unwrap(), Some(ViewerMsg::RequestKeyframe)));
+    }
+
+    #[tokio::test]
+    async fn trailer_and_reroute() {
+        let id = DeviceId::new(ID).unwrap();
+        let (a, b) = pair().await;
+        let (viewer, host) = tokio::join!(viewer_handshake(a, id, "pw"), host_handshake(b, id, &["pw"]));
+        let (mut vtx, _vrx) = viewer.unwrap();
+        let (_htx, mut hrx, _) = host.unwrap();
+
+        vtx.send_with_trailer(&ViewerMsg::RequestKeyframe, &7u32).await.unwrap();
+        let (msg, trailer) = hrx.recv_with_trailer::<ViewerMsg, u32>().await.unwrap().unwrap();
+        assert!(matches!(msg, ViewerMsg::RequestKeyframe));
+        assert_eq!(trailer, Some(7));
+        vtx.send(&ViewerMsg::LockScreen).await.unwrap();
+        assert!(hrx.recv_with_trailer::<ViewerMsg, u32>().await.unwrap().unwrap().1.is_none());
+
+        // Move to a second connection mid-stream; the counters carry on.
+        let (c, d) = pair().await;
+        vtx.send(&ViewerMsg::Switch).await.unwrap();
+        let mut old = vtx.reroute(c.split().0);
+        old.close().await.unwrap();
+        vtx.send(&ViewerMsg::Bye).await.unwrap();
+        assert!(matches!(hrx.recv::<ViewerMsg>().await.unwrap(), Some(ViewerMsg::Switch)));
+        drop(hrx.reroute(d.split().1));
+        assert!(matches!(hrx.recv::<ViewerMsg>().await.unwrap(), Some(ViewerMsg::Bye)));
     }
 
     #[tokio::test]

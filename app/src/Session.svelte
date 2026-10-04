@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Channel } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { api, errorText, type HostInfo, type InputEvent, type MouseButton, type Quality } from "./lib/api";
+  import { api, errorText, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
 
@@ -21,6 +22,10 @@
   let qualityOpen = $state(false);
   let quality = $state<Quality>("Balanced");
   let confirmRestart = $state(false);
+  /** What the host supports; older hosts get no buttons for newer features. */
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false });
+  /** Address of the direct connection, null while the server relays. */
+  let direct = $state<string | null>(null);
   /** CSS cursor showing the host's pointer shape, once it has sent one. */
   let cursor = $state("default");
   let fullscreen = $state(false);
@@ -60,15 +65,19 @@
 
     api
       .attach(session, channel)
-      .then(({ host: info, id, label: name }) => {
+      .then(({ host: info, id, label: name, features: supported, direct: route }) => {
         host = info;
         hostId = id;
         label = name;
         display = info.active_display;
+        features = supported;
+        direct = route ?? direct;
       })
       .catch((e) => (closed = errorText(e)));
 
     hideToolbarSoon();
+
+    const unlistenRoute = getCurrentWindow().listen<string>("route", (e) => (direct = e.payload));
 
     // Files dropped from the OS go to the remote desktop; the files window shows the progress.
     const unlistenDrop = getCurrentWebview().onDragDropEvent((event) => {
@@ -78,12 +87,13 @@
     return () => {
       player.close();
       unlistenDrop.then((off) => off());
+      unlistenRoute.then((off) => off());
     };
   });
 
   // The files window does the upload, so its progress and errors show there.
   function uploadToDesktop(paths: string[]) {
-    if (closed !== null || paths.length === 0) return;
+    if (closed !== null || paths.length === 0 || !features.files) return;
     api.queueDrop(session, paths).catch(() => {});
   }
 
@@ -285,6 +295,9 @@
         <span class="live-dot"></span>
         <span class="host">{label || host.hostname}</span>
         {#if hostId}<span class="id">{hostId}</span>{/if}
+        <span class="route" title={direct ? `Direkt verbunden über ${direct}` : "Die Verbindung läuft über den Server"}>
+          {direct ? "Direkt" : "Über Server"}
+        </span>
       </div>
 
       {#if host.displays.length > 1}
@@ -321,38 +334,44 @@
             <button role="menuitem" onclick={() => combo("AltLeft", "Tab")}>Alt + Tab</button>
             <button role="menuitem" onclick={() => combo("ControlLeft", "ShiftLeft", "Escape")}>Task-Manager</button>
             <button role="menuitem" onclick={lockScreen}>Sperren</button>
-            <div class="menu-sep"></div>
-            <button role="menuitem" class:danger={confirmRestart} onclick={restart}>
-              {confirmRestart ? "Wirklich neu starten?" : "Neu starten …"}
-            </button>
-          </div>
-        {/if}
-      </div>
-      <div class="menu-anchor">
-        <button
-          class="tool"
-          title="Bildqualität"
-          onclick={() => {
-            qualityOpen = !qualityOpen;
-            keysOpen = false;
-          }}
-        >
-          <Icon name="sliders" size={17} />
-        </button>
-        {#if qualityOpen}
-          <div class="menu" role="menu">
-            {#each QUALITIES as [value, title, hint] (value)}
-              <button role="menuitemradio" aria-checked={quality === value} onclick={() => chooseQuality(value)}>
-                <span class="mark">{#if quality === value}<Icon name="check" size={14} />{/if}</span>
-                <span class="label">{title}<small>{hint}</small></span>
+            {#if features.restart}
+              <div class="menu-sep"></div>
+              <button role="menuitem" class:danger={confirmRestart} onclick={restart}>
+                {confirmRestart ? "Wirklich neu starten?" : "Neu starten …"}
               </button>
-            {/each}
+            {/if}
           </div>
         {/if}
       </div>
-      <button class="tool" title="Dateien" onclick={() => api.openFiles(session)}>
-        <Icon name="folder" size={17} />
-      </button>
+      {#if features.quality}
+        <div class="menu-anchor">
+          <button
+            class="tool"
+            title="Bildqualität"
+            onclick={() => {
+              qualityOpen = !qualityOpen;
+              keysOpen = false;
+            }}
+          >
+            <Icon name="sliders" size={17} />
+          </button>
+          {#if qualityOpen}
+            <div class="menu" role="menu">
+              {#each QUALITIES as [value, title, hint] (value)}
+                <button role="menuitemradio" aria-checked={quality === value} onclick={() => chooseQuality(value)}>
+                  <span class="mark">{#if quality === value}<Icon name="check" size={14} />{/if}</span>
+                  <span class="label">{title}<small>{hint}</small></span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+      {#if features.files}
+        <button class="tool" title="Dateien" onclick={() => api.openFiles(session)}>
+          <Icon name="folder" size={17} />
+        </button>
+      {/if}
       <button class="tool" title={fullscreen ? "Vollbild verlassen" : "Vollbild"} onclick={toggleFullscreen}>
         <Icon name={fullscreen ? "shrink" : "expand"} size={17} />
       </button>
@@ -558,6 +577,14 @@
 
   .menu button.danger {
     color: #e07a66;
+  }
+
+  .route {
+    padding: 1px 7px;
+    border: 1px solid #2f2e2b;
+    border-radius: 999px;
+    color: #a5a39c;
+    font-size: 11.5px;
   }
 
   .menu-sep {

@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, ServerMsg, SessionId};
-use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender};
-use ctxremote_proto::session::{HostMsg, ViewerMsg};
+use ctxremote_proto::framing::Transport;
+use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender, TransportStream};
+use ctxremote_proto::session::{Features, HostMsg, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -20,6 +21,7 @@ use tracing::{info, warn};
 
 use crate::agent;
 use crate::config::{generate_password, Config};
+use crate::direct::{DirectListener, Offer};
 use crate::net;
 
 const PING_INTERVAL: Duration = Duration::from_secs(15);
@@ -58,6 +60,8 @@ struct Shared {
     reconnect: Notify,
     screen: Arc<dyn ScreenSource>,
     approver: Mutex<Option<Approver>>,
+    /// Set once the listener for direct connections runs.
+    direct: Mutex<Option<Arc<DirectListener>>>,
 }
 
 #[derive(Clone)]
@@ -86,8 +90,19 @@ impl Host {
             reconnect: Notify::new(),
             screen,
             approver: Mutex::new(None),
+            direct: Mutex::new(None),
         });
         tokio::spawn(presence_loop(shared.clone()));
+        let (enabled, port, extra) = {
+            let config = shared.config.read().unwrap();
+            (config.direct, config.direct_port, config.direct_addresses.clone())
+        };
+        if enabled {
+            let shared = shared.clone();
+            tokio::spawn(async move {
+                *shared.direct.lock().unwrap() = DirectListener::start(port, extra).await;
+            });
+        }
         Self { shared }
     }
 
@@ -229,8 +244,8 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     };
     *shared.failures.lock().unwrap() = (0, None);
 
-    let peer = match timeout(Duration::from_secs(10), rx.recv::<ViewerMsg>()).await?? {
-        Some(ViewerMsg::Hello { name, .. }) => name,
+    let (peer, features) = match timeout(Duration::from_secs(10), rx.recv_with_trailer::<ViewerMsg, Features>()).await?? {
+        Some((ViewerMsg::Hello { name, .. }, features)) => (name, features.unwrap_or(Features::NONE)),
         _ => bail!("Gegenstelle hat sich nicht vorgestellt"),
     };
 
@@ -251,7 +266,12 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     let _ = shared.events.send(HostEvent::SessionStarted { session: number, peer: peer.clone() });
     info!(%peer, "Sitzung gestartet");
 
-    let result = run_session(tx, rx, stop, shared.screen.as_ref()).await;
+    let route = Route {
+        features,
+        direct: shared.direct.lock().unwrap().clone(),
+        server: shared.config.read().unwrap().server_addr(),
+    };
+    let result = run_session(tx, rx, stop, shared.screen.as_ref(), route).await;
 
     shared.sessions.lock().unwrap().remove(&number);
     let _ = shared.events.send(HostEvent::SessionEnded { session: number });
@@ -313,6 +333,27 @@ impl ScreenSource for InProcess {
 
 /// How long a vanished screen side may take to come back before the session ends.
 const SCREEN_RETURN: Duration = Duration::from_secs(60);
+/// How long the host waits for a direct connection the viewer says it opened.
+const SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// What a session needs to know about the viewer and the ways to reach it.
+struct Route {
+    /// What the viewer understands; newer messages only go to viewers that do.
+    features: Features,
+    direct: Option<Arc<DirectListener>>,
+    server: String,
+}
+
+/// Moves the sending side onto the direct connection: `Switch` is the last
+/// message on the relay. Returns the reading half for when the viewer follows.
+async fn switch_sender(tx: &mut SecureSender, t: Transport) -> Result<TransportStream> {
+    use futures::StreamExt as _;
+    let (sink, stream) = t.split();
+    tx.send(&HostMsg::Switch).await?;
+    let mut relay = tx.reroute(sink);
+    let _ = futures::SinkExt::close(&mut relay).await;
+    Ok(stream)
+}
 
 /// Relays between the encrypted connection and the session's screen side.
 async fn run_session(
@@ -320,6 +361,7 @@ async fn run_session(
     mut rx: SecureReceiver,
     stop: Arc<Notify>,
     screen: &dyn ScreenSource,
+    route: Route,
 ) -> Result<()> {
     let (mut to_agent, mut from_agent) = match screen.open().await {
         Ok(channels) => channels,
@@ -330,10 +372,27 @@ async fn run_session(
         }
     };
 
+    // The direct route on offer, and its reading half once we switched to it.
+    let mut offer: Option<Offer> = None;
+    let mut offered = false;
+    let mut direct_stream: Option<TransportStream> = None;
     let result: Result<()> = async {
         loop {
             tokio::select! {
                 msg = from_agent.recv() => match msg {
+                    Some(HostMsg::Cursor(_)) if !route.features.has(Features::CURSOR) => {}
+                    Some(msg @ HostMsg::Welcome(_)) => {
+                        // Older viewers ignore the trailer; newer ones learn what we support.
+                        tx.send_with_trailer(&msg, &Features::CURRENT).await?;
+                        if let (false, true, Some(listener)) = (offered, route.features.has(Features::DIRECT), &route.direct) {
+                            offered = true;
+                            let new = listener.offer(&route.server);
+                            if !new.addrs.is_empty() {
+                                tx.send(&HostMsg::DirectOffer { addrs: new.addrs.clone(), token: new.token }).await?;
+                                offer = Some(new);
+                            }
+                        }
+                    }
                     Some(msg) => {
                         let bye = matches!(msg, HostMsg::Bye(_));
                         tx.send(&msg).await?;
@@ -354,8 +413,31 @@ async fn run_session(
                         }
                     },
                 },
+                connection = async { (&mut offer.as_mut().expect("guarded").connection).await }, if offer.is_some() => {
+                    offer = None;
+                    if let Ok(t) = connection {
+                        direct_stream = Some(switch_sender(&mut tx, t).await?);
+                        info!("Sitzung wechselt auf die Direktverbindung");
+                    }
+                }
                 msg = rx.recv::<ViewerMsg>() => match msg? {
                     Some(ViewerMsg::Bye) | None => return Ok(()),
+                    // The viewer's last message on the relay; the rest comes directly.
+                    Some(ViewerMsg::Switch) => {
+                        let stream = match direct_stream.take() {
+                            Some(stream) => stream,
+                            None => {
+                                let mut pending = offer.take().context("Wechsel ohne Angebot")?;
+                                let t = timeout(SWITCH_TIMEOUT, &mut pending.connection)
+                                    .await
+                                    .context("Direktverbindung kam nicht an")?
+                                    .context("Direktverbindung kam nicht an")?;
+                                switch_sender(&mut tx, t).await?
+                            }
+                        };
+                        drop(rx.reroute(stream));
+                        info!("Sitzung läuft direkt");
+                    }
                     // Windows accepts SendSAS only from the service process, which is this one.
                     Some(ViewerMsg::SecureAttention) => {
                         if let Err(e) = crate::sas::send() {

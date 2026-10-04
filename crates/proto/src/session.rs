@@ -1,4 +1,10 @@
 //! End-to-end encrypted messages between a viewer and a host.
+//!
+//! Compatibility: postcard cannot skip unknown enum variants, so a message an
+//! older peer does not know ends its session. New variants are therefore only
+//! sent to peers that announce the matching [`Features`] bit. The features
+//! travel as a trailer after `Hello` and `Welcome`, which older versions
+//! ignore (postcard does not read past the message).
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +24,39 @@ pub enum HostMsg {
     TransferAck { id: u32, bytes: u64 },
     /// The host's mouse pointer changed shape; the viewer shows it over the image.
     Cursor(CursorShape),
+    /// A direct route to the host: the viewer may connect to any of `addrs`
+    /// and present `token` in a [`DirectHello`] (see `docs/DIRECT.md`).
+    DirectOffer { addrs: Vec<String>, token: [u8; 32] },
+    /// Last message on the old route; everything after it comes over the direct one.
+    Switch,
+}
+
+/// What a peer understands beyond the first protocol version, as bits.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Features(pub u32);
+
+impl Features {
+    pub const FILES: u32 = 1 << 0;
+    pub const CURSOR: u32 = 1 << 1;
+    pub const RESTART: u32 = 1 << 2;
+    pub const QUALITY: u32 = 1 << 3;
+    pub const DIRECT: u32 = 1 << 4;
+
+    /// Everything this build supports.
+    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT);
+    /// What a peer without a trailer (an older version) understands.
+    pub const NONE: Self = Self(0);
+
+    pub fn has(self, feature: u32) -> bool {
+        self.0 & feature == feature
+    }
+}
+
+/// The only plaintext frame on a direct connection, sent by the viewer before
+/// the session's encrypted frames continue there.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectHello {
+    pub token: [u8; 32],
 }
 
 /// A mouse pointer image, straight (not premultiplied) RGBA, row by row.
@@ -60,6 +99,8 @@ pub enum ViewerMsg {
     Restart,
     /// Trades image quality against bandwidth for the rest of the session.
     SetQuality(Quality),
+    /// Last message on the old route; everything after it goes over the direct one.
+    Switch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -214,3 +255,4 @@ pub enum InputEvent {
     /// Releases every key and button the viewer may still hold, e.g. on focus loss.
     ReleaseAll,
 }
+

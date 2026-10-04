@@ -70,6 +70,8 @@ struct Link {
     clipboard: Option<ctxremote_core::clipboard::ClipboardSync>,
     /// The host's pointer, sent again when a window attaches.
     cursor: Option<Vec<u8>>,
+    /// The direct connection's address once the session moved off the relay.
+    direct: Option<String>,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -275,6 +277,10 @@ async fn connect(
                 }
                 link.cursor = Some(packet);
             }
+            ViewerEvent::Direct(addr) => {
+                link.lock().unwrap().direct = Some(addr.clone());
+                let _ = app.emit_to(format!("session-{number}"), "route", addr);
+            }
             ViewerEvent::Transfer(event) => {
                 let _ = app.emit("transfer", TransferUpdate { session: number, event });
             }
@@ -334,6 +340,25 @@ struct Attached {
     host: HostInfo,
     id: String,
     label: String,
+    /// What the host supports; buttons for anything else stay hidden.
+    features: Features,
+    /// Address of the direct connection, `None` while on the relay.
+    direct: Option<String>,
+}
+
+/// The host's capabilities by name, for the session window.
+#[derive(Serialize)]
+struct Features {
+    files: bool,
+    restart: bool,
+    quality: bool,
+}
+
+impl From<ctxremote_core::proto::session::Features> for Features {
+    fn from(f: ctxremote_core::proto::session::Features) -> Self {
+        use ctxremote_core::proto::session::Features as F;
+        Self { files: f.has(F::FILES), restart: f.has(F::RESTART), quality: f.has(F::QUALITY) }
+    }
 }
 
 #[tauri::command]
@@ -359,7 +384,14 @@ fn attach(
         .unwrap()
         .peer(viewer.target)
         .map_or(viewer.session.host.hostname.clone(), |p| p.label().to_string());
-    Ok(Attached { host: viewer.session.host.clone(), id: viewer.target.to_string(), label })
+    let direct = link.direct.clone();
+    Ok(Attached {
+        host: viewer.session.host.clone(),
+        id: viewer.target.to_string(),
+        label,
+        features: viewer.session.features.into(),
+        direct,
+    })
 }
 
 fn with_viewer(state: &AppState, session: u32, f: impl FnOnce(&ViewerSession)) {

@@ -63,6 +63,13 @@ export interface HostInfo {
   active_display: number;
 }
 
+/** What the remote device supports; older versions report nothing. */
+export interface HostFeatures {
+  files: boolean;
+  restart: boolean;
+  quality: boolean;
+}
+
 /** Mirrors `Quality` in crates/proto/src/session.rs. */
 export type Quality = "Speed" | "Balanced" | "Sharp";
 
@@ -109,7 +116,10 @@ export const api = {
   /** `target` is an ID or an alias. */
   connect: (target: string, password: string) => invoke<number>("connect", { target, password }),
   attach: (session: number, channel: Channel<ArrayBuffer>) =>
-    invoke<{ host: HostInfo; id: string; label: string }>("attach", { session, channel }),
+    invoke<{ host: HostInfo; id: string; label: string; features: HostFeatures; direct: string | null }>(
+      "attach",
+      { session, channel },
+    ),
   sendInput: (session: number, event: InputEvent) => invoke<void>("send_input", { session, event }),
   selectDisplay: (session: number, index: number) => invoke<void>("select_display", { session, index }),
   requestKeyframe: (session: number) => invoke<void>("request_keyframe", { session }),

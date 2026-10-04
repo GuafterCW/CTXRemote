@@ -6,6 +6,7 @@ pub mod capture;
 pub mod clipboard;
 pub mod config;
 pub mod desktop;
+pub mod direct;
 pub mod encoder;
 pub mod files;
 pub mod host;

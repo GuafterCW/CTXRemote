@@ -50,6 +50,11 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
 - **Neu starten** im Tastenmenü der Sitzung, mit Bestätigung (`ViewerMsg::Restart`). Der Host-Prozess löst den Neustart aus, im Dienstmodus also SYSTEM. Mit installiertem Dienst ist das Gerät danach wieder erreichbar.
 - **Bildqualität** in der Sitzungs-Toolbar (Schieberegler-Symbol): Schnell, Ausgewogen oder Scharf (`ViewerMsg::SetQuality`). Die Wahl ändert die Bitrate des Encoders und gilt bis zum Ende der Sitzung.
 
+### Danach, ebenfalls am 4. Oktober (Cloud-Sitzung)
+
+- **Fähigkeiten-Aushandlung** (`Features` als Anhang an Hello und Welcome): Ältere und neuere Versionen vertragen sich jetzt. Neue Nachrichten gehen nur an Gegenstellen, die sie kennen. Das Sitzungsfenster blendet Knöpfe aus, die das ferne Gerät nicht unterstützt. Regeln für neue Funktionen stehen in `docs/DIRECT.md`.
+- **Direktverbindung:** Die Sitzung startet über den Server und wechselt dann ohne Unterbrechung auf eine direkte TCP-Verbindung (Port 21301), wenn das ferne Gerät erreichbar ist. Das gilt im LAN, mit IPv6 oder mit Portweiterleitung. Das Sitzungsfenster zeigt „Direkt“ oder „Über Server“ an. `ctxremote-service --install` legt die Firewall-Regel an. Details stehen in `docs/DIRECT.md`, getestet ist es unter Linux mit echtem Server (`crates/server/tests/sessions.rs`).
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -66,11 +71,18 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
 5. Mauszeiger: Text-Cursor, Größenänderungs-Pfeile und Sanduhr müssen im Viewer sichtbar sein. Was passiert bei 150 % Skalierung?
 6. Neu starten mit Dienst: Das Gerät startet neu und ist danach wieder online.
 7. Bildqualität umschalten: Das Bild muss weiterlaufen, und bei „Scharf“ ist Text sichtbar schärfer.
+8. Direktverbindung im LAN:
+   - Den Dienst neu installieren, damit die Firewall-Regel angelegt wird.
+   - Nach dem Verbinden muss das Sitzungsfenster nach etwa 1 s „Direkt“ zeigen.
+   - Bild, Maus, Tastatur und Dateien müssen danach normal weiterlaufen.
+   - Gegenprobe ohne Firewall-Regel: Dort muss „Über Server“ stehen bleiben, ohne Abbruch.
+9. Alte Version gegen neue: Ein Host mit dem Stand vom 2. Oktober muss sich mit dem neuen Viewer bedienen lassen. Die neuen Knöpfe sind dort ausgeblendet.
 
 ## Nächste Schritte
 
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
-2. Danach P2P, Hardware-Encoder und macOS-Host (zum Testen ist ein Mac nötig).
+2. Direktverbindung durch NAT ohne Portweiterleitung (UDP-Hole-Punching, siehe `docs/DIRECT.md`), Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig).
+3. Einstellungsoberfläche für `direct`, `direct_port` und `direct_addresses`.
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 
@@ -79,7 +91,7 @@ Weitere Roadmap: Remote-Mauszeiger, Adressbuch auf dem Server.
 ## Bekannte Kompromisse
 
 - Das feste Passwort liegt im Klartext, weil SPAKE2 das Passwort selbst braucht. Mit Dienst steht es in `C:\ProgramData\CTXRemote\host.json`, lesbar nur für SYSTEM und Administratoren. Ohne Dienst steht es in der Benutzerkonfiguration. Möglich wäre später DPAPI mit Maschinenbindung.
-- Verbindungen laufen noch nur über das Relay, eine direkte P2P-Verbindung fehlt.
+- Direktverbindungen gibt es nur per TCP: im LAN, mit IPv6 oder mit Portweiterleitung. Zwischen zwei IPv4-NATs bleibt die Sitzung auf dem Relay.
 
 ## Entwicklungsumgebung (Windows)
 

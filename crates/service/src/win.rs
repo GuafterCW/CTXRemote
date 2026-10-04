@@ -361,13 +361,8 @@ fn adopt_identity(user_config: &Path, host_config: &Path) -> Result<()> {
     }
     let json = std::fs::read_to_string(user_config).context("Benutzerkonfiguration unlesbar")?;
     let user: Config = serde_json::from_str(&json).context("Benutzerkonfiguration ungültig")?;
-    let config = Config {
-        server: user.server,
-        device_id: user.device_id,
-        device_key: user.device_key,
-        permanent_password: user.permanent_password,
-        peers: Vec::new(),
-    };
+    // The device list stays with the user; everything else moves to the service.
+    let config = Config { peers: Vec::new(), ..user };
     config.save()?;
     println!("Geräte-Identität aus der Benutzerkonfiguration übernommen.");
     Ok(())
@@ -424,6 +419,7 @@ fn install(server: Option<&str>) -> Result<()> {
     };
 
     enable_sas_policy()?;
+    allow_direct_connections(&Config::load()?);
     service.set_description(SERVICE_DESCRIPTION)?;
     service
         .update_failure_actions(ServiceFailureActions {
@@ -495,8 +491,42 @@ fn uninstall() -> Result<()> {
     };
     stop_and_wait(&service)?;
     service.delete().context("Dienst nicht löschbar")?;
+    remove_firewall_rule();
     println!("Dienst entfernt. Die Daten in {} bleiben erhalten.", data_dir().display());
     Ok(())
+}
+
+const FIREWALL_RULE: &str = "CTXRemote Direktverbindung";
+
+/// Opens the direct-connection port for the service only. Failures are
+/// reported but not fatal: sessions then simply stay on the relay.
+fn allow_direct_connections(config: &Config) {
+    remove_firewall_rule();
+    if !config.direct {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let status = std::process::Command::new("netsh")
+        .args(["advfirewall", "firewall", "add", "rule"])
+        .arg(format!("name={FIREWALL_RULE}"))
+        .args(["dir=in", "action=allow", "protocol=TCP", "profile=any", "enable=yes"])
+        .arg(format!("localport={}", config.direct_port))
+        .arg(format!("program={}", exe.display()))
+        .stdout(std::process::Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() => println!("Firewall: Port {} für Direktverbindungen geöffnet.", config.direct_port),
+        _ => eprintln!("Firewall-Regel konnte nicht angelegt werden; Sitzungen laufen dann über den Server."),
+    }
+}
+
+fn remove_firewall_rule() {
+    let _ = std::process::Command::new("netsh")
+        .args(["advfirewall", "firewall", "delete", "rule"])
+        .arg(format!("name={FIREWALL_RULE}"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
 /// Enables Ctrl+Alt+Del from a service: SoftwareSASGeneration 0/missing -> 1, 2 -> 3 (1 and 3 stay).

@@ -10,6 +10,7 @@ Selbst gehosteter Fernzugriff für eigene Geräte, eine Alternative zu RustDesk,
 - **Physische Tastatur:** Übertragen werden Scancodes statt Zeichen, Tastaturlayouts funktionieren daher auf beiden Seiten korrekt.
 - **Dateiübertragung** in beide Richtungen mit Dateifenster (zwei Spalten), ganzen Ordnern und Drag & Drop. Bestehende Dateien werden nicht überschrieben.
 - **Remote-Mauszeiger, Neustart aus der Ferne und Bildqualität** (Schnell, Ausgewogen, Scharf) während der Sitzung.
+- **Direktverbindung:** Ist das Gerät erreichbar (LAN, IPv6, Portweiterleitung auf TCP 21301), wechselt die laufende Sitzung vom Server auf den direkten Weg, ohne Unterbrechung und mit denselben Schlüsseln.
 
 ## Aufbau
 
@@ -59,7 +60,7 @@ $env:CTXREMOTE_QUICK_SERVER = "remote.example.org:21300"; npm run build:quick
 
 Eingehende Verbindungen müssen dort immer per „Zulassen“ bestätigt werden; beim Schließen des Fensters endet die App samt Sitzung.
 
-In der App unter **Einstellungen → Server** die Serveradresse eintragen. Firewall: TCP 21300 eingehend auf dem Server.
+In der App unter **Einstellungen → Server** die Serveradresse eintragen. Firewall: TCP 21300 eingehend auf dem Server. Für Direktverbindungen zusätzlich TCP 21301 eingehend auf dem ferngesteuerten Gerät. Die Regel legt der Dienst bei der Installation selbst an.
 
 ## Plattformen
 
@@ -88,10 +89,10 @@ Zum lokalen Testen zweier Instanzen auf einem PC: `CTXREMOTE_CONFIG=C:pfadzweite
 
 Funktioniert (v0.1): ID und Passwort, Bild, Maus, Tastatur, mehrere Monitore, Vollbild, Tray-Betrieb, Geräteliste mit Aliasen.
 
-Seitdem dazugekommen: Zwischenablage (Text), Windows-Dienst (Anmeldebildschirm, UAC, Strg+Alt+Entf), Schnellhilfe. Gebaut, aber noch nicht auf Windows getestet: Dateiübertragung, Remote-Mauszeiger, Neustart und Bildqualität (siehe `docs/STATUS.md`).
+Seitdem dazugekommen: Zwischenablage (Text), Windows-Dienst (Anmeldebildschirm, UAC, Strg+Alt+Entf), Schnellhilfe. Gebaut, aber noch nicht auf Windows getestet: Dateiübertragung, Remote-Mauszeiger, Neustart, Bildqualität und Direktverbindung per TCP (siehe `docs/STATUS.md`).
 
 Als Nächstes:
-1. Direkte P2P-Verbindung (UDP-Hole-Punching), Relay nur als Rückfall
+1. Direktverbindung auch zwischen zwei NATs (UDP-Hole-Punching), Relay nur als Rückfall
 2. Automatische Qualitätsregelung, Hardware-Encoder (NVENC/QSV/AMF)
 3. Adressbuch und Geräteverwaltung über den Server (die „Pro“-Funktionen)
 4. Linux-Host (X11), dann macOS-Host, dann Wayland

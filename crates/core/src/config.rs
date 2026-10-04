@@ -23,6 +23,14 @@ pub struct Config {
     /// Known devices: everything with an alias, plus the most recent connections.
     #[serde(alias = "recent")]
     pub peers: Vec<Peer>,
+    /// Offers viewers a direct TCP connection to this device (see `docs/DIRECT.md`).
+    pub direct: bool,
+    /// Port of the direct listener; forward it on the router for direct
+    /// connections from the internet.
+    pub direct_port: u16,
+    /// Extra `host:port` addresses offered to viewers, e.g. the router's public
+    /// name when the port is forwarded.
+    pub direct_addresses: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +67,9 @@ impl Default for Config {
             device_key: hex::encode(SigningKey::generate(&mut rand::rngs::OsRng).to_bytes()),
             permanent_password: None,
             peers: Vec::new(),
+            direct: true,
+            direct_port: crate::direct::DEFAULT_PORT,
+            direct_addresses: Vec::new(),
         }
     }
 }
