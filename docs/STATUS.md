@@ -378,7 +378,17 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 0. Die Pipeline einrichten (`docs/DEPLOY.md`, Abschnitt „Einrichtung Schritt für Schritt“), dann den Branch nach `master` mergen. Den ersten Installer von Hand installieren, danach zweimal pushen und prüfen, ob sich ein Gerät selbst aktualisiert.
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
 2. Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig).
-3. Adressbuch und Geräteverwaltung über den Server, Code-Signatur (braucht ein Konto bei Microsoft Trusted Signing).
+3. Adressbuch und Geräteverwaltung über den Server (erledigt).
+3a. **Microsoft Store als MSIX** (vorgemerkt am 5. Oktober). Damit verschwinden die SmartScreen-Warnungen, denn Trusted Signing gibt es nur für Unternehmen. Vorher zu klären, alles noch nicht geprüft:
+    - **Dienst im Paket:** MSIX kann Windows-Dienste nur über die eingeschränkte Fähigkeit `packagedServices` mitbringen. Ein Dienst als LocalSystem braucht zusätzlich `localSystemServices`. Beides muss Microsoft bei der Store-Einreichung freigeben.
+    - **Was die Installation heute ins System schreibt, geht in MSIX nicht oder nur anders:**
+      - die Firewall-Regel über `netsh`
+      - die SAS-Richtlinie in HKLM
+      - der Autostart über `HKLM\...\Run` (in MSIX: Erweiterung `desktop:StartupTask`)
+      - der Datenordner in ProgramData mit eigenen Rechten
+    - **Updates:** Der eigene Updater mit signierten Updates muss für die Store-Version aus, denn dort aktualisiert der Store.
+    - **Andere Wege:** Der Store nimmt auch normale EXE- oder MSI-Installer an. Das braucht aber eine eigene Signatur und hilft nicht beim Download von der Website. Prüfen, ob Trusted Signing inzwischen auch Einzelpersonen offensteht.
+    - **Website:** Den Download auf den Store-Link umstellen. Die Schnellhilfe bleibt eine einzelne EXE und behält die Warnung, außer sie wird ebenfalls signiert.
 4. Bezahlte Pläne nach `docs/PLANS.md`. Erst wenn es eine Firma gibt. Schritt 1 (Konten und Adressbuch) ginge auch vorher schon. Konten gehören auf die Website (ctxremote.ctx.ink), später mit Stripe.
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
