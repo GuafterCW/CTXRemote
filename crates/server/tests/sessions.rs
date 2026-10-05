@@ -158,3 +158,21 @@ async fn unencrypted_clients_still_work() {
     framing::send(&mut t, &ClientMsg::UpdateCheck { platform: "test".into() }).await.unwrap();
     assert!(matches!(framing::recv::<ServerMsg>(&mut t).await.unwrap(), ServerMsg::Update(None)));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sound_reaches_the_viewer_once_asked_for() {
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+    let (session, events) = connect(&addr, &host, id).await;
+    assert!(session.set_audio(true), "der Host kann Ton");
+    let packet = tokio::task::spawn_blocking(move || {
+        wait_for(&events, |e| match e {
+            ViewerEvent::Audio(data) => Some(data),
+            _ => None,
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(packet, Some(vec![0xf8, 1, 2, 3]));
+    session.set_audio(false);
+}

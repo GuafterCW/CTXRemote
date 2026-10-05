@@ -236,6 +236,17 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - Lokal getestet: Sicherung, Verschlüsselung, Kopie per rsync, Aufbewahrung, Wiederherstellen, falsche Passphrase.
 - **Offen beim Nutzer:** einrichten nach `docs/DEPLOY.md`, „Sicherung der Serverdaten“, Passphrase im Passwortmanager ablegen, optional Storage Box.
 
+### Ton vom Host (5. Oktober, Cloud-Sitzung)
+
+- Der Host überträgt, was der Computer abspielt: WASAPI-Loopback des Standard-Ausgabegeräts (`crates/core/src/audio.rs`), umgerechnet auf 48 kHz Stereo, als Opus mit 96 kbit/s in 20-ms-Paketen. Kodiert wird mit `opus-rs` (reines Rust, also kein CMake und keine C-Bibliothek). Der Encoder läuft im Modus „RestrictedLowDelay“.
+- Protokoll: `Features::AUDIO`, `ViewerMsg::SetAudio(bool)` und `HostMsg::Audio(AudioPacket)`. Die Aufnahme läuft nur, solange der Viewer Ton will. Spielt nichts, kommen keine Pakete. Nach einem Sitzungswechsel (Ab- und Anmelden) schaltet der Host den Ton im neuen Agenten wieder ein.
+- Viewer: Paket-Typ 4 ans Sitzungsfenster. `app/src/lib/sound.ts` dekodiert mit WebCodecs (`AudioDecoder`, Opus) und spielt über ein AudioContext mit 60 ms Vorlauf. Ab 250 ms Rückstand setzt es neu an, statt verspätet zu spielen. Im Sitzungsfenster gibt es einen Knopf Ton an/aus, der Wert wird gemerkt. Aus stoppt auch die Aufnahme am Host.
+- Getestet ohne Windows:
+  - Unit-Tests: Umrechnung 44,1 auf 48 kHz, Paketgröße und -takt.
+  - Pakete dieses Encoders in Chromium mit WebCodecs dekodiert und durch `SoundPlayer` geplant: 440 und 880 Hz kommen exakt an, lückenlos.
+  - `--test sessions` (Ton erreicht den Viewer erst nach `SetAudio`).
+- **Ungetestet:** die WASAPI-Aufnahme selbst. Offen ist vor allem, ob sie im Dienst-Modus funktioniert, denn der Agent läuft dort als SYSTEM in der Benutzersitzung.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -309,6 +320,12 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - PC B im Webinterface aus dem Konto entfernen: B kommt nicht mehr ohne Passwort hinein („Dieses Gerät gehört nicht mehr zum Konto“).
 21. Konto löschen im Webinterface: Danach muss die App auf beiden PCs beim nächsten Abgleich ohne Konto dastehen, ohne Fehlermeldung.
 22. Verlauf: Mit und ohne Dienst je eine Verbindung mit Einmalpasswort und eine mit falschem Passwort machen. Im Verlauf müssen beide stehen, die erfolgreiche mit Dauer. Nach einem Neustart der App bzw. des Dienstes muss der Verlauf noch da sein.
+23. Ton (beide PCs aktualisiert): Auf dem Host Musik oder ein Video abspielen und verbinden.
+    - Der Ton muss am Viewer zu hören sein. Wie groß ist die Verzögerung zum Bild?
+    - Klick auf den Lautsprecher-Knopf: Der Ton verstummt. Nochmal klicken: Er ist wieder da.
+    - Einmal ohne Dienst und einmal **mit Dienst** testen, mit Dienst auch nach Ab- und wieder Anmelden.
+    - Am Host das Ausgabegerät wechseln (z. B. Kopfhörer): Nach ein bis zwei Sekunden muss der Ton weiterlaufen.
+    - Kommt kein Ton, im Log des Hosts bzw. Agenten nach „Tonaufnahme“ suchen (`RUST_LOG=debug`).
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

@@ -8,6 +8,7 @@
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
+  import { SoundPlayer } from "./lib/sound";
 
   let { session }: { session: number } = $props();
 
@@ -27,7 +28,11 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false });
+  /** The host's sound; remembered across sessions. */
+  let soundOn = $state(loadSound());
+  let sound: SoundPlayer | null = null;
+  let soundReady = $state(false);
   let chatOpen = $state(false);
   let chatMessages = $state<ChatMessage[]>([]);
   let unread = $state(0);
@@ -72,9 +77,12 @@
         player.push(view.getUint8(1) === 1, view.getUint32(4, true), view.getUint32(8, true), new Uint8Array(buffer, 12));
       } else if (kind === 3) {
         showCursor(view.getUint32(4, true), view.getUint32(8, true), buffer);
+      } else if (kind === 4) {
+        sound?.push(new Uint8Array(buffer, 12));
       } else if (kind === 2) {
         closed = new TextDecoder().decode(new Uint8Array(buffer, 12)) || "Die Verbindung wurde beendet.";
         player.close();
+        sound?.close();
       }
     };
 
@@ -87,6 +95,12 @@
         display = info.active_display;
         features = supported;
         direct = route ?? direct;
+        if (supported.audio && SoundPlayer.supported()) {
+          sound = new SoundPlayer();
+          soundReady = true;
+          sound.setMuted(!soundOn);
+          if (soundOn) api.setAudio(session, true).catch(() => {});
+        }
       })
       .catch((e) => (closed = errorText(e)));
 
@@ -107,13 +121,42 @@
       if (event.payload.type === "drop") uploadToDesktop(event.payload.paths);
     });
 
+    // Audio may only start after a user gesture; any click or key will do.
+    const wake = () => sound?.resume();
+    window.addEventListener("pointerdown", wake);
+    window.addEventListener("keydown", wake);
+
     return () => {
       player.close();
+      sound?.close();
+      window.removeEventListener("pointerdown", wake);
+      window.removeEventListener("keydown", wake);
       unlistenDrop.then((off) => off());
       unlistenRoute.then((off) => off());
       unlistenChat.then((off) => off());
     };
   });
+
+  function loadSound(): boolean {
+    try {
+      return localStorage.getItem("ctxremote.sound") !== "off";
+    } catch {
+      return true;
+    }
+  }
+
+  function toggleSound() {
+    soundOn = !soundOn;
+    try {
+      localStorage.setItem("ctxremote.sound", soundOn ? "on" : "off");
+    } catch {
+      // Not remembered then.
+    }
+    sound?.setMuted(!soundOn);
+    sound?.resume();
+    // Off also stops the capture on the host, which saves bandwidth.
+    api.setAudio(session, soundOn).catch(() => {});
+  }
 
   // The files window does the upload, so its progress and errors show there.
   function uploadToDesktop(paths: string[]) {
@@ -455,6 +498,11 @@
       {#if features.files}
         <button class="tool" title="Dateien" onclick={() => api.openFiles(session)}>
           <Icon name="folder" size={17} />
+        </button>
+      {/if}
+      {#if features.audio && soundReady}
+        <button class="tool" title={soundOn ? "Ton aus" : "Ton an"} onclick={toggleSound}>
+          <Icon name={soundOn ? "volume" : "volumeOff"} size={17} />
         </button>
       {/if}
       <button class="tool" title={fullscreen ? "Vollbild verlassen" : "Vollbild"} onclick={toggleFullscreen}>

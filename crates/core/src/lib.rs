@@ -1,6 +1,7 @@
 //! Engine behind the CTXRemote app: hosting sessions and viewing remote screens.
 
 pub mod agent;
+pub mod audio;
 pub mod account;
 pub mod alias;
 pub mod agent_process;

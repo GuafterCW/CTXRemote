@@ -32,10 +32,14 @@ impl ScreenSource for Echo {
                 return;
             }
             while let Some(msg) = inbox.recv().await {
-                if let ViewerMsg::Clipboard(text) = msg {
-                    if outbox.send(HostMsg::Clipboard(text)).await.is_err() {
-                        return;
-                    }
+                let answer = match msg {
+                    ViewerMsg::Clipboard(text) => HostMsg::Clipboard(text),
+                    // Stands in for the sound: one packet per switch-on.
+                    ViewerMsg::SetAudio(true) => HostMsg::Audio(ctxremote_proto::session::AudioPacket { data: vec![0xf8, 1, 2, 3] }),
+                    _ => continue,
+                };
+                if outbox.send(answer).await.is_err() {
+                    return;
                 }
             }
         });

@@ -8,7 +8,7 @@ use std::sync::mpsc as std_mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use ctxremote_proto::session::{CursorShape, HostInfo, HostMsg, Quality, VideoCodec, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{AudioPacket, CursorShape, HostInfo, HostMsg, Quality, VideoCodec, VideoFrame, ViewerMsg};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -71,10 +71,15 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     };
     // Started on the first file request; most sessions never need it.
     let mut files: Option<FileService> = None;
+    // The host's sound, while the viewer wants it. A few packets of slack;
+    // beyond that they are dropped instead of adding delay.
+    let (audio_tx, mut audio_rx) = mpsc::channel::<Vec<u8>>(8);
+    let mut audio: Option<crate::audio::AudioCapture> = None;
     let result: Result<()> = async {
         loop {
             tokio::select! {
                 Some(text) = clip_rx.recv() => outbox.send(HostMsg::Clipboard(text)).await?,
+                Some(data) = audio_rx.recv() => outbox.send(HostMsg::Audio(AudioPacket { data })).await?,
                 frame = frames_rx.recv() => match frame {
                     Some(Captured::Frame(frame)) => outbox.send(HostMsg::Video(frame)).await?,
                     Some(Captured::Pointer(shape)) => outbox.send(HostMsg::Cursor(shape)).await?,
@@ -91,6 +96,16 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                         }
                     }
                     Some(ViewerMsg::SetQuality(quality)) => { let _ = commands.send(VideoCommand::Quality(quality)); }
+                    Some(ViewerMsg::SetAudio(on)) => {
+                        if !on {
+                            audio = None;
+                        } else if audio.is_none() {
+                            match crate::audio::AudioCapture::start(audio_tx.clone()) {
+                                Ok(capture) => audio = Some(capture),
+                                Err(e) => warn!("Kein Ton: {e:#}"),
+                            }
+                        }
+                    }
                     Some(ViewerMsg::Clipboard(text)) => {
                         if let Some(clipboard) = &clipboard {
                             clipboard.apply(text);
@@ -117,6 +132,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     .await;
 
     injector.release_all();
+    drop(audio);
     drop(files);
     drop(clipboard);
     drop(clip_tx);

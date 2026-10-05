@@ -53,6 +53,8 @@ pub enum ViewerEvent {
     Direct(String),
     /// A chat message from the person at the host.
     Chat(String),
+    /// 20 ms of the host's sound (Opus, 48 kHz stereo), after [`ViewerSession::set_audio`].
+    Audio(Vec<u8>),
     /// The session ended; carries the reason if it was not the viewer's choice.
     Closed(Option<String>),
 }
@@ -214,6 +216,7 @@ impl ViewerSession {
                     Ok(Some(HostMsg::Clipboard(text))) => on_event(ViewerEvent::Clipboard(text)),
                     Ok(Some(HostMsg::Bye(reason))) => break Some(reason),
                     Ok(Some(HostMsg::Cursor(shape))) => on_event(ViewerEvent::Cursor(shape)),
+                    Ok(Some(HostMsg::Audio(packet))) => on_event(ViewerEvent::Audio(packet.data)),
                     Ok(Some(HostMsg::Chat(text))) => {
                         if let Some(text) = crate::host::chat_text(&text) {
                             on_event(ViewerEvent::Chat(text));
@@ -244,6 +247,16 @@ impl ViewerSession {
     }
 
     /// The host's file browser and transfers in both directions.
+    /// Turns the host's sound on or off. Returns false for hosts without sound
+    /// (older versions), which must not get the message.
+    pub fn set_audio(&self, on: bool) -> bool {
+        if !self.features.has(Features::AUDIO) {
+            return false;
+        }
+        self.send(ViewerMsg::SetAudio(on));
+        true
+    }
+
     pub fn files(&self) -> &Arc<FileClient> {
         &self.files
     }

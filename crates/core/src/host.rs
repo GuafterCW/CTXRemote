@@ -584,11 +584,13 @@ async fn run_session(
     // The UDP side of the offer, for viewers behind NAT; prepared in the background.
     let (punch_ready, mut punch_prepared) = mpsc::unbounded_channel::<PunchHost>();
     let mut punch: Option<PunchHost> = None;
+    let mut audio_on = false;
     let result: Result<()> = async {
         loop {
             tokio::select! {
                 msg = from_agent.recv() => match msg {
                     Some(HostMsg::Cursor(_)) if !route.features.has(Features::CURSOR) => {}
+                    Some(HostMsg::Audio(_)) if !route.features.has(Features::AUDIO) => {}
                     Some(msg @ HostMsg::Welcome(_)) => {
                         // Older viewers ignore the trailer; newer ones learn what we support.
                         tx.send_with_trailer(&msg, &Features::CURRENT).await?;
@@ -624,6 +626,10 @@ async fn run_session(
                         Some((new_to, new_from)) => {
                             info!("Bildschirmseite neu gestartet");
                             (to_agent, from_agent) = (new_to, new_from);
+                            // The new screen side starts silent.
+                            if audio_on {
+                                let _ = to_agent.send(ViewerMsg::SetAudio(true)).await;
+                            }
                         }
                         None => {
                             let _ = tx.send(&HostMsg::Bye("Der Bildschirm ist nicht mehr verfügbar".into())).await;
@@ -693,6 +699,9 @@ async fn run_session(
                         return Ok(());
                     }
                     Some(msg) => {
+                        if let ViewerMsg::SetAudio(on) = msg {
+                            audio_on = on;
+                        }
                         // A failed send means the agent is gone; the branch above notices.
                         let _ = to_agent.send(msg).await;
                     }

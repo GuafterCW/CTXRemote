@@ -141,6 +141,8 @@ export interface HostFeatures {
   restart: boolean;
   quality: boolean;
   chat: boolean;
+  /** Sends its sound on request. */
+  audio: boolean;
 }
 
 /** Mirrors `Quality` in crates/proto/src/session.rs. */
@@ -242,6 +244,8 @@ export const api = {
   restartHost: (session: number) => invoke<void>("restart_host", { session }),
   setQuality: (session: number, quality: Quality) => invoke<void>("set_quality", { session, quality }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
+  /** Turns the host's sound on or off; false if the host has none. */
+  setAudio: (session: number, on: boolean) => invoke<boolean>("set_audio", { session, on }),
   endHostedSession: (session: number) => invoke<void>("end_hosted_session", { session }),
   installUpdate: () => invoke<void>("install_update"),
   /** `null` drops the alias; returns it as stored (lowercase). */

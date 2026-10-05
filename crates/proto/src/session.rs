@@ -37,6 +37,14 @@ pub enum HostMsg {
     /// the host's UDP `candidates` and the SHA-256 of its QUIC certificate.
     /// The viewer answers with [`ViewerMsg::PunchAnswer`].
     PunchOffer { candidates: Vec<String>, cert: [u8; 32] },
+    /// Sound of the host, after the viewer asked with `SetAudio(true)`.
+    Audio(AudioPacket),
+}
+
+/// 20 ms of the host's sound: one Opus packet, 48 kHz stereo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioPacket {
+    pub data: Vec<u8>,
 }
 
 /// Longest chat message in bytes; longer ones are cut by the sender.
@@ -61,9 +69,11 @@ impl Features {
     /// Reads a [`MemberProof`] in the `Hello` trailer and offers devices of
     /// its account access without a password, if the user allowed that.
     pub const ACCOUNT: u32 = 1 << 8;
+    /// Understands `SetAudio` and sends `Audio`.
+    pub const AUDIO: u32 = 1 << 9;
 
     /// Everything this build supports.
-    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT | Self::PUNCH | Self::PROFILE | Self::ACCOUNT);
+    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT | Self::PUNCH | Self::PROFILE | Self::ACCOUNT | Self::AUDIO);
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
 
@@ -221,6 +231,8 @@ pub enum ViewerMsg {
     Chat(String),
     /// The viewer's UDP candidates; both sides then punch towards each other.
     PunchAnswer { candidates: Vec<String> },
+    /// Turns the host's sound on or off; only to hosts with [`Features::AUDIO`].
+    SetAudio(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

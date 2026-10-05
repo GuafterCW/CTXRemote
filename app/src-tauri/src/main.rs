@@ -100,6 +100,8 @@ fn err(e: impl std::fmt::Display) -> String {
 const PACKET_VIDEO: u8 = 1;
 const PACKET_CLOSED: u8 = 2;
 const PACKET_CURSOR: u8 = 3;
+/// One Opus packet of the host's sound (20 ms, 48 kHz stereo).
+const PACKET_AUDIO: u8 = 4;
 
 fn packet(kind: u8, keyframe: bool, width: u32, height: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(12 + payload.len());
@@ -431,6 +433,11 @@ async fn connect(
                 }
                 link.cursor = Some(packet);
             }
+            ViewerEvent::Audio(data) => {
+                if let Some(channel) = &link.lock().unwrap().channel {
+                    let _ = channel.send(InvokeResponseBody::Raw(packet(PACKET_AUDIO, false, 0, 0, &data)));
+                }
+            }
             ViewerEvent::Chat(text) => {
                 let _ = app.emit_to(format!("session-{number}"), "chat", text);
             }
@@ -522,6 +529,7 @@ struct Features {
     restart: bool,
     quality: bool,
     chat: bool,
+    audio: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -532,6 +540,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             restart: f.has(F::RESTART),
             quality: f.has(F::QUALITY),
             chat: f.has(F::CHAT),
+            audio: f.has(F::AUDIO),
         }
     }
 }
@@ -588,6 +597,14 @@ fn select_display(state: State<AppState>, session: u32, index: u8) {
 #[tauri::command]
 fn request_keyframe(state: State<AppState>, session: u32) {
     with_viewer(&state, session, |s| s.send(ViewerMsg::RequestKeyframe));
+}
+
+/// Turns the host's sound on or off for `session`; false if the host has none.
+#[tauri::command]
+fn set_audio(state: State<AppState>, session: u32, on: bool) -> bool {
+    let mut supported = false;
+    with_viewer(&state, session, |s| supported = s.set_audio(on));
+    supported
 }
 
 #[tauri::command]
@@ -850,6 +867,7 @@ macro_rules! handlers {
             send_input,
             select_display,
             request_keyframe,
+            set_audio,
             send_sas,
             lock_screen,
             restart_host,
