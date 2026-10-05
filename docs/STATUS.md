@@ -97,6 +97,12 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
   - Die Fehlermeldung im Installer-Hook hat `/SD IDOK`, damit sie ein stilles Update nicht blockiert.
 - **Offen:** Ob die Auflösung des fernen Geräts der Fenstergröße folgen soll (dynamische Auflösung wie bei RDP), ist noch nicht entschieden. Dafür müsste der Host seine Bildschirmauflösung ändern.
 
+### Bestätigt durch den Nutzer (5. Oktober)
+
+- Release-Pipeline, Server-Auslieferung und signierte Updates funktionieren. Ein Gerät mit Dienst hat sich automatisch auf 0.1.6 aktualisiert.
+- Die Dateiübertragung funktioniert, nachdem `open_files` nicht mehr synchron läuft.
+- Noch offen ist der Sprung 0.1.6 → nächste Version mit geöffneter App. Der neue Installer-Hook beendet die App, und der Dienst startet sie danach im Tray wieder.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
