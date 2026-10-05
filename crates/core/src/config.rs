@@ -31,6 +31,8 @@ pub struct Config {
     /// Extra `host:port` addresses offered to viewers, e.g. the router's public
     /// name when the port is forwarded.
     pub direct_addresses: Vec<String>,
+    /// Public alias others can connect with instead of the ID (kept on the server).
+    pub public_alias: Option<String>,
 }
 
 /// The direct-connection part of the settings form.
@@ -81,6 +83,7 @@ impl Default for Config {
             direct: true,
             direct_port: crate::direct::DEFAULT_PORT,
             direct_addresses: Vec::new(),
+            public_alias: None,
         }
     }
 }

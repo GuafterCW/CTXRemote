@@ -103,6 +103,19 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
 - Die Dateiübertragung funktioniert, nachdem `open_files` nicht mehr synchron läuft.
 - Noch offen ist der Sprung 0.1.6 → nächste Version mit geöffneter App. Der neue Installer-Hook beendet die App, und der Dienst startet sie danach im Tray wieder.
 
+### Öffentlicher Alias (5. Oktober, Cloud-Sitzung)
+
+Wie bei AnyDesk kann jedes installierte Gerät einen eigenen Namen festlegen, unter dem andere es erreichen. Dynamische Auflösung hat der Nutzer verworfen.
+
+- **Bedienung:** Hauptfenster → unter „Ihre ID“ auf „+ Alias festlegen“. Andere geben den Alias statt der ID ins Verbindungsfeld ein. Das Passwort bleibt nötig.
+- **Regeln:** 3–32 Zeichen aus `a-z 0-9 . - _`, vorne und hinten Buchstabe oder Ziffer, mindestens ein Buchstabe (sonst wäre er mit einer ID verwechselbar). Großschreibung wird ignoriert. Ein Gerät hat höchstens einen Alias, ein neuer ersetzt den alten.
+- **Technik:**
+  - Der Server speichert die Aliase in `registry.json` (`aliases`) und bindet sie an den Geräteschlüssel. Das Setzen ist mit dem Geräteschlüssel signiert (`ctxremote/alias/v1:` + Verbindungs-Nonce + Alias), siehe `proto::rendezvous::sign_alias_claim`.
+  - Neue Nachrichten `ClaimAlias`/`ResolveAlias` bzw. `AliasClaimed`/`AliasResolved`, angehängt. Alte Server legen auf: Die App meldet dann „Server-Update nötig“.
+  - Der Alias steht zusätzlich in der Konfiguration (`public_alias`). Nach jeder Anmeldung am Server setzt ihn der Host erneut, falls der Server seine Daten verloren hat.
+  - Mit Dienst läuft das Setzen über die UI-Pipe (`UiRequest::SetPublicAlias`), ohne UAC. Die Schnellhilfe hat keinen Alias, weil sie keine feste Identität hat.
+  - Test: `cargo test -p ctxremote-server --test sessions public_alias`.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -139,6 +152,11 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
     - Steht das Hauptfenster im Tray, muss es sich bei einer Nachricht öffnen.
     - Kein Buchstabe aus dem Chatfeld darf beim fernen Gerät ankommen.
     - Gegen einen alten Host muss der Chat-Knopf fehlen.
+13. Öffentlicher Alias (braucht das Server-Update aus derselben Version):
+    - Im Hauptfenster einen Alias festlegen, mit und ohne Dienst. Er muss danach unter der ID stehen und sich kopieren lassen.
+    - Von einem zweiten Gerät mit dem Alias verbinden, auch in Großbuchstaben.
+    - Denselben Alias auf dem zweiten Gerät versuchen: „Dieser Alias ist schon vergeben“.
+    - Alias entfernen: Danach muss „Den Alias … gibt es nicht“ kommen.
 
 ## Nächste Schritte
 

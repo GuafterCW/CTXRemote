@@ -21,7 +21,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
-use ctxremote_proto::rendezvous::{verify_challenge, ClientMsg, ServerError, ServerMsg, SessionId};
+use ctxremote_proto::rendezvous::{
+    verify_alias_claim, verify_challenge, AliasError, ClientMsg, ServerError, ServerMsg, SessionId,
+};
 use ctxremote_proto::{DeviceId, DEFAULT_PORT, PROTOCOL_VERSION};
 use futures::StreamExt;
 use rand::RngCore;
@@ -134,6 +136,32 @@ impl Server {
                 Ok(())
             }
             ClientMsg::Ping => Ok(()),
+            ClientMsg::ClaimAlias { id, public_key, signature, alias } => {
+                if !self.allow_connect(peer.ip()) {
+                    framing::send(&mut t, &ServerMsg::Error(ServerError::RateLimited)).await?;
+                    return Ok(());
+                }
+                let result = if verify_alias_claim(&public_key, &nonce, alias.as_deref(), &signature) {
+                    self.registry.lock().unwrap().claim_alias(id, public_key, alias.as_deref())
+                } else {
+                    Err(AliasError::BadSignature)
+                };
+                match &result {
+                    Ok(Some(alias)) => info!(%id, alias, "Alias vergeben"),
+                    Ok(None) => info!(%id, "Alias entfernt"),
+                    Err(e) => debug!(%id, "Alias abgelehnt: {e}"),
+                }
+                framing::send(&mut t, &ServerMsg::AliasClaimed(result)).await
+            }
+            // Rate-limited like connects, so aliases cannot be scanned quickly.
+            ClientMsg::ResolveAlias { alias } => {
+                if !self.allow_connect(peer.ip()) {
+                    framing::send(&mut t, &ServerMsg::Error(ServerError::RateLimited)).await?;
+                    return Ok(());
+                }
+                let id = self.registry.lock().unwrap().resolve_alias(&alias);
+                framing::send(&mut t, &ServerMsg::AliasResolved(id)).await
+            }
             ClientMsg::UpdateCheck { platform } => {
                 let info = self.updates.latest(&platform);
                 framing::send(&mut t, &ServerMsg::Update(info)).await

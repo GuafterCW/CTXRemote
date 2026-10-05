@@ -25,6 +25,9 @@ pub struct ServiceState {
     /// Sessions whose viewer can receive chat messages.
     #[serde(default)]
     pub chat_sessions: Vec<u64>,
+    /// The device's public alias, if it has one.
+    #[serde(default)]
+    pub public_alias: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +41,8 @@ pub enum UiRequest {
     ConfigureDirect(DirectSettings),
     /// A chat message to the viewer of a session; any signed-in user, like `EndSession`.
     Chat { session: u64, text: String },
+    /// Sets or drops the public alias; any signed-in user, it only names the device.
+    SetPublicAlias(Option<String>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +51,8 @@ pub enum UiEvent {
     Host(HostEvent),
     /// The answer to `Configure`.
     Configured(Result<(), String>),
+    /// The answer to `SetPublicAlias`: the alias as stored.
+    AliasSet(Result<Option<String>, String>),
 }
 
 #[cfg(windows)]
@@ -169,6 +176,7 @@ mod imp {
             unattended: config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
             sessions: host.sessions(),
             chat_sessions: host.chat_sessions(),
+            public_alias: config.public_alias.clone(),
             direct: config.direct_settings(),
             direct_active: host.direct_active(),
         }
@@ -200,6 +208,13 @@ mod imp {
                     match request {
                         UiRequest::RefreshPassword => { host.refresh_password(); continue; }
                         UiRequest::EndSession(session) => { host.end_session(session); continue; }
+                        UiRequest::SetPublicAlias(alias) => {
+                            let answer = host.set_public_alias(alias).await;
+                            if answer.is_ok() {
+                                changed.send_replace(());
+                            }
+                            UiEvent::AliasSet(answer)
+                        }
                         UiRequest::Chat { session, text } => {
                             if let Err(e) = host.send_chat(session, &text) {
                                 tracing::debug!("Chat nicht zugestellt: {e}");

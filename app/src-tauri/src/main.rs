@@ -140,6 +140,10 @@ struct Overview {
     version: &'static str,
     /// Version of an available update the app can install, if any.
     update: Option<String>,
+    /// This device's public alias, `None` if it has none.
+    public_alias: Option<String>,
+    /// Whether a public alias can be set (not in the portable helper).
+    alias_supported: bool,
 }
 
 #[derive(Serialize)]
@@ -162,7 +166,7 @@ struct Hosted {
 #[tauri::command]
 fn overview(state: State<AppState>) -> Overview {
     let config = state.config.read().unwrap();
-    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat) = match &state.host {
+    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias) = match &state.host {
         Side::Local(host) => (
             host.presence().borrow().clone(),
             host.password(),
@@ -173,11 +177,12 @@ fn overview(state: State<AppState>) -> Overview {
             config.direct_settings(),
             host.direct_active(),
             host.chat_sessions(),
+            host.public_alias(),
         ),
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => {
             let s = service.state();
-            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions)
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias)
         }
     };
     Overview {
@@ -205,6 +210,8 @@ fn overview(state: State<AppState>) -> Overview {
             .collect(),
         version: ctxremote_core::update::VERSION,
         update: state.update.lock().unwrap().as_ref().map(|u| u.version.clone()),
+        public_alias,
+        alias_supported: !cfg!(feature = "quick"),
     }
 }
 
@@ -284,6 +291,23 @@ async fn save_direct(state: State<'_, AppState>, settings: DirectSettings) -> Cm
     }
 }
 
+/// Sets (or with `None` drops) this device's public alias; returns it as stored.
+#[tauri::command]
+async fn set_public_alias(state: State<'_, AppState>, alias: Option<String>) -> CmdResult<Option<String>> {
+    match &state.host {
+        // The portable helper gets a new identity every run; an alias would dangle.
+        #[cfg(feature = "quick")]
+        Side::Local(_) => {
+            let _ = alias;
+            Err("In der Schnellhilfe gibt es keinen Alias".into())
+        }
+        #[cfg(not(feature = "quick"))]
+        Side::Local(host) => host.set_public_alias(alias).await,
+        #[cfg(not(feature = "quick"))]
+        Side::Service(service) => service.set_public_alias(alias).await,
+    }
+}
+
 #[tauri::command]
 fn forget_peer(state: State<AppState>, id: String) -> CmdResult<()> {
     let id: DeviceId = id.parse().map_err(err)?;
@@ -307,12 +331,22 @@ async fn connect(
     target: String,
     password: String,
 ) -> CmdResult<u32> {
-    let (server, own_id, target) = {
+    let (server, own_id, local) = {
         let config = state.config.read().unwrap();
-        let target = config
-            .resolve(&target)
-            .ok_or("Unbekannter Alias oder ungültige ID")?;
-        (config.server_addr(), config.device_id, target)
+        (config.server_addr(), config.device_id, config.resolve(&target))
+    };
+    // An ID or one of the user's own names; otherwise a public alias on the server.
+    let target = match local {
+        Some(id) => id,
+        None => {
+            if ctxremote_core::alias::normalize_alias(&target).is_err() {
+                return Err("Ungültige ID oder ungültiger Alias".into());
+            }
+            ctxremote_core::alias::resolve(&server, &target)
+                .await
+                .map_err(chain)?
+                .ok_or_else(|| format!("Den Alias „{}“ gibt es nicht", target.trim()))?
+        }
     };
     if own_id == Some(target) {
         return Err("Das ist die ID dieses Geräts".into());
@@ -752,6 +786,7 @@ macro_rules! handlers {
             disconnect,
             end_hosted_session,
             install_update,
+            set_public_alias,
             open_files,
             queue_drop,
             take_drops,

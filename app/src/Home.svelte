@@ -21,7 +21,7 @@
   let presence = $state<Presence>({ state: "connecting" });
   let hosted = $state<Hosted[]>([]);
   let revealed = $state(false);
-  let copied = $state<"id" | "password" | null>(null);
+  let copied = $state<"id" | "password" | "alias" | null>(null);
   let settingsOpen = $state(false);
   let chatOpen = $state<Record<number, boolean>>({});
 
@@ -95,7 +95,33 @@
     return () => subscriptions.forEach((s) => s.then((unlisten) => unlisten()));
   });
 
-  async function copy(kind: "id" | "password", text: string) {
+  // Public alias: shown under the ID, edited in place.
+  let aliasEditing = $state(false);
+  let aliasDraft = $state("");
+  let aliasSaving = $state(false);
+  let aliasError = $state("");
+
+  function editAlias() {
+    aliasDraft = overview?.publicAlias ?? "";
+    aliasError = "";
+    aliasEditing = true;
+  }
+
+  async function saveAlias(remove = false) {
+    aliasSaving = true;
+    aliasError = "";
+    try {
+      await api.setPublicAlias(remove || !aliasDraft.trim() ? null : aliasDraft);
+      aliasEditing = false;
+      await refresh();
+    } catch (e) {
+      aliasError = errorText(e);
+    } finally {
+      aliasSaving = false;
+    }
+  }
+
+  async function copy(kind: "id" | "password" | "alias", text: string) {
     await navigator.clipboard.writeText(text.replace(/\s/g, ""));
     copied = kind;
     setTimeout(() => (copied = copied === kind ? null : copied), 1400);
@@ -263,6 +289,55 @@
             </button>
           {/if}
         </div>
+        {#if overview?.aliasSupported && myId}
+          {#if aliasEditing}
+            <form
+              class="alias-edit"
+              onsubmit={(e) => {
+                e.preventDefault();
+                saveAlias();
+              }}
+            >
+              <input
+                class="field"
+                bind:value={aliasDraft}
+                placeholder="z. B. philipp-pc"
+                maxlength="32"
+                spellcheck="false"
+                autocomplete="off"
+                disabled={aliasSaving}
+              />
+              <button class="btn btn-primary" type="submit" disabled={aliasSaving}>Speichern</button>
+              <button class="btn btn-quiet" type="button" disabled={aliasSaving} onclick={() => (aliasEditing = false)}>
+                Abbrechen
+              </button>
+            </form>
+            <p class="alias-note" class:bad={!!aliasError}>
+              {aliasError ||
+                "Andere können sich mit diesem Namen statt mit der ID verbinden. 3–32 Zeichen: Kleinbuchstaben, Ziffern, Punkt, Binde- und Unterstrich."}
+            </p>
+            {#if overview.publicAlias}
+              <button class="link-btn" type="button" disabled={aliasSaving} onclick={() => saveAlias(true)}>
+                Alias entfernen
+              </button>
+            {/if}
+          {:else if overview.publicAlias}
+            <div class="id-meta">
+              <span>oder</span>
+              <span class="alias">{overview.publicAlias}</span>
+              <button class="icon-btn small" title="Alias kopieren" onclick={() => copy("alias", overview!.publicAlias!)}>
+                <Icon name={copied === "alias" ? "check" : "copy"} size={16} />
+              </button>
+              <button class="icon-btn small" title="Alias ändern" onclick={editAlias}>
+                <Icon name="pencil" size={15} />
+              </button>
+            </div>
+          {:else}
+            <button class="link-btn" type="button" onclick={editAlias}>
+              <Icon name="plus" size={14} /> Alias festlegen
+            </button>
+          {/if}
+        {/if}
       </div>
 
       {#if overview && !overview.hostSupported}
@@ -529,6 +604,50 @@
 
   .id.placeholder {
     color: var(--line-strong);
+  }
+
+  .alias {
+    color: var(--ink);
+    font-weight: 600;
+    user-select: text;
+  }
+
+  .alias-edit {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .alias-edit .field {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .alias-note {
+    margin: 6px 0 0;
+    color: var(--ink-3);
+    font-size: 12.5px;
+  }
+
+  .alias-note.bad {
+    color: var(--bad);
+  }
+
+  .link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .link-btn:hover:not(:disabled) {
+    color: var(--accent-hover);
   }
 
   .id-meta {

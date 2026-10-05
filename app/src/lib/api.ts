@@ -60,6 +60,10 @@ export interface Overview {
   version: string;
   /** A newer version the app can install (app mode; the service updates itself). */
   update: string | null;
+  /** Public alias others can connect with instead of the ID. */
+  publicAlias: string | null;
+  /** False in the portable helper, which has no lasting identity. */
+  aliasSupported: boolean;
 }
 
 export interface DisplayInfo {
@@ -147,6 +151,8 @@ export const api = {
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
   endHostedSession: (session: number) => invoke<void>("end_hosted_session", { session }),
   installUpdate: () => invoke<void>("install_update"),
+  /** `null` drops the alias; returns it as stored (lowercase). */
+  setPublicAlias: (alias: string | null) => invoke<string | null>("set_public_alias", { alias }),
   /** Viewer side: rejects with the reason, e.g. an empty message. */
   sendChat: (session: number, text: string) => invoke<void>("send_chat", { session, text }),
   /** Host side. */

@@ -221,3 +221,29 @@ async fn chat_goes_both_ways() {
     .await
     .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn public_alias_reaches_the_device() {
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+
+    assert_eq!(host.set_public_alias(Some(" Test-Rechner ".into())).await.unwrap().as_deref(), Some("test-rechner"));
+    assert_eq!(host.public_alias().as_deref(), Some("test-rechner"));
+    assert_eq!(ctxremote_core::alias::resolve(&addr, "TEST-rechner").await.unwrap(), Some(id));
+    assert_eq!(ctxremote_core::alias::resolve(&addr, "gibt-es-nicht").await.unwrap(), None);
+
+    // Another device cannot take it.
+    let (other, _) = start_host(&addr, false).await;
+    let err = other.set_public_alias(Some("test-rechner".into())).await.unwrap_err();
+    assert!(err.contains("vergeben"), "{err}");
+    assert!(other.set_public_alias(Some("12345".into())).await.is_err());
+
+    // Connecting through the resolved alias works like through the ID.
+    let resolved = ctxremote_core::alias::resolve(&addr, "test-rechner").await.unwrap().unwrap();
+    let (session, events) = connect(&addr, &host, resolved).await;
+    tokio::task::spawn_blocking(move || echo(&session, &events, "per Alias")).await.unwrap();
+
+    // Dropping it frees the name for others.
+    assert_eq!(host.set_public_alias(None).await.unwrap(), None);
+    assert_eq!(other.set_public_alias(Some("test-rechner".into())).await.unwrap().as_deref(), Some("test-rechner"));
+}

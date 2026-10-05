@@ -172,6 +172,32 @@ impl Host {
         chat.send(text).map_err(|_| "Die Sitzung ist beendet".to_string())
     }
 
+    /// The public alias as last confirmed by the server.
+    pub fn public_alias(&self) -> Option<String> {
+        self.shared.config.read().unwrap().public_alias.clone()
+    }
+
+    /// Sets (or with `None` drops) the public alias at the server and saves it.
+    /// Returns it as stored (lowercase). Needs the device to be registered.
+    pub async fn set_public_alias(&self, alias: Option<String>) -> Result<Option<String>, String> {
+        let alias = alias.map(|a| a.trim().to_string()).filter(|a| !a.is_empty());
+        if let Some(alias) = &alias {
+            crate::alias::normalize_alias(alias).map_err(|e| e.to_string())?;
+        }
+        let (server, key, id) = {
+            let config = self.shared.config.read().unwrap();
+            let key = config.signing_key().map_err(|e| format!("{e:#}"))?;
+            (config.server_addr(), key, config.device_id.ok_or("Das Gerät ist noch nicht am Server angemeldet")?)
+        };
+        let stored = crate::alias::claim(&server, &key, id, alias.as_deref())
+            .await
+            .map_err(|e| format!("{e:#}"))?;
+        let mut config = self.shared.config.write().unwrap();
+        config.public_alias = stored.clone();
+        config.save().map_err(|e| format!("{e:#}"))?;
+        Ok(stored)
+    }
+
     /// Sessions whose viewer can receive chat messages.
     pub fn chat_sessions(&self) -> Vec<u64> {
         let sessions = self.shared.sessions.lock().unwrap();
@@ -258,6 +284,16 @@ async fn stay_registered(shared: &Arc<Shared>) -> Result<()> {
     }
     info!(%id, "beim Server angemeldet");
     shared.presence.send_replace(Presence::Online { id: id.to_string() });
+    // The server may be new (or its data lost): claim the saved alias again.
+    let alias = shared.config.read().unwrap().public_alias.clone();
+    if let Some(alias) = alias {
+        tokio::spawn(async move {
+            match crate::alias::claim(&server, &key, id, Some(&alias)).await {
+                Ok(_) => {}
+                Err(e) => warn!(%alias, "Alias nicht bestätigt: {e:#}"),
+            }
+        });
+    }
 
     let mut ping = tokio::time::interval(PING_INTERVAL);
     loop {

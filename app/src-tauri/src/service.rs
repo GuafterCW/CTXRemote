@@ -10,7 +10,7 @@ use ctxremote_core::config::DirectSettings;
 use ctxremote_core::host::{HostEvent, Presence};
 use ctxremote_core::ui_link::{ServiceLink, ServiceState, UiEvent, UiRequest};
 use tauri::{AppHandle, Emitter};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 const RECONNECT_EVERY: Duration = Duration::from_secs(5);
 const GONE: &str = "CTXRemote-Dienst nicht erreichbar";
@@ -18,6 +18,8 @@ const GONE: &str = "CTXRemote-Dienst nicht erreichbar";
 pub struct Service {
     link: Mutex<Option<ServiceLink>>,
     state: watch::Sender<ServiceState>,
+    /// Waits for the service's answer to `SetPublicAlias`.
+    alias_answer: Mutex<Option<oneshot::Sender<Result<Option<String>, String>>>>,
 }
 
 impl Service {
@@ -32,8 +34,9 @@ impl Service {
             direct: DirectSettings { enabled: false, port: 0, addresses: Vec::new() },
             direct_active: false,
             chat_sessions: Vec::new(),
+            public_alias: None,
         });
-        let service = Arc::new(Service { link: Mutex::new(None), state });
+        let service = Arc::new(Service { link: Mutex::new(None), state, alias_answer: Mutex::new(None) });
         match tokio::time::timeout(Duration::from_secs(2), establish(service.clone(), app.clone()))
             .await
         {
@@ -56,6 +59,17 @@ impl Service {
     pub fn send(&self, request: UiRequest) {
         if let Some(link) = &*self.link.lock().unwrap() {
             link.send(request);
+        }
+    }
+
+    /// Asks the service to set the public alias and waits for its answer.
+    pub async fn set_public_alias(&self, alias: Option<String>) -> Result<Option<String>, String> {
+        let (tx, rx) = oneshot::channel();
+        *self.alias_answer.lock().unwrap() = Some(tx);
+        self.send(UiRequest::SetPublicAlias(alias));
+        match tokio::time::timeout(Duration::from_secs(25), rx).await {
+            Ok(Ok(answer)) => answer,
+            _ => Err("Der Dienst hat nicht geantwortet".into()),
         }
     }
 
@@ -94,6 +108,11 @@ fn establish(
                     let _ = app.emit("host-event", event);
                 }
                 Some(UiEvent::Configured(_)) => {}
+                Some(UiEvent::AliasSet(answer)) => {
+                    if let Some(tx) = service.alias_answer.lock().unwrap().take() {
+                        let _ = tx.send(answer);
+                    }
+                }
                 None => {
                     *service.link.lock().unwrap() = None;
                     let presence = Presence::Offline { reason: GONE.into() };
