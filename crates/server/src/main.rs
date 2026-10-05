@@ -11,6 +11,7 @@
 //! out to clients that ask; see `docs/DEPLOY.md`.
 
 mod accounts;
+mod mail;
 mod web;
 mod registry;
 mod updates;
@@ -102,7 +103,7 @@ async fn main() -> Result<()> {
     let server = Arc::new(Server {
         registry: Mutex::new(Registry::open(data.join("devices.json"))?),
         // Made-up salts must stay the same across restarts; derived from the tunnel key.
-        accounts: Mutex::new(Accounts::open(data.join("accounts.json"), pepper(&tunnel))?),
+        accounts: Mutex::new(Accounts::open(data.join("accounts.json"), pepper(&tunnel))?.with_mail(mail::start())),
         tunnel,
         online: Mutex::default(),
         pending: Mutex::default(),

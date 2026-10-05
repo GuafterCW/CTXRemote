@@ -214,6 +214,8 @@ pub async fn serve(server: Arc<Server>, addr: SocketAddr, origin: Option<String>
         .route("/api/devices/{key}", delete(remove_device))
         .route("/api/login-setup", post(set_login))
         .route("/api/pairing", post(pairing))
+        .route("/api/verify", post(verify))
+        .route("/api/verify/resend", post(resend_verification))
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(api);
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -451,5 +453,35 @@ async fn pairing(
     let id = api.signed_in(&headers)?;
     let op = AccountOp::OfferPairing { code_id: body.code_id, salt: body.salt, verifier: body.verifier, sealed: body.sealed };
     api.op(id, op)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct TokenJson {
+    token: String,
+}
+
+/// The link from the confirmation mail; needs no session.
+async fn verify(
+    State(api): State<Api>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<TokenJson>,
+) -> ApiResult<Json<serde_json::Value>> {
+    api.guard(&Method::POST, &headers, peer)?;
+    api.server.accounts.lock().unwrap().verify_email(&body.token).map_err(|_| {
+        ApiError(StatusCode::BAD_REQUEST, "Der Link ist ungültig oder abgelaufen. Lassen Sie sich im Konto einen neuen schicken.".into())
+    })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn resend_verification(
+    State(api): State<Api>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> ApiResult<Json<serde_json::Value>> {
+    api.guard(&Method::POST, &headers, peer)?;
+    let id = api.signed_in(&headers)?;
+    api.server.accounts.lock().unwrap().resend_verification(id)?;
     Ok(Json(json!({ "ok": true })))
 }

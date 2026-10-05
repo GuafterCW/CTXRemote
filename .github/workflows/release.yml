@@ -7,9 +7,15 @@
 # secrets the builds still run and the files are kept as workflow artifacts.
 name: Release
 
+# Every run costs Actions minutes (the Windows build counts twice), so pure
+# documentation changes do not trigger one. Push several changes together.
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".claude/**"
   workflow_dispatch:
 
 concurrency:
@@ -39,10 +45,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
+      # The mail transport's TLS (ring) compiles C code for the static build.
+      - name: musl-Compiler
+        run: sudo apt-get install -y -q musl-tools
       - uses: Swatinem/rust-cache@v2
       - name: Tests
         run: cargo test --locked -p ctxremote-proto -p ctxremote-server
       - name: Server (statisch)
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
         run: cargo build --release --locked -p ctxremote-server --target x86_64-unknown-linux-musl
       - uses: actions/upload-artifact@v4
         with:

@@ -2,12 +2,27 @@
   import Auth from "./Auth.svelte";
   import CodeView from "./CodeView.svelte";
   import Dashboard from "./Dashboard.svelte";
-  import { signedIn } from "./lib/session";
+  import { onMount } from "svelte";
+  import { signedIn, verifyEmail } from "./lib/session";
 
   // The key lives only in memory, so a fresh page always starts signed out.
   let view = $state<"auth" | "code" | "dash">(signedIn() ? "dash" : "auth");
   let recoveryCode = $state("");
   let notice = $state("");
+
+  // The link in the confirmation mail: /konto/#bestaetigen=<token>.
+  let confirmation = $state<{ ok: boolean; text: string } | null>(null);
+  onMount(async () => {
+    const token = new URLSearchParams(location.hash.slice(1)).get("bestaetigen");
+    if (!token) return;
+    history.replaceState(null, "", location.pathname);
+    try {
+      await verifyEmail(token);
+      confirmation = { ok: true, text: "Ihre E-Mail-Adresse ist bestätigt." };
+    } catch (err) {
+      confirmation = { ok: false, text: err instanceof Error ? err.message : String(err) };
+    }
+  });
 
   function showCode(code: string) {
     recoveryCode = code;
@@ -51,6 +66,9 @@
 
 <main>
   <div class="wrap">
+    {#if confirmation}
+      <p class="confirmation" class:bad={!confirmation.ok} role="status">{confirmation.text}</p>
+    {/if}
     {#if view === "auth"}
       <Auth {notice} onCode={showCode} onSignedIn={signedInNow} />
     {:else if view === "code"}
@@ -68,3 +86,19 @@
     <a href="/datenschutz.html">Datenschutz</a>
   </div>
 </footer>
+
+<style>
+  .confirmation {
+    max-width: 440px;
+    margin: 24px auto 0;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    color: var(--ink-2);
+  }
+
+  .confirmation.bad {
+    border-left-color: #b3412f;
+  }
+</style>

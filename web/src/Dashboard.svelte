@@ -12,6 +12,7 @@
     removeDevice,
     removeEntry,
     renameEntry,
+    resendVerification,
     type AccountInfo,
     type Book,
     type Device,
@@ -189,6 +190,18 @@
       loginBusy = false;
     }
   }
+
+  let resendState = $state<"idle" | "busy" | "sent">("idle");
+  async function resend() {
+    resendState = "busy";
+    try {
+      await resendVerification();
+      resendState = "sent";
+    } catch (err) {
+      resendState = "idle";
+      accountError = err instanceof Error ? err.message : String(err);
+    }
+  }
 </script>
 
 <div class="who">
@@ -196,6 +209,9 @@
     <span class="who-mail">{info?.email ?? ""}</span>
     {#if info && !info.verified}
       <span class="badge">Noch nicht bestätigt</span>
+      <button class="link-resend" type="button" disabled={resendState === "busy"} onclick={resend}>
+        {resendState === "sent" ? "Mail ist unterwegs" : "Bestätigungsmail erneut senden"}
+      </button>
     {/if}
     {#if accountError}
       <p class="error" role="alert">{accountError}</p>

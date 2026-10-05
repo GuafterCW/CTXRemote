@@ -177,7 +177,22 @@ Wunsch des Nutzers: Konten in App und Website, Geräteverwaltung im Web, alles E
    - Interop im echten Browser gegen echten Server getestet: Registrieren im Browser, App koppelt sich mit dem Browser-Code und meldet sich mit dem Browser-Passwort an. Gerätenamen und Geräteliste aus der App erscheinen im Browser, Umbenennen im Browser kommt in der App an.
    - `npm test` in `web/` prüft die Browser-Krypto gegen feste Werte aus Rust (`vectors_stay_stable`).
    - **Offen beim Nutzer:** Web-API für Caddy in Docker freischalten (`docs/DEPLOY.md`, „Webinterface Konto“): `systemctl edit` mit `--http 172.17.0.1:21380`, `extra_hosts`, neuer Caddy-Block mit `/api` und erweiterter CSP.
-4. Mails per SMTP (der Nutzer hat einen SMTP-Zugang)
+4. Mails per SMTP: **erledigt** (`crates/server/src/mail.rs`, lettre mit rustls/ring; der statische Build braucht `musl-tools`, steht in `release.yml`). Bestätigung der Adresse (Link `/konto/#bestaetigen=…`, 48 h), Hinweise bei neuer Adresse, neuem Passwort, neuer Anmeldung und benutztem Wiederherstellungscode. **Offen beim Nutzer:** `/etc/ctxremote/mail.env` anlegen (`docs/DEPLOY.md`, „Mails“).
+
+### GitHub-Actions-Minuten (5. Oktober)
+
+Der Nutzer hatte nur noch 300 von 3000 Minuten übrig. Gründe für den hohen Verbrauch:
+- Jeder Push lief CI doppelt (Branch und master).
+- CI lief auf Windows (zählt doppelt) und macOS (zählt zehnfach).
+- Zu jedem Push kam ein Release mit Windows-Build (etwa 35 Minuten).
+
+Seitdem:
+- **CI läuft nur noch bei Pull Requests oder von Hand**, und nur auf Linux.
+- **Release** startet nicht bei reinen Doku-Änderungen (`paths-ignore`).
+- **Arbeitsweise:** Lokal prüfen (Tests, `check-windows.sh`, `npm run check`, `web: npm test`), Änderungen sammeln und **selten** nach master pushen. Ein Release kostet rund 35 Minuten. Auf den Branch zu pushen kostet nichts.
+- **Möglichkeiten für mehr Minuten** (Entscheidung beim Nutzer):
+  - Repository öffentlich machen: Standard-Runner sind dann kostenlos.
+  - Ein selbst gehosteter Runner, Linux auf dem Hetzner-Server, Windows auf dem eigenen PC.
 
 Zu Schritt 1:
 - **Technik:** Noise NK mit festem Server-Schlüssel (`tunnel.key`), Datensatz-Schicht `SecureIo` unter dem Framing (`crates/proto/src/tunnel.rs`). Der Server leitet Sitzungen weiter, indem er entschlüsselt und wieder verschlüsselt. Die Inhalte bleiben dabei Ende-zu-Ende verschlüsselt.

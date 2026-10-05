@@ -22,6 +22,7 @@ x25519-dalek.workspace = true
 hkdf.workspace = true
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
 base64 = "0.22"
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "webpki-roots", "hostname"] }
 
 [dev-dependencies]
 ctxremote-core.workspace = true

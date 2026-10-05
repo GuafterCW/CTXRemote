@@ -15,6 +15,9 @@ use ctxremote_proto::account::{
 };
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::mail::Mail;
 use serde::{Deserialize, Serialize};
 
 /// Wrong proofs a pairing survives; then it is gone and needs a new code.
@@ -24,6 +27,10 @@ const MAX_FAILURES: u32 = 10;
 const LOCKOUT: Duration = Duration::from_secs(15 * 60);
 /// Longest encrypted device name.
 const MAX_LABEL: usize = 512;
+/// How long the link in a confirmation mail works.
+const VERIFY_SECS: u64 = 48 * 3600;
+/// Shortest pause between two confirmation mails for one account.
+const RESEND_PAUSE: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Default, Serialize, Deserialize)]
 struct Stored {
@@ -59,6 +66,9 @@ struct StoredLogin {
     recovery_wrapped: String,
     #[serde(default)]
     verified: bool,
+    /// The pending confirmation: SHA-256 of the link's token (hex) and when it expires (Unix seconds).
+    #[serde(default)]
+    verify: Option<(String, u64)>,
 }
 
 impl StoredLogin {
@@ -76,7 +86,17 @@ impl StoredLogin {
             recovery_hash: hex::encode(Sha256::digest(setup.recovery_auth)),
             recovery_wrapped: hex::encode(setup.recovery_wrapped),
             verified,
+            verify: None,
         })
+    }
+
+    /// Starts a confirmation of the address; returns the token for the link.
+    fn new_verification(&mut self) -> String {
+        use base64::Engine;
+        let token: [u8; 32] = rand::random();
+        let expires = unix_now() + VERIFY_SECS;
+        self.verify = Some((hex::encode(Sha256::digest(token)), expires));
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token)
     }
 }
 
@@ -101,6 +121,10 @@ pub struct Accounts {
     failures: HashMap<u64, (u32, Instant)>,
     /// Secret for made-up salts of unknown addresses.
     pepper: [u8; 32],
+    /// Where mails go; `None` in tests and tools.
+    mail: Option<UnboundedSender<Mail>>,
+    /// When each account last got a confirmation mail on request.
+    resent: HashMap<u64, Instant>,
 }
 
 impl Accounts {
@@ -120,7 +144,72 @@ impl Accounts {
             .iter()
             .filter_map(|(id, account)| Some((account.login.as_ref()?.email.clone(), *id)))
             .collect();
-        Ok(Self { path, stored, by_key, pairings: HashMap::new(), by_email, failures: HashMap::new(), pepper })
+        Ok(Self {
+            path,
+            stored,
+            by_key,
+            pairings: HashMap::new(),
+            by_email,
+            failures: HashMap::new(),
+            pepper,
+            mail: None,
+            resent: HashMap::new(),
+        })
+    }
+
+    /// Sends account mails through `mail` (see `crate::mail`).
+    pub fn with_mail(mut self, mail: UnboundedSender<Mail>) -> Self {
+        self.mail = Some(mail);
+        self
+    }
+
+    fn emit(&self, mail: Mail) {
+        if let Some(tx) = &self.mail {
+            let _ = tx.send(mail);
+        }
+    }
+
+    /// The address of `account`, if it has a login.
+    fn email(&self, account: u64) -> Option<String> {
+        Some(self.stored.accounts.get(&account)?.login.as_ref()?.email.clone())
+    }
+
+    /// Confirms the address whose mail carried `token`.
+    pub fn verify_email(&mut self, token: &str) -> Result<(), AccountError> {
+        use base64::Engine;
+        let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(token.trim()).map_err(|_| AccountError::UnknownCode)?;
+        let hash = hex::encode(Sha256::digest(raw));
+        let now = unix_now();
+        let id = self
+            .stored
+            .accounts
+            .iter()
+            .find(|(_, a)| a.login.as_ref().and_then(|l| l.verify.as_ref()).is_some_and(|(h, exp)| *h == hash && *exp > now))
+            .map(|(id, _)| *id)
+            .ok_or(AccountError::UnknownCode)?;
+        let before = self.snapshot();
+        let login = self.stored.accounts.get_mut(&id).and_then(|a| a.login.as_mut()).expect("found above");
+        login.verified = true;
+        login.verify = None;
+        self.commit(before)
+    }
+
+    /// Sends the confirmation mail again, at most every few minutes.
+    pub fn resend_verification(&mut self, account: u64) -> Result<(), AccountError> {
+        if self.resent.get(&account).is_some_and(|at| at.elapsed() < RESEND_PAUSE) {
+            return Err(AccountError::RateLimited);
+        }
+        let before = self.snapshot();
+        let login = self.stored.accounts.get_mut(&account).and_then(|a| a.login.as_mut()).ok_or(AccountError::NotLinked)?;
+        if login.verified {
+            return Ok(());
+        }
+        let token = login.new_verification();
+        let to = login.email.clone();
+        self.commit(before)?;
+        self.resent.insert(account, Instant::now());
+        self.emit(Mail::Verify { to, token });
+        Ok(())
     }
 
     /// Carries out a request whose signature the caller has checked.
@@ -151,23 +240,30 @@ impl Accounts {
 
     /// Web sign-up: an account with a login and no devices yet.
     pub fn register_web(&mut self, login: LoginSetup) -> Result<u64, AccountError> {
-        let login = StoredLogin::from_setup(login, false)?;
+        let mut login = StoredLogin::from_setup(login, false)?;
         if self.by_email.contains_key(&login.email) {
             return Err(AccountError::EmailTaken);
         }
+        let token = login.new_verification();
+        let verify = Mail::Verify { to: login.email.clone(), token };
         let id = self.stored.next.max(1);
         let before = self.snapshot();
         self.stored.next = id + 1;
         self.by_email.insert(login.email.clone(), id);
         self.stored.accounts.insert(id, Account { login: Some(login), ..Default::default() });
         self.commit(before)?;
+        self.emit(verify);
         Ok(id)
     }
 
     /// Web sign-in: checks the value derived from the password (or the
     /// recovery code) and returns the account with the matching sealed key.
     pub fn login_web(&mut self, email: &str, value: &[u8; 32], recovery: bool) -> Result<(u64, Vec<u8>), AccountError> {
-        self.check_login(email, value, recovery)
+        let (id, wrapped) = self.check_login(email, value, recovery)?;
+        if let Some(to) = self.email(id) {
+            self.emit(if recovery { Mail::RecoveryUsed { to } } else { Mail::NewSignIn { to, how: "ein Browser im Webinterface" } });
+        }
+        Ok((id, wrapped))
     }
 
     fn run(&mut self, key: String, member: Option<u64>, op: AccountOp) -> Result<AccountReply, AccountError> {
@@ -232,6 +328,9 @@ impl Accounts {
                     }
                 }
                 let pairing = self.pairings.remove(&code_id).expect("looked up above");
+                if let (None, Some(to)) = (member, self.email(account)) {
+                    self.emit(Mail::NewSignIn { to, how: "ein neues Gerät mit einem Kopplungscode" });
+                }
                 Ok(AccountReply::Joined { info: self.info(account), sealed: pairing.sealed })
             }
             AccountOp::GetBook => {
@@ -266,10 +365,12 @@ impl Accounts {
                 if member.is_some() {
                     return Err(AccountError::AlreadyLinked);
                 }
-                let login = StoredLogin::from_setup(login, false)?;
+                let mut login = StoredLogin::from_setup(login, false)?;
                 if self.by_email.contains_key(&login.email) {
                     return Err(AccountError::EmailTaken);
                 }
+                let token = login.new_verification();
+                let verify = Mail::Verify { to: login.email.clone(), token };
                 let id = self.stored.next.max(1);
                 let before = self.snapshot();
                 self.stored.next = id + 1;
@@ -278,15 +379,28 @@ impl Accounts {
                 self.stored.accounts.insert(id, Account { keys: vec![key.clone()], login: Some(login), ..Default::default() });
                 self.by_key.insert(key, id);
                 self.commit(before)?;
+                self.emit(verify);
                 Ok(AccountReply::LoggedIn { info: self.info(id), wrapped })
             }
             AccountOp::SetLogin { login } => {
                 let id = member.ok_or(AccountError::NotLinked)?;
                 let old = self.stored.accounts[&id].login.clone();
                 let same_address = old.as_ref().is_some_and(|o| normalize_email(&login.email).as_deref() == Some(o.email.as_str()));
-                let login = StoredLogin::from_setup(login, same_address && old.as_ref().is_some_and(|o| o.verified))?;
+                let mut login = StoredLogin::from_setup(login, same_address && old.as_ref().is_some_and(|o| o.verified))?;
                 if self.by_email.get(&login.email).is_some_and(|owner| *owner != id) {
                     return Err(AccountError::EmailTaken);
+                }
+                let mut mails = Vec::new();
+                if same_address {
+                    // A pending confirmation stays valid with a new password.
+                    login.verify = old.as_ref().and_then(|o| o.verify.clone());
+                    mails.push(Mail::PasswordChanged { to: login.email.clone() });
+                } else {
+                    let token = login.new_verification();
+                    mails.push(Mail::Verify { to: login.email.clone(), token });
+                    if let Some(old) = &old {
+                        mails.push(Mail::AddressChanged { to: old.email.clone(), new: login.email.clone() });
+                    }
                 }
                 let before = self.snapshot();
                 if let Some(old) = &old {
@@ -296,6 +410,9 @@ impl Accounts {
                 self.stored.accounts.get_mut(&id).expect("member of it").login = Some(login);
                 self.commit(before)?;
                 self.failures.remove(&id);
+                for mail in mails {
+                    self.emit(mail);
+                }
                 Ok(AccountReply::Done)
             }
             AccountOp::Login { email, auth } => self.join_with(member, key, &email, &auth, false),
@@ -386,6 +503,12 @@ impl Accounts {
             self.stored.accounts.get_mut(&id).expect("exists").keys.push(key.clone());
             self.by_key.insert(key, id);
             self.commit(before)?;
+            if let (false, Some(to)) = (recovery, self.email(id)) {
+                self.emit(Mail::NewSignIn { to, how: "ein neues Gerät mit Ihrem Passwort" });
+            }
+        }
+        if let (true, Some(to)) = (recovery, self.email(id)) {
+            self.emit(Mail::RecoveryUsed { to });
         }
         Ok(AccountReply::LoggedIn { info: self.info(id), wrapped })
     }
@@ -465,6 +588,10 @@ struct Snapshot {
     stored: Stored,
     by_key: HashMap<String, u64>,
     by_email: HashMap<String, u64>,
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 fn unhex16(text: &str) -> [u8; 16] {
@@ -620,6 +747,46 @@ mod tests {
         let login = AccountOp::Login { email: "web@b.de".into(), auth: [1; 32] };
         assert!(accounts.handle([1; 32], login).is_ok());
         assert_eq!(accounts.handle([1; 32], AccountOp::GetBook), Ok(AccountReply::Book { revision: 1, blob: vec![5] }));
+    }
+
+    #[test]
+    fn mails_and_confirmation() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut accounts = Accounts::open(temp(), [0; 32]).unwrap().with_mail(tx);
+        let mut next = || rx.try_recv().ok();
+
+        accounts.handle([1; 32], AccountOp::Register { login: setup("a@b.de", 1) }).unwrap();
+        let Some(Mail::Verify { to, token }) = next() else { panic!("Bestätigungsmail") };
+        assert_eq!(to, "a@b.de");
+        assert_eq!(accounts.verify_email("falsch"), Err(AccountError::UnknownCode));
+        accounts.verify_email(&token).unwrap();
+        assert_eq!(accounts.verify_email(&token), Err(AccountError::UnknownCode), "einmal gültig");
+        assert_eq!(
+            accounts.handle([1; 32], AccountOp::LoginStatus),
+            Ok(AccountReply::LoginStatus(Some(LoginInfo { email: "a@b.de".into(), verified: true })))
+        );
+
+        // A new device, a new password, a new address.
+        accounts.handle([2; 32], AccountOp::Login { email: "a@b.de".into(), auth: [1; 32] }).unwrap();
+        assert!(matches!(next(), Some(Mail::NewSignIn { .. })));
+        accounts.handle([2; 32], AccountOp::SetLogin { login: setup("a@b.de", 3) }).unwrap();
+        assert_eq!(next(), Some(Mail::PasswordChanged { to: "a@b.de".into() }));
+        accounts.handle([2; 32], AccountOp::SetLogin { login: setup("neu@b.de", 4) }).unwrap();
+        assert!(matches!(next(), Some(Mail::Verify { to, .. }) if to == "neu@b.de"));
+        assert_eq!(next(), Some(Mail::AddressChanged { to: "a@b.de".into(), new: "neu@b.de".into() }));
+        assert!(matches!(
+            accounts.handle([2; 32], AccountOp::LoginStatus),
+            Ok(AccountReply::LoginStatus(Some(LoginInfo { verified: false, .. })))
+        ));
+
+        // Recovery is reported; resending is throttled.
+        accounts.login_web("neu@b.de", &[104; 32], true).unwrap();
+        assert_eq!(next(), Some(Mail::RecoveryUsed { to: "neu@b.de".into() }));
+        let id = accounts.by_email["neu@b.de"];
+        accounts.resend_verification(id).unwrap();
+        assert!(matches!(next(), Some(Mail::Verify { .. })));
+        assert_eq!(accounts.resend_verification(id), Err(AccountError::RateLimited));
+        assert_eq!(next(), None);
     }
 
     #[test]

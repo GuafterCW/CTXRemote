@@ -225,3 +225,13 @@ export async function pairingCode(): Promise<string> {
   }
   throw new ApiError("Kein freier Code gefunden, bitte nochmal versuchen", 409);
 }
+
+/** Confirms the address with the token from the mail's link. */
+export async function verifyEmail(token: string): Promise<void> {
+  await call("POST", "/verify", { token });
+}
+
+/** Sends the confirmation mail again (at most every few minutes). */
+export async function resendVerification(): Promise<void> {
+  await call("POST", "/verify/resend");
+}

@@ -291,9 +291,12 @@ Das Webinterface ist eine Svelte-App aus `web/`. Die Pipeline baut sie nach `web
 
    ```ini
    [Service]
+   EnvironmentFile=-/etc/ctxremote/mail.env
    ExecStart=
    ExecStart=/opt/ctxremote/ctxremote-server --listen 0.0.0.0:21300 --data /var/lib/ctxremote --http 172.17.0.1:21380 --web-origin https://ctxremote.ctx.ink
    ```
+
+   Die Zeile `EnvironmentFile` gehört zu den Mails (nächster Abschnitt). Ohne diese Datei läuft der Server trotzdem.
 
    Dann `systemctl restart ctxremote-server`. Im Log (`journalctl -u ctxremote-server -n 20`) muss „Web-API lauscht auf 172.17.0.1:21380“ stehen.
 2. Im `docker-compose.yml` von Caddy ergänzen, neben dem Volume von oben:
@@ -317,6 +320,43 @@ Prüfen: `curl -I https://ctxremote.ctx.ink` muss `HTTP/2 200` liefern, `ls -l /
 
 Ohne `setup-website.sh` lässt die Pipeline die Website einfach aus. Server und Updates laufen wie bisher.
 
+## Mails (Bestätigung und Sicherheitshinweise)
+
+Der Server verschickt Mails zu Konten:
+- Er bittet, die E-Mail-Adresse zu bestätigen, mit einem Link auf `/konto/#bestaetigen=…`, der 48 Stunden gilt.
+- Er meldet geänderte Adresse, neues Passwort, jede neue Anmeldung (Gerät oder Webinterface) und einen benutzten Wiederherstellungscode.
+
+Die Mails enthalten nichts Geheimes außer dem einmaligen Bestätigungslink. Ohne Einrichtung schreibt der Server sie nur ins Log.
+
+**Einrichten** (als root auf dem Server):
+
+```bash
+# install -d -m 750 -o root -g ctxremote /etc/ctxremote
+# nano /etc/ctxremote/mail.env
+```
+
+Inhalt, mit den Daten deines Mailanbieters:
+
+```ini
+CTXREMOTE_SMTP_URL=smtps://BENUTZER:PASSWORT@smtp.example.org:465
+CTXREMOTE_MAIL_FROM=CTXRemote <noreply@ctx.ink>
+CTXREMOTE_SITE_URL=https://ctxremote.ctx.ink
+```
+
+- Port 465 (TLS) nimmt `smtps://`, Port 587 (STARTTLS) nimmt `smtp://BENUTZER:PASSWORT@smtp.example.org:587?tls=required`.
+- Sonderzeichen in Benutzer oder Passwort müssen URL-kodiert sein: `@` wird zu `%40`, `:` zu `%3A`, `/` zu `%2F`.
+- Die Absenderadresse muss dein Anbieter erlauben (SPF/DKIM der Domain), sonst landen die Mails im Spam.
+
+Danach:
+
+```bash
+# chmod 640 /etc/ctxremote/mail.env && chgrp ctxremote /etc/ctxremote/mail.env
+# systemctl restart ctxremote-server
+# journalctl -u ctxremote-server -n 20    # „Mails werden verschickt als …“
+```
+
+Neu installierte Server haben `EnvironmentFile=-/etc/ctxremote/mail.env` schon in der Unit. Bestehende bekommen die Zeile über `systemctl edit ctxremote-server`, siehe „Webinterface Konto“ oben.
+
 ## Wenn etwas nicht klappt
 
 | Symptom | Ursache und Lösung |
@@ -325,6 +365,7 @@ Ohne `setup-website.sh` lässt die Pipeline die Website einfach aus. Server und 
 | `Permission denied (publickey)` | `DEPLOY_SSH_KEY` unvollständig (BEGIN/END-Zeilen fehlen) oder öffentlicher Schlüssel nicht auf dem Server (Schritt 5 wiederholen) |
 | `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` fehlt oder passt nicht zu `DEPLOY_HOST` (Schritt 7 mit genau dem Namen aus `DEPLOY_HOST` wiederholen) |
 | App meldet „Der Server hat sich nicht als der erwartete ausgewiesen“ | `CTXREMOTE_SERVER_KEY` in GitHub passt nicht zu `tunnel.key` auf dem Server (Schlüssel neu erzeugt oder Datenordner gewechselt). Schlüssel neu ausgeben, Variable korrigieren, neu bauen |
+| Keine Mails | `journalctl -u ctxremote-server | grep -i mail`: „Kein Mailversand eingerichtet“ heißt, die Datei fehlt oder wird nicht geladen (`systemctl cat ctxremote-server` muss `EnvironmentFile` zeigen). „Mail nicht verschickt: …“ nennt den Fehler des Mailservers |
 | Konto-Seite meldet „Fehler 502“ | Caddy erreicht die Web-API nicht: Läuft der Server mit `--http 172.17.0.1:21380` (Log)? Steht `extra_hosts` im `docker-compose.yml`? Blockiert `ufw` Port 21380? |
 | Website lädt nicht oder Zertifikatsfehler | TCP 80/443 in der Firewall freigegeben? `journalctl -u caddy -n 50` zeigt, warum das Zertifikat nicht kam. Bei Cloudflare muss „Nur DNS“ eingestellt sein |
 | „Neuer Server startet nicht, vorherige Version wird wiederhergestellt“ | Port 21300 ist noch belegt (Schritt 4) oder es gibt einen echten Fehler: `journalctl -u ctxremote-server -n 50` |

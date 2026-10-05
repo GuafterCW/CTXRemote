@@ -8,6 +8,8 @@ User=ctxremote
 Group=ctxremote
 # --http: the web interface's API, only for Caddy (see docs/DEPLOY.md, "Website").
 ExecStart=/opt/ctxremote/ctxremote-server --listen 0.0.0.0:21300 --data /var/lib/ctxremote --http 127.0.0.1:21380 --web-origin https://ctxremote.ctx.ink
+# Optional: SMTP settings for account mails (see docs/DEPLOY.md, "Mails").
+EnvironmentFile=-/etc/ctxremote/mail.env
 Restart=always
 RestartSec=2
 Environment=RUST_LOG=info
