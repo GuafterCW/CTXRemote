@@ -41,6 +41,8 @@ export interface Peer {
   name: string;
   /** Unix seconds, 0 if never connected. */
   lastSeen: number;
+  /** This device lets devices of my account connect without a password. */
+  access: boolean;
 }
 
 export function peerLabel(peer: Peer): string {
@@ -92,6 +94,8 @@ export interface Overview {
   profile: Profile | null;
   /** Set while the address book syncs with an account (not in the portable helper). */
   account?: AccountView | null;
+  /** Devices of the account may connect to this device without a password. */
+  accountAccess: boolean;
 }
 
 export interface AccountView {
@@ -195,6 +199,8 @@ export const api = {
     invoke<string>("account_recover", { email, code, password }),
   /** Returns the new recovery code. */
   accountSetLogin: (email: string, password: string) => invoke<string>("account_set_login", { email, password }),
+  /** With the service this triggers a Windows UAC prompt. */
+  accountSetAccess: (enabled: boolean) => invoke<void>("account_set_access", { enabled }),
   accountDetails: () => invoke<AccountDetails>("account_details"),
   accountRemoveDevice: (publicKey: string) => invoke<void>("account_remove_device", { publicKey }),
   /** An empty profile removes it; returns the profile as stored. */

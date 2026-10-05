@@ -174,14 +174,30 @@
     error = "";
     password = "";
     step = "password";
+    if (peer.access) return connectWithAccount();
     queueMicrotask(() => passwordInput?.focus());
+  }
+
+  // Passwordless attempt via the account; falls back to the password step.
+  async function connectWithAccount() {
+    connecting = true;
+    try {
+      await api.connect(target.id, "");
+      step = "id";
+      refresh();
+    } catch (e) {
+      error = `Ohne Passwort ging es nicht (${errorText(e)}). Bitte das Passwort eingeben.`;
+      queueMicrotask(() => passwordInput?.focus());
+    } finally {
+      connecting = false;
+    }
   }
 
   function submitQuery() {
     if (showSuggestions) return choose(suggestions[highlighted] ?? suggestions[0]);
     if (typingId && isCompleteId(query)) {
       const known = peers.find((p) => p.id === query);
-      return choose(known ?? { id: query, alias: null, name: "", lastSeen: 0 });
+      return choose(known ?? { id: query, alias: null, name: "", lastSeen: 0, access: false });
     }
     if (suggestions.length === 1) return choose(suggestions[0]);
   }
@@ -429,6 +445,7 @@
                       onclick={() => choose(peer)}
                     >
                       <span class="s-name">{peerLabel(peer)}</span>
+                      {#if peer.access}<span class="s-access">ohne Passwort</span>{/if}
                       <span class="s-id">{peer.id}</span>
                     </button>
                   </li>
@@ -867,6 +884,17 @@
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .s-access {
+    margin-right: auto;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11.5px;
+    font-weight: 600;
     white-space: nowrap;
   }
 

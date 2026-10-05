@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use ctxremote_core::account::AccessGrant;
 use ctxremote_core::config::DirectSettings;
 use ctxremote_core::host::{HostEvent, Presence};
 use ctxremote_core::ui_link::{ServiceLink, ServiceState, UiEvent, UiRequest};
@@ -36,6 +37,7 @@ impl Service {
             direct_active: false,
             chat_sessions: Vec::new(),
             public_alias: None,
+            account_access: false,
         });
         let service = Arc::new(Service { link: Mutex::new(None), state, alias_answer: Mutex::new(None) });
         match tokio::time::timeout(Duration::from_secs(2), establish(service.clone(), app.clone()))
@@ -140,22 +142,37 @@ fn reconnect(service: Arc<Service>, app: AppHandle) {
     });
 }
 
-#[derive(serde::Serialize)]
+#[derive(Default, serde::Serialize)]
 struct Request<'a> {
     server: &'a str,
     permanent_password: Option<&'a str>,
     /// When set, the helper only changes the direct connection (and the firewall rule).
     direct: Option<&'a DirectSettings>,
+    /// When set, the helper only changes the access for the account's devices.
+    access: Option<AccessChange>,
+}
+
+#[derive(serde::Serialize)]
+struct AccessChange {
+    grant: Option<AccessGrant>,
 }
 
 /// Applies settings through the service executable, elevated via UAC.
 pub async fn configure(server: String, permanent_password: Option<String>) -> Result<(), String> {
-    elevated(move |file, exe| run_elevated(exe, file, &server, permanent_password.as_deref(), None)).await
+    elevated(move |file, exe| {
+        run_elevated(exe, file, &Request { server: &server, permanent_password: permanent_password.as_deref(), ..Default::default() })
+    })
+    .await
 }
 
 /// Applies the direct-connection settings the same way.
 pub async fn configure_direct(settings: DirectSettings) -> Result<(), String> {
-    elevated(move |file, exe| run_elevated(exe, file, "", None, Some(&settings))).await
+    elevated(move |file, exe| run_elevated(exe, file, &Request { direct: Some(&settings), ..Default::default() })).await
+}
+
+/// Lets the account's devices in without a password (`None`: no longer), the same way.
+pub async fn configure_access(grant: Option<AccessGrant>) -> Result<(), String> {
+    elevated(move |file, exe| run_elevated(exe, file, &Request { access: Some(AccessChange { grant }), ..Default::default() })).await
 }
 
 async fn elevated(
@@ -198,15 +215,8 @@ fn request_file() -> Result<PathBuf, String> {
     Err("Temporäre Datei nicht anlegbar".into())
 }
 
-fn run_elevated(
-    exe: &std::path::Path,
-    file: &std::path::Path,
-    server: &str,
-    permanent_password: Option<&str>,
-    direct: Option<&DirectSettings>,
-) -> Result<(), String> {
-    let request = serde_json::to_vec(&Request { server, permanent_password, direct })
-        .map_err(|e| e.to_string())?;
+fn run_elevated(exe: &std::path::Path, file: &std::path::Path, request: &Request) -> Result<(), String> {
+    let request = serde_json::to_vec(request).map_err(|e| e.to_string())?;
     std::fs::write(file, &request).map_err(|e| format!("Temporäre Datei nicht beschreibbar: {e}"))?;
     // The file is writable by any of the user's processes; the elevated helper
     // only accepts it if it still matches what we wrote.

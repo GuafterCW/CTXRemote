@@ -5,6 +5,7 @@
     account,
     ApiError,
     changeLogin,
+    deleteAccount,
     devices,
     loadBook,
     logout,
@@ -191,6 +192,27 @@
     }
   }
 
+  // Deleting the account: asks for the password once more.
+  let deleteOpen = $state(false);
+  let deletePassword = $state("");
+  let deleteBusy = $state(false);
+  let deleteError = $state("");
+  async function confirmDelete(event: SubmitEvent) {
+    event.preventDefault();
+    if (!info?.email || !deletePassword) return;
+    deleteBusy = true;
+    deleteError = "";
+    try {
+      await deleteAccount(info.email, deletePassword);
+      onLoggedOut();
+    } catch (err) {
+      deleteError = err instanceof ApiError && err.status === 401 ? "Das Passwort stimmt nicht." : message(err);
+    } finally {
+      deleteBusy = false;
+      deletePassword = "";
+    }
+  }
+
   let resendState = $state<"idle" | "busy" | "sent">("idle");
   async function resend() {
     resendState = "busy";
@@ -356,3 +378,41 @@
     {/if}
   </form>
 </section>
+
+<section class="panel" aria-labelledby="h-delete">
+  <div class="panel-head">
+    <h2 id="h-delete">Konto löschen</h2>
+  </div>
+  <p class="hint">
+    Löscht das Konto mit Anmeldung, Geräteliste und allen Geräten darin, endgültig. Ihre Geräte arbeiten danach ohne
+    Konto weiter.
+  </p>
+  {#if !deleteOpen}
+    <button class="btn btn-small btn-danger" type="button" onclick={() => (deleteOpen = true)}>Konto löschen …</button>
+  {:else}
+    <form onsubmit={confirmDelete}>
+      <label class="field">
+        <span>Zur Bestätigung Ihr Passwort</span>
+        <input type="password" autocomplete="current-password" required bind:value={deletePassword} disabled={deleteBusy} />
+      </label>
+      <div class="delete-buttons">
+        <button class="btn btn-danger" type="submit" disabled={deleteBusy || !deletePassword}>
+          {deleteBusy ? "Bitte warten …" : "Endgültig löschen"}
+        </button>
+        <button class="btn" type="button" disabled={deleteBusy} onclick={() => ((deleteOpen = false), (deleteError = ""))}>
+          Abbrechen
+        </button>
+      </div>
+      {#if deleteError}
+        <p class="error" role="alert">{deleteError}</p>
+      {/if}
+    </form>
+  {/if}
+</section>
+
+<style>
+  .delete-buttons {
+    display: flex;
+    gap: 8px;
+  }
+</style>

@@ -104,7 +104,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (response.status === 401 && path !== "/login" && path !== "/recover") forget();
+    // A wrong password is a 401 too, but no reason to sign out.
+    if (response.status === 401 && !["/login", "/recover", "/account/delete"].includes(path)) forget();
     throw new ApiError(data.error ?? `Fehler ${response.status}`, response.status);
   }
   return data as T;
@@ -170,6 +171,16 @@ export async function changeLogin(email: string, password: string): Promise<stri
   return code;
 }
 
+/** Deletes the account for good; needs the password once more. */
+export async function deleteAccount(email: string, password: string): Promise<void> {
+  const normalized = normalizeEmail(email);
+  if (!normalized) throw new ApiError("Unbekannte E-Mail-Adresse", 400);
+  const pre = await call<{ salt: string; kdf: Kdf }>("POST", "/prelogin", { email: normalized });
+  const { auth } = await passwordKeys(password, fromBase64(pre.salt), pre.kdf);
+  await call("POST", "/account/delete", { auth: toBase64(auth) });
+  forget();
+}
+
 export async function logout(): Promise<void> {
   forget();
   await call("POST", "/logout").catch(() => undefined);
@@ -227,13 +238,18 @@ export interface Book {
   entries: Record<string, Entry>;
   /** Device ID → Unix milliseconds of its removal. */
   removed: Record<string, number>;
+  /** Device ID → whether it lets the account's devices in without a password. */
+  access?: Record<string, { open: boolean; at: number }>;
+  /** Fields of newer app versions: kept as they are when writing back. */
+  [field: string]: unknown;
 }
 
 async function readBook(): Promise<{ revision: number; book: Book }> {
   const { revision, blob } = await call<{ revision: number; blob: string }>("GET", "/book");
   if (!blob) return { revision, book: { entries: {}, removed: {} } };
   const book = JSON.parse(decode.decode(open(key(), AAD.book, fromBase64(blob)))) as Book;
-  return { revision, book: { entries: book.entries ?? {}, removed: book.removed ?? {} } };
+  // Keep every field, also ones this page does not know, or writing back would drop them.
+  return { revision, book: { ...book, entries: book.entries ?? {}, removed: book.removed ?? {} } };
 }
 
 export async function loadBook(): Promise<Book> {

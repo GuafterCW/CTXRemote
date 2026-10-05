@@ -44,6 +44,11 @@ pub struct Config {
     pub removed: Vec<(DeviceId, u64)>,
     /// Set while this user's address book syncs with an account.
     pub account: Option<crate::account::AccountLink>,
+    /// Which devices let the account's devices in without a password (from
+    /// the account's book; device ID → choice).
+    pub access: std::collections::BTreeMap<u32, crate::account::Access>,
+    /// Set when this device lets the account's devices in without a password.
+    pub account_access: Option<crate::account::AccessGrant>,
 }
 
 /// The direct-connection part of the settings form.
@@ -103,6 +108,8 @@ impl Default for Config {
             profile: None,
             removed: Vec::new(),
             account: None,
+            access: Default::default(),
+            account_access: None,
         }
     }
 }

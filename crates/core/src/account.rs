@@ -75,6 +75,17 @@ async fn request(server: &str, key: &SigningKey, op: AccountOp) -> Result<Accoun
     }
 }
 
+/// Whether the server counts both device keys as members of one account.
+/// Anything but a clear yes (old server, error) is a no.
+pub async fn same_account(server: &str, a: [u8; 32], b: [u8; 32]) -> bool {
+    let ask = async {
+        let (mut t, _) = net::dial(server).await?;
+        framing::send(&mut t, &ClientMsg::SameAccount { a, b }).await?;
+        anyhow::Ok(matches!(framing::recv::<ServerMsg>(&mut t).await?, ServerMsg::SameAccount(true)))
+    };
+    matches!(timeout(STEP_TIMEOUT, ask).await, Ok(Ok(true)))
+}
+
 pub async fn status(server: &str, key: &SigningKey) -> Result<Option<AccountInfo>> {
     match request(server, key, AccountOp::Status).await? {
         AccountReply::Status(info) => Ok(info),
@@ -210,6 +221,66 @@ pub struct Book {
     pub entries: BTreeMap<u32, Entry>,
     /// Device ID → Unix milliseconds of its removal.
     pub removed: BTreeMap<u32, u64>,
+    /// Device ID → whether it lets the account's devices in without a
+    /// password. Viewers use it to pick the account's access password.
+    #[serde(default)]
+    pub access: BTreeMap<u32, Access>,
+}
+
+/// One device's choice about access without a password; the newer wins.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Access {
+    pub open: bool,
+    /// Unix milliseconds of the choice.
+    pub at: u64,
+}
+
+/// What a host needs to let account devices in without a password (see
+/// `docs/ACCOUNTS.md`, "Zugriff ohne Passwort"). Kept in the host's config;
+/// for the service it is handed over once, elevated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessGrant {
+    /// The device ID the password is for.
+    pub host: DeviceId,
+    /// [`access_password`] for `host`.
+    pub password: String,
+    /// Hex public key of a member device on this computer (the app's): a
+    /// viewer must be in the same account as this key, the server says.
+    pub witness: String,
+}
+
+impl AccessGrant {
+    /// For `host`, from the account of `config` (the app's own config).
+    pub fn for_host(config: &Config, host: DeviceId) -> Result<Self> {
+        let link = config.account.as_ref().context("Dieses Gerät gehört zu keinem Konto")?;
+        Ok(Self {
+            host,
+            password: access_password(&link.key()?, host),
+            witness: hex::encode(config.signing_key()?.verifying_key().to_bytes()),
+        })
+    }
+
+    pub fn witness_key(&self) -> Option<[u8; 32]> {
+        hex::decode(&self.witness).ok()?.try_into().ok()
+    }
+}
+
+/// The password a device of the account uses for `host` instead of the
+/// host's own. Derived from the account key, so the server cannot know it;
+/// per host, so one host's grant opens no other.
+pub fn access_password(account_key: &[u8; 32], host: DeviceId) -> String {
+    let hk = Hkdf::<Sha256>::new(Some(b"ctxremote/access/v1"), account_key);
+    let mut out = [0u8; 32];
+    hk.expand(&host.get().to_be_bytes(), &mut out).expect("32 bytes");
+    hex::encode(out)
+}
+
+/// The access password for connecting to `target`, if the account says it
+/// lets its devices in without a password.
+pub fn access_for(config: &Config, target: DeviceId) -> Option<String> {
+    let link = config.account.as_ref()?;
+    config.access.get(&target.get()).filter(|a| a.open)?;
+    Some(access_password(&link.key().ok()?, target))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,6 +305,7 @@ impl Book {
                 })
                 .collect(),
             removed: config.removed.iter().map(|(id, at)| (id.get(), *at)).collect(),
+            access: config.access.clone(),
         }
     }
 
@@ -249,6 +321,7 @@ impl Book {
         peers.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
         config.peers = peers;
         config.removed = self.removed.iter().filter_map(|(id, at)| Some((DeviceId::new(*id)?, *at))).collect();
+        config.access = self.access.clone();
         config.prune();
     }
 
@@ -281,7 +354,14 @@ impl Book {
             }
             entries.insert(*id, entry);
         }
-        Self { entries, removed }
+        let mut access = a.access.clone();
+        for (id, choice) in &b.access {
+            let slot = access.entry(*id).or_default();
+            if choice.at > slot.at {
+                *slot = *choice;
+            }
+        }
+        Self { entries, removed, access }
     }
 }
 
@@ -486,6 +566,22 @@ mod tests {
 
     fn entry(alias: Option<&str>, alias_at: u64, name: &str, last_seen: u64) -> Entry {
         Entry { alias: alias.map(Into::into), alias_at, name: name.into(), last_seen }
+    }
+
+    #[test]
+    fn access_choices_merge_by_time() {
+        let mut a = Book::default();
+        let mut b = Book::default();
+        a.access.insert(1, Access { open: true, at: 10 });
+        b.access.insert(1, Access { open: false, at: 20 });
+        b.access.insert(2, Access { open: true, at: 5 });
+        let merged = Book::merge(&a, &b);
+        assert_eq!(merged.access[&1], Access { open: false, at: 20 });
+        assert_eq!(merged.access[&2], Access { open: true, at: 5 });
+        assert_eq!(Book::merge(&b, &a), merged);
+        // Books from before access choices still read.
+        let old: Book = serde_json::from_str(r#"{"entries":{},"removed":{}}"#).unwrap();
+        assert!(old.access.is_empty());
     }
 
     #[test]

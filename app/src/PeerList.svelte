@@ -131,7 +131,9 @@
           <button class="row peer" onclick={() => onpick(peer)}>
             <span class="peer-icon" class:named={peer.alias}><Icon name="monitor" size={18} /></span>
             <span class="peer-text">
-              <span class="peer-name">{peerLabel(peer)}</span>
+              <span class="peer-name">
+                {peerLabel(peer)}{#if peer.access}<span class="access">ohne Passwort</span>{/if}
+              </span>
               <span class="peer-id">
                 {peer.id}{#if peer.alias && peer.name}<span class="dim"> · {peer.name}</span>{/if}
               </span>
@@ -258,6 +260,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .access {
+    margin-left: 8px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11.5px;
+    font-weight: 600;
   }
 
   .peer-id,

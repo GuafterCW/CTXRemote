@@ -6,6 +6,7 @@
   let { account: initial, onclose }: { account: AccountView | null; onclose: () => void } = $props();
 
   let account = $state<AccountView | null>(untrack(() => initial));
+  let access = $state(false);
   let details = $state<AccountDetails | null>(null);
   let busy = $state(false);
   let error = $state("");
@@ -34,7 +35,9 @@
   );
 
   async function refresh() {
-    account = (await api.overview()).account ?? null;
+    const overview = await api.overview();
+    account = overview.account ?? null;
+    access = overview.accountAccess;
     details = null;
     if (account) {
       try {
@@ -74,6 +77,7 @@
       recoveryCode = await api.accountSetLogin(email, password);
       editingLogin = false;
     });
+  const setAccess = (enabled: boolean) => run(() => api.accountSetAccess(enabled));
   const showPairing = () => run(async () => (pairingCode = await api.accountPairingCode()));
   const remove = (key: string) =>
     run(async () => {
@@ -210,6 +214,28 @@
         {:else}
           <button type="button" class="btn btn-quiet start" disabled={busy} onclick={showPairing}>Gerät per Code hinzufügen</button>
         {/if}
+      </section>
+
+      <section class="group section">
+        <h3>Zugriff ohne Passwort</h3>
+        <label class="check top">
+          <input
+            type="checkbox"
+            checked={access}
+            disabled={busy}
+            onchange={(e) => {
+              // Keep the box in step with the stored value until the refresh arrives.
+              const enabled = e.currentTarget.checked;
+              e.currentTarget.checked = access;
+              setAccess(enabled);
+            }}
+          />
+          <span>Geräte dieses Kontos dürfen sich ohne Passwort mit diesem Gerät verbinden</span>
+        </label>
+        <span class="note">
+          Für unbeaufsichtigten Zugriff, z. B. auf den eigenen Büro-PC. Nur Geräte, die zu diesem Zeitpunkt noch im
+          Konto sind, kommen rein. Mit dem CTXRemote-Dienst fragt Windows nach Administratorrechten.
+        </span>
       </section>
 
       <section class="group section">
@@ -440,6 +466,10 @@
     display: flex;
     gap: 8px;
     align-items: center;
+  }
+
+  .check.top {
+    align-items: flex-start;
   }
 
   .devices {

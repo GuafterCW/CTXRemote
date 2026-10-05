@@ -23,6 +23,7 @@ pub enum Mail {
     /// A device or browser signed in to the account; `how` says which way.
     NewSignIn { to: String, how: &'static str },
     RecoveryUsed { to: String },
+    AccountDeleted { to: String },
 }
 
 impl Mail {
@@ -32,7 +33,8 @@ impl Mail {
             | Mail::AddressChanged { to, .. }
             | Mail::PasswordChanged { to }
             | Mail::NewSignIn { to, .. }
-            | Mail::RecoveryUsed { to } => to,
+            | Mail::RecoveryUsed { to }
+            | Mail::AccountDeleted { to } => to,
         }
     }
 
@@ -69,6 +71,13 @@ impl Mail {
             Mail::NewSignIn { how, .. } => (
                 "Neue Anmeldung bei Ihrem Konto".into(),
                 format!("Hallo,\n\nsoeben hat sich {how} bei Ihrem CTXRemote-Konto angemeldet.\n\n{unexpected}{footer}"),
+            ),
+            Mail::AccountDeleted { .. } => (
+                "Ihr Konto wurde gelöscht".into(),
+                format!(
+                    "Hallo,\n\nIhr CTXRemote-Konto wurde soeben gelöscht, mit Anmeldung, Geräten und Geräteliste. Ihre \
+                     Geräte arbeiten ohne Konto weiter.\n\nWaren Sie das nicht? Dann melden Sie sich bitte bei uns.{footer}"
+                ),
             ),
             Mail::RecoveryUsed { .. } => (
                 "Ihr Wiederherstellungscode wurde verwendet".into(),

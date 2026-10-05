@@ -91,6 +91,16 @@ async fn sync_now(app: &AppHandle) {
                 let _ = app.emit("peers-changed", ());
             }
         }
+        // The account was deleted (in the web interface) or this device was
+        // removed from it: work on without one.
+        Err(e) if e.downcast_ref::<ctxremote_core::proto::account::AccountError>()
+            == Some(&ctxremote_core::proto::account::AccountError::NotLinked) =>
+        {
+            tracing::info!("Nicht mehr im Konto, Verknüpfung entfernt");
+            let _ = save_link(&state, None);
+            *sync.error.lock().unwrap() = None;
+            let _ = app.emit("peers-changed", ());
+        }
         Err(e) => {
             tracing::info!("Adressbuch nicht abgeglichen: {e:#}");
             *sync.error.lock().unwrap() = Some(format!("{e:#}"));
@@ -243,6 +253,47 @@ fn credentials(state: &AppState) -> CmdResult<(String, ed25519_dalek::SigningKey
 
 fn save_link(state: &AppState, link: Option<account::AccountLink>) -> CmdResult<()> {
     let mut config = state.config.write().unwrap();
+    if link.is_none() {
+        // Without an account there is nothing to let in, and nothing to know.
+        config.account_access = None;
+        config.access.clear();
+    }
     config.account = link;
     config.save().map_err(err)
+}
+
+/// Lets the account's devices connect to this computer without a password,
+/// or no longer. With the service this needs administrator rights (UAC), as
+/// it grants unattended access.
+#[tauri::command]
+pub async fn account_set_access(state: State<'_, AppState>, sync: State<'_, Sync>, enabled: bool) -> CmdResult<()> {
+    use ctxremote_core::host::Presence;
+    // Not while a sync writes the list back, or this choice could be lost.
+    let _turn = sync.turn.lock().await;
+    // The ID this computer is reached under: the app's own, or the service's.
+    let host = match &state.host {
+        crate::Side::Local(host) => host.presence().borrow().clone(),
+        crate::Side::Service(service) => service.state().presence,
+    };
+    let host: ctxremote_core::proto::DeviceId = match host {
+        Presence::Online { id } => id.parse().map_err(|_| "Unbekannte Geräte-ID".to_string())?,
+        _ => return Err("Das Gerät ist gerade nicht mit dem Server verbunden".into()),
+    };
+    let grant = if enabled {
+        Some(account::AccessGrant::for_host(&state.config.read().unwrap(), host).map_err(err)?)
+    } else {
+        None
+    };
+    match &state.host {
+        crate::Side::Local(_) => state.config.write().unwrap().account_access = grant,
+        crate::Side::Service(_) => crate::service::configure_access(grant).await?,
+    }
+    {
+        // Tell the account's other devices, through the shared list.
+        let mut config = state.config.write().unwrap();
+        config.access.insert(host.get(), account::Access { open: enabled, at: account::now_ms() });
+        config.save().map_err(err)?;
+    }
+    sync.poke();
+    Ok(())
 }

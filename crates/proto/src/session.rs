@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::DeviceId;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum HostMsg {
     /// Always the first message, answering the viewer's `Hello`.
@@ -56,9 +58,12 @@ impl Features {
     /// Reads a [`HelperProfile`] in the `Hello` trailer. Informational only:
     /// viewers send the profile either way, older hosts skip it.
     pub const PROFILE: u32 = 1 << 7;
+    /// Reads a [`MemberProof`] in the `Hello` trailer and offers devices of
+    /// its account access without a password, if the user allowed that.
+    pub const ACCOUNT: u32 = 1 << 8;
 
     /// Everything this build supports.
-    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT | Self::PUNCH | Self::PROFILE);
+    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT | Self::PUNCH | Self::PROFILE | Self::ACCOUNT);
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
 
@@ -68,24 +73,57 @@ impl Features {
 }
 
 /// What follows `Hello` in the same frame. `features` comes first, so hosts
-/// that only know the plain [`Features`] trailer still read it.
+/// that only know the plain [`Features`] trailer still read it; later fields
+/// are optional at the end, so each version reads what it knows.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HelloExtras {
     pub features: Features,
     pub profile: Option<HelperProfile>,
+    pub member: Option<MemberProof>,
 }
 
 impl HelloExtras {
-    /// Reads whatever trailer the viewer sent: extras, plain features (older
-    /// viewers) or nothing (oldest viewers).
+    /// Reads whatever trailer the viewer sent: extras of any version, plain
+    /// features (older viewers) or nothing (oldest viewers).
     pub fn decode(trailer: &[u8]) -> Self {
-        if trailer.is_empty() {
+        let Ok((features, rest)) = postcard::take_from_bytes::<Features>(trailer) else {
             return Self::default();
+        };
+        let (profile, rest) = postcard::take_from_bytes::<Option<HelperProfile>>(rest).unwrap_or((None, &[]));
+        let member = postcard::take_from_bytes::<Option<MemberProof>>(rest).map_or(None, |(m, _)| m);
+        Self { features, profile, member }
+    }
+}
+
+/// A viewer's claim to be a device of an account: its device key and a
+/// signature over the host's ID and this session's binding value (see
+/// [`crate::secure::SecureReceiver::binding`]), so it cannot be replayed in
+/// another session. The host still asks the server whether the key is a
+/// current member, and the password slot proved the account key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemberProof {
+    pub public_key: [u8; 32],
+    pub signature: Vec<u8>,
+}
+
+fn member_payload(host: DeviceId, binding: &[u8; 32]) -> Vec<u8> {
+    [b"ctxremote/member/v1:".as_slice(), &host.get().to_be_bytes(), binding].concat()
+}
+
+impl MemberProof {
+    pub fn sign(key: &ed25519_dalek::SigningKey, host: DeviceId, binding: &[u8; 32]) -> Self {
+        use ed25519_dalek::Signer;
+        Self {
+            public_key: key.verifying_key().to_bytes(),
+            signature: key.sign(&member_payload(host, binding)).to_bytes().to_vec(),
         }
-        if let Ok(extras) = postcard::from_bytes::<Self>(trailer) {
-            return extras;
-        }
-        Self { features: postcard::from_bytes(trailer).unwrap_or_default(), profile: None }
+    }
+
+    pub fn verify(&self, host: DeviceId, binding: &[u8; 32]) -> bool {
+        use ed25519_dalek::Verifier;
+        let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&self.public_key) else { return false };
+        let Ok(signature) = ed25519_dalek::Signature::from_slice(&self.signature) else { return false };
+        key.verify(&member_payload(host, binding), &signature).is_ok()
     }
 }
 
@@ -353,14 +391,36 @@ mod tests {
     #[test]
     fn hello_extras_are_compatible_both_ways() {
         let profile = HelperProfile { name: "Philipp".into(), company: "Ecker IT".into(), message: String::new(), logo: vec![] };
-        let extras = HelloExtras { features: Features::CURRENT, profile: Some(profile.clone()) };
+        let key = ed25519_dalek::SigningKey::from_bytes(&[5; 32]);
+        let member = MemberProof::sign(&key, DeviceId::new(123_456_789).unwrap(), &[9; 32]);
+        let extras = HelloExtras { features: Features::CURRENT, profile: Some(profile.clone()), member: Some(member.clone()) };
 
         // An older host reads only the features from the new trailer.
         let frame = hello_frame(Some(&extras));
         let (_, rest) = postcard::take_from_bytes::<ViewerMsg>(&frame).unwrap();
         assert_eq!(postcard::from_bytes::<Features>(rest).unwrap(), Features::CURRENT);
         let decoded = HelloExtras::decode(rest);
-        assert_eq!((decoded.features, decoded.profile), (Features::CURRENT, Some(profile)));
+        assert_eq!((decoded.features, decoded.profile.clone(), decoded.member), (Features::CURRENT, Some(profile.clone()), Some(member)));
+
+        // A host from before member proofs still reads features and profile.
+        #[derive(Deserialize)]
+        struct ProfileOnly {
+            features: Features,
+            profile: Option<HelperProfile>,
+        }
+        let old = postcard::from_bytes::<ProfileOnly>(rest).unwrap();
+        assert_eq!((old.features, old.profile), (Features::CURRENT, Some(profile.clone())));
+
+        // A viewer from before member proofs: profile without a member.
+        #[derive(Serialize)]
+        struct OldExtras {
+            features: Features,
+            profile: Option<HelperProfile>,
+        }
+        let frame = hello_frame(Some(&OldExtras { features: Features(Features::PROFILE), profile: Some(profile.clone()) }));
+        let (_, rest) = postcard::take_from_bytes::<ViewerMsg>(&frame).unwrap();
+        let decoded = HelloExtras::decode(rest);
+        assert_eq!((decoded.profile, decoded.member), (Some(profile), None));
 
         // A newer host reads older viewers' trailers.
         let frame = hello_frame(Some(&Features(Features::FILES)));
@@ -368,6 +428,18 @@ mod tests {
         let decoded = HelloExtras::decode(rest);
         assert_eq!((decoded.features, decoded.profile), (Features(Features::FILES), None));
         assert_eq!(HelloExtras::decode(&[]).features, Features::NONE);
+    }
+
+    #[test]
+    fn member_proofs_bind_host_and_session() {
+        let key = ed25519_dalek::SigningKey::from_bytes(&[5; 32]);
+        let host = DeviceId::new(123_456_789).unwrap();
+        let proof = MemberProof::sign(&key, host, &[9; 32]);
+        assert!(proof.verify(host, &[9; 32]));
+        assert!(!proof.verify(host, &[8; 32]), "another session");
+        assert!(!proof.verify(DeviceId::new(987_654_321).unwrap(), &[9; 32]), "another host");
+        let forged = MemberProof { public_key: [7; 32], ..proof };
+        assert!(!forged.verify(host, &[9; 32]));
     }
 
     #[test]

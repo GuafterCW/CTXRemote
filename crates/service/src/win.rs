@@ -678,6 +678,14 @@ struct SettingsRequest {
     /// Set instead of the server settings when only the direct connection changes.
     #[serde(default)]
     direct: Option<DirectSettings>,
+    /// Set instead when only the access for the account's devices changes.
+    #[serde(default)]
+    access: Option<AccessChange>,
+}
+
+#[derive(serde::Deserialize)]
+struct AccessChange {
+    grant: Option<ctxremote_core::account::AccessGrant>,
 }
 
 /// The app's elevated helper: hands the settings in `file` to the running
@@ -714,9 +722,10 @@ fn apply_settings(request: &[u8]) -> Result<(), String> {
         .await
         .map_err(|e| format!("{e:#}"))?;
         let direct = request.direct.clone();
-        match &direct {
-            Some(settings) => link.send(UiRequest::ConfigureDirect(settings.clone())),
-            None => link.send(UiRequest::Configure {
+        match (&direct, request.access) {
+            (Some(settings), _) => link.send(UiRequest::ConfigureDirect(settings.clone())),
+            (None, Some(access)) => link.send(UiRequest::ConfigureAccountAccess(access.grant)),
+            (None, None) => link.send(UiRequest::Configure {
                 server: request.server,
                 permanent_password: request.permanent_password,
             }),

@@ -212,6 +212,16 @@ impl Accounts {
         Ok(())
     }
 
+    /// Whether both keys are members of one account (for access without a
+    /// password; the host proves nothing here, so this reveals only whether
+    /// two keys the asker already knows belong together).
+    pub fn same_account(&self, a: &[u8; 32], b: &[u8; 32]) -> bool {
+        match (self.by_key.get(&hex::encode(a)), self.by_key.get(&hex::encode(b))) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        }
+    }
+
     /// Carries out a request whose signature the caller has checked.
     pub fn handle(&mut self, public_key: [u8; 32], op: AccountOp) -> Result<AccountReply, AccountError> {
         let key = hex::encode(public_key);
@@ -264,6 +274,28 @@ impl Accounts {
             self.emit(if recovery { Mail::RecoveryUsed { to } } else { Mail::NewSignIn { to, how: "ein Browser im Webinterface" } });
         }
         Ok((id, wrapped))
+    }
+
+    /// Deletes `account` for good, after the password once more: devices,
+    /// login, list. Its devices find out on their next sync (`NotLinked`).
+    pub fn delete_web(&mut self, account: u64, value: &[u8; 32]) -> Result<(), AccountError> {
+        let email = self.email(account).ok_or(AccountError::NotLinked)?;
+        let (id, _) = self.check_login(&email, value, false)?;
+        if id != account {
+            return Err(AccountError::WrongPassword);
+        }
+        let before = self.snapshot();
+        let removed = self.stored.accounts.remove(&id).expect("checked above");
+        for key in &removed.keys {
+            self.by_key.remove(key);
+        }
+        self.by_email.retain(|_, a| *a != id);
+        self.commit(before)?;
+        self.pairings.retain(|_, p| p.account != id);
+        self.failures.remove(&id);
+        self.resent.remove(&id);
+        self.emit(Mail::AccountDeleted { to: email });
+        Ok(())
     }
 
     fn run(&mut self, key: String, member: Option<u64>, op: AccountOp) -> Result<AccountReply, AccountError> {

@@ -58,6 +58,7 @@ pub async fn refuse(t: &mut Transport, reason: Refusal) -> Result<()> {
 struct SlotKeys {
     host_to_viewer: [u8; 32],
     viewer_to_host: [u8; 32],
+    binding: [u8; 32],
 }
 
 fn start(host_id: DeviceId, password: &str) -> (Spake2<Ed25519Group>, Vec<u8>) {
@@ -73,9 +74,10 @@ fn finish(state: Spake2<Ed25519Group>, inbound: &[u8]) -> Result<SlotKeys> {
         .finish(inbound)
         .map_err(|e| anyhow!("Schlüsselaustausch fehlgeschlagen: {e:?}"))?;
     let hk = Hkdf::<Sha256>::new(Some(b"ctxremote/v1"), &shared);
-    let mut keys = SlotKeys { host_to_viewer: [0; 32], viewer_to_host: [0; 32] };
+    let mut keys = SlotKeys { host_to_viewer: [0; 32], viewer_to_host: [0; 32], binding: [0; 32] };
     hk.expand(b"host->viewer", &mut keys.host_to_viewer).expect("valid length");
     hk.expand(b"viewer->host", &mut keys.viewer_to_host).expect("valid length");
+    hk.expand(b"binding", &mut keys.binding).expect("valid length");
     Ok(keys)
 }
 
@@ -89,11 +91,11 @@ fn opens_confirm(key: &[u8; 32], proof: &[u8]) -> bool {
 
 /// Splits the transport into an encrypted pair whose counters continue after
 /// the confirmation frames (nonce 0 in each direction).
-fn channel(t: Transport, tx_key: &[u8; 32], rx_key: &[u8; 32]) -> (SecureSender, SecureReceiver) {
+fn channel(t: Transport, tx_key: &[u8; 32], rx_key: &[u8; 32], binding: [u8; 32]) -> (SecureSender, SecureReceiver) {
     let (sink, stream) = t.split();
     (
         SecureSender { sink, cipher: cipher(tx_key), counter: 1 },
-        SecureReceiver { stream, cipher: cipher(rx_key), counter: 1 },
+        SecureReceiver { stream, cipher: cipher(rx_key), counter: 1, binding },
     )
 }
 
@@ -131,7 +133,7 @@ pub async fn host_handshake(
     };
     let proof = seal_confirm(&keys.host_to_viewer);
     framing::send(&mut t, &Handshake::Accepted { slot: slot as u8, proof }).await?;
-    let (tx, rx) = channel(t, &keys.host_to_viewer, &keys.viewer_to_host);
+    let (tx, rx) = channel(t, &keys.host_to_viewer, &keys.viewer_to_host, keys.binding);
     Ok((tx, rx, slot))
 }
 
@@ -167,7 +169,7 @@ pub async fn viewer_handshake(
             if !opens_confirm(&keys.host_to_viewer, &proof) {
                 bail!("Gegenstelle konnte sich nicht ausweisen");
             }
-            Ok(channel(t, &keys.viewer_to_host, &keys.host_to_viewer))
+            Ok(channel(t, &keys.viewer_to_host, &keys.host_to_viewer, keys.binding))
         }
         Handshake::Refused(reason) => Err(reason.into()),
         _ => bail!("unerwartete Handshake-Nachricht"),
@@ -234,9 +236,16 @@ pub struct SecureReceiver {
     stream: TransportStream,
     cipher: ChaCha20Poly1305,
     counter: u64,
+    binding: [u8; 32],
 }
 
 impl SecureReceiver {
+    /// A value both ends derive from this session's key exchange and nobody
+    /// else knows; signatures over it cannot be replayed in another session.
+    pub fn binding(&self) -> [u8; 32] {
+        self.binding
+    }
+
     /// Returns `None` when the peer closed the connection cleanly.
     pub async fn recv<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
         match self.recv_raw().await {

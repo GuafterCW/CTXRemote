@@ -215,6 +215,14 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - **Ohne Payload**, also bei Entwickler-Builds, wird die Installation nur simuliert.
 - **Design prüfen ohne Windows:** `CTXRemote-Setup --preview <ready|update|same|newer|installing|done|failed|declined> bild.png [dark] [primary|secondary|close]` rendert einen Zustand als PNG.
 
+### Zugriff ohne Passwort und Konto löschen (5. Oktober, Cloud-Sitzung)
+
+- **Zugriff ohne Passwort für Geräte des eigenen Kontos:** vom Nutzer gewünscht, wie bei AnyDesk/RustDesk. Ein Schalter im Kontopanel, Standard aus. Sicherheitsmodell und Technik stehen in `docs/ACCOUNTS.md`, „Zugriff ohne Passwort“. Kurz: Kontoschlüssel (SPAKE2-Slot) **und** Mitgliedschaft laut Server (signierter Nachweis, `SameAccount`). Mit Dienst geht der Schalter über UAC. Freigegebene Geräte tragen in der Geräteliste das Label „ohne Passwort“.
+- **Konto löschen** selbst im Webinterface, mit Passwort. Die Apps lösen ihre Verknüpfung beim nächsten Abgleich.
+- **Webinterface:** Die Anmeldung übersteht Neuladen und gilt über Tabs hinweg (`localStorage`, maskiert mit dem `pad` der Server-Sitzung).
+- **Mails** tragen `MIME-Version` und `Content-Type` (vorher zeigten manche Programme Quoted-Printable roh).
+- Die App-Oberfläche hat ein Agent nach Vorgabe gebaut. Protokoll, Krypto, Host- und Viewer-Logik habe ich selbst geschrieben. Getestet: `--test access` mit echtem Server (Mitglied rein; Fremder mit Kontopasswort, ohne Nachweis, fremdes Host-Passwort und entferntes Gerät abgewiesen), `--test web` (Löschen), Browser-Durchläufe für Neuladen, Tabs und Löschen.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -280,6 +288,13 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Fenster ziehen, Esc schließt, Enter drückt den Hauptknopf.
     - Deinstallation über „Apps & Features“ muss weiter funktionieren.
     - Wie lange dauert die Installation wirklich? Danach den Schätzwert in `crates/setup/src/ui.rs` (`estimated_progress`) anpassen.
+20. Zugriff ohne Passwort (zwei PCs im selben Konto, beide aktualisiert):
+    - Auf PC A im Kontopanel „Geräte dieses Kontos dürfen sich ohne Passwort …“ einschalten. Mit Dienst muss eine UAC-Abfrage kommen.
+    - Auf PC B muss PC A nach dem Abgleich (spätestens nach 5 Minuten oder nach Neustart der App) das Label „ohne Passwort“ tragen.
+    - Klick auf PC A: Die Sitzung startet ohne Passwortdialog.
+    - Auf A ausschalten: B fällt auf den Passwortdialog zurück, mit Hinweis.
+    - PC B im Webinterface aus dem Konto entfernen: B kommt nicht mehr ohne Passwort hinein („Dieses Gerät gehört nicht mehr zum Konto“).
+21. Konto löschen im Webinterface: Danach muss die App auf beiden PCs beim nächsten Abgleich ohne Konto dastehen, ohne Fehlermeldung.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

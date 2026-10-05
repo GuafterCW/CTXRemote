@@ -152,6 +152,8 @@ struct Overview {
     /// Set while the address book syncs with an account.
     #[cfg(not(feature = "quick"))]
     account: Option<account::AccountView>,
+    /// Devices of the account may connect to this one without a password.
+    account_access: bool,
 }
 
 #[derive(Serialize)]
@@ -161,6 +163,8 @@ struct PeerView {
     alias: Option<String>,
     name: String,
     last_seen: u64,
+    /// It lets this account's devices in without a password.
+    access: bool,
 }
 
 #[derive(Serialize)]
@@ -178,7 +182,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
     #[cfg(feature = "quick")]
     let _ = &app;
     let config = state.config.read().unwrap();
-    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles) = match &state.host {
+    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles, account_access) = match &state.host {
         Side::Local(host) => (
             host.presence().borrow().clone(),
             host.password(),
@@ -191,11 +195,12 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
             host.chat_sessions(),
             host.public_alias(),
             host.session_profiles(),
+            config.account_access.as_ref().is_some_and(|g| Some(g.host) == config.device_id),
         ),
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => {
             let s = service.state();
-            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles)
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles, s.account_access)
         }
     };
     Overview {
@@ -215,6 +220,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
                 alias: p.alias.clone(),
                 name: p.name.clone(),
                 last_seen: p.last_seen,
+                access: ctxremote_core::account::access_for(&config, p.id).is_some(),
             })
             .collect(),
         hosted: sessions
@@ -233,6 +239,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
         profile: config.profile.clone(),
         #[cfg(not(feature = "quick"))]
         account: account::view(&app),
+        account_access,
     }
 }
 
@@ -444,8 +451,18 @@ async fn connect(
         }
     };
 
-    let profile = state.config.read().unwrap().profile.as_ref().and_then(Profile::to_wire);
-    let session = ViewerSession::connect(&server, own_id, target, &password, profile, on_event)
+    // No password: a device that lets this account's devices in (docs/ACCOUNTS.md).
+    let (password, member, profile) = {
+        let config = state.config.read().unwrap();
+        let profile = config.profile.as_ref().and_then(Profile::to_wire);
+        if password.is_empty() {
+            let access = ctxremote_core::account::access_for(&config, target).ok_or("Bitte das Passwort eingeben")?;
+            (access, Some(config.signing_key().map_err(err)?), profile)
+        } else {
+            (password, None, profile)
+        }
+    };
+    let session = ViewerSession::connect(&server, own_id, target, &password, member.as_ref(), profile, on_event)
         .await
         .map_err(|e| format!("{e:#}"))?;
     link.lock().unwrap().clipboard = {
@@ -957,7 +974,8 @@ fn main() {
         account::account_recover,
         account::account_set_login,
         account::account_details,
-        account::account_remove_device
+        account::account_remove_device,
+        account::account_set_access
     ];
     #[cfg(feature = "quick")]
     let builder = builder.manage(quick::Approvals::default());

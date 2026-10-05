@@ -104,6 +104,12 @@ pub async fn start_host(server: &str, direct: bool) -> (Host, DeviceId) {
 
 /// A host whose config `adjust` changes first.
 pub async fn start_host_with(server: &str, adjust: impl FnOnce(&mut Config)) -> (Host, DeviceId) {
+    let (host, id, _) = start_host_shared(server, adjust).await;
+    (host, id)
+}
+
+/// Like [`start_host_with`], plus the host's config to change it while it runs.
+pub async fn start_host_shared(server: &str, adjust: impl FnOnce(&mut Config)) -> (Host, DeviceId, Arc<RwLock<Config>>) {
     let config_path = std::env::temp_dir().join(format!("ctxremote-test-host-{}.json", free_port()));
     std::env::set_var("CTXREMOTE_CONFIG", &config_path);
     let mut config = Config {
@@ -112,7 +118,8 @@ pub async fn start_host_with(server: &str, adjust: impl FnOnce(&mut Config)) -> 
         ..Config::default()
     };
     adjust(&mut config);
-    let host = Host::start_with(Arc::new(RwLock::new(config)), Arc::new(Echo));
+    let config = Arc::new(RwLock::new(config));
+    let host = Host::start_with(config.clone(), Arc::new(Echo));
     let mut presence = host.presence();
     let id = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -126,7 +133,7 @@ pub async fn start_host_with(server: &str, adjust: impl FnOnce(&mut Config)) -> 
     .expect("host online");
     // Lets the listener for direct connections come up.
     tokio::time::sleep(Duration::from_millis(200)).await;
-    (host, id)
+    (host, id, config)
 }
 
 /// Waits for the next event that `pick` accepts.
@@ -167,7 +174,7 @@ pub async fn connect_as(
 ) -> (ViewerSession, std_mpsc::Receiver<ViewerEvent>) {
     let (tx, rx) = std_mpsc::channel();
     let tx = std::sync::Mutex::new(tx);
-    let session = ViewerSession::connect(server, None, id, &host.password(), profile, move |event| {
+    let session = ViewerSession::connect(server, None, id, &host.password(), None, profile, move |event| {
         let _ = tx.lock().unwrap().send(event);
     })
     .await

@@ -221,6 +221,7 @@ pub async fn serve(server: Arc<Server>, addr: SocketAddr, origin: Option<String>
         .route("/api/logout", post(logout))
         .route("/api/account", get(account))
         .route("/api/session-pad", get(session_pad))
+        .route("/api/account/delete", post(delete_account))
         .route("/api/book", get(get_book).put(put_book))
         .route("/api/devices", get(devices))
         .route("/api/devices/{key}", delete(remove_device))
@@ -348,6 +349,28 @@ async fn recover(
     api.guard(&Method::POST, &headers, peer)?;
     let (account, wrapped) = api.server.accounts.lock().unwrap().login_web(&body.email, &body.recovery_auth, true)?;
     Ok(api.signed_in_response(account, json!({ "wrapped": enc(&wrapped) })))
+}
+
+#[derive(Deserialize)]
+struct AuthJson {
+    #[serde(deserialize_with = "b64::de_array")]
+    auth: [u8; 32],
+}
+
+/// Deletes the signed-in account; needs the password once more.
+async fn delete_account(
+    State(api): State<Api>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<AuthJson>,
+) -> ApiResult<Response> {
+    api.guard(&Method::POST, &headers, peer)?;
+    let account = api.signed_in(&headers)?;
+    api.server.accounts.lock().unwrap().delete_web(account, &body.auth)?;
+    api.sessions.end_all(account, None);
+    let mut response = Json(json!({ "ok": true })).into_response();
+    response.headers_mut().insert(header::SET_COOKIE, cleared_cookie());
+    Ok(response)
 }
 
 async fn logout(State(api): State<Api>, headers: HeaderMap) -> Response {

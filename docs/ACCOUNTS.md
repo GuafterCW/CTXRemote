@@ -69,6 +69,25 @@ Schlüsselschema, umgesetzt in `crates/core/src/account.rs` (`password_keys`, `r
 - **Tests:** `login_with_password_and_recovery_code` und `logins_need_an_encrypted_connection` (`--test accounts`), dazu `accounts::tests::logins` im Server.
 - Die App spricht über die verschlüsselte Verbindung (Schritt 1), das Webinterface über HTTPS mit einer HTTP-API des Servers hinter Caddy. Die Krypto läuft im Browser, ChaCha20-Poly1305 und Argon2id sind ins Webinterface eingebunden.
 
+## Zugriff ohne Passwort (5. Oktober 2026)
+
+Geräte eines Kontos können sich ohne Passwort mit einem Gerät verbinden, das das erlaubt (Kontopanel: „Geräte dieses Kontos dürfen sich ohne Passwort mit diesem Gerät verbinden“). Standard ist aus, denn es ist unbeaufsichtigter Zugriff.
+
+- **Zwei Nachweise**, damit weder der Server allein noch ein entferntes Gerät allein hineinkommt:
+  1. **Kontoschlüssel:** Der Host bietet einen zusätzlichen SPAKE2-Slot mit dem **Zugangspasswort** `HKDF(Kontoschlüssel, "ctxremote/access/v1", Host-ID)` an (`account::access_password`). Der Server kennt den Kontoschlüssel nicht. Pro Host verschieden, eine Freigabe öffnet also keinen anderen Host.
+  2. **Mitgliedschaft:** Der Viewer signiert mit seinem Geräteschlüssel die Host-ID und einen Bindungswert der Sitzung (`SecureReceiver::binding`, aus dem SPAKE2-Geheimnis), als `MemberProof` im `Hello`-Anhang. Der Host fragt den Server mit `ClientMsg::SameAccount`, ob dieser Schlüssel im selben Konto ist wie sein **Zeugen-Schlüssel** (der Schlüssel der App auf diesem Rechner). Ein entferntes Gerät kennt den Kontoschlüssel noch, ist aber kein Mitglied mehr.
+  - Grenze: Ein böswilliger Server **zusammen** mit einem entfernten Gerät käme hinein.
+- **Host-Seite:** `Config::account_access` (`AccessGrant`: Host-ID, Zugangspasswort, Zeuge). Ohne Dienst setzt die App sie selbst. Mit Dienst geht sie über den UAC-Helfer (`UiRequest::ConfigureAccountAccess`, nur erhöhte Administratoren), sonst könnte sich ein eingeschränkter Windows-Benutzer selbst Fernzugriff geben.
+- **Viewer-Seite:** Welche Geräte freigegeben sind, steht verschlüsselt in der Geräteliste (`Book::access`, Gerät → `{open, at}`, die jüngere Wahl gewinnt). Bei solchen Geräten verbindet die App ohne Passwortdialog (`connect` mit leerem Passwort) und fällt bei einem Fehler auf den Passwortdialog zurück.
+- Ein Fehlversuch über diesen Weg zählt wie ein falsches Passwort zur Sperre des Hosts.
+- Feature-Bit `ACCOUNT`. Alte Viewer beantworten den zusätzlichen Slot mit ihrem Passwort, das schadet nicht. Alte Server legen bei `SameAccount` auf, dann gilt das als „kein Mitglied“.
+- Das Webinterface schreibt unbekannte Felder der Geräteliste unverändert zurück. Ältere App-Versionen kennen `access` nicht und lassen es beim Zurückschreiben weg, bis sie aktualisiert sind.
+- Test: `cargo test -p ctxremote-server --test access`.
+
+## Konto löschen
+
+Im Webinterface unter „Konto löschen“, mit dem Passwort zur Bestätigung (`POST /api/account/delete`). Der Server entfernt Konto, Anmeldung, Geräteliste und Mitgliedschaften, beendet alle Browser-Sitzungen und schickt eine Mail. Die Apps merken es beim nächsten Abgleich (`NotLinked`) und entfernen ihre Verknüpfung selbst.
+
 ## Später
 
 - Anmeldung mit E-Mail und Zahlungen über die Website (`docs/PLANS.md`). Das Konto bekommt dann zusätzlich eine E-Mail. Die Geräteschlüssel bleiben der Weg, auf dem Geräte sprechen.

@@ -31,6 +31,9 @@ pub struct ServiceState {
     /// The device's public alias, if it has one.
     #[serde(default)]
     pub public_alias: Option<String>,
+    /// Devices of the account may connect without a password.
+    #[serde(default)]
+    pub account_access: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +49,9 @@ pub enum UiRequest {
     Chat { session: u64, text: String },
     /// Sets or drops the public alias; any signed-in user, it only names the device.
     SetPublicAlias(Option<String>),
+    /// Lets the account's devices in without a password (`None`: no longer);
+    /// elevated administrators only, as it grants unattended access.
+    ConfigureAccountAccess(Option<crate::account::AccessGrant>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,6 +187,7 @@ mod imp {
             session_profiles: host.session_profiles(),
             chat_sessions: host.chat_sessions(),
             public_alias: config.public_alias.clone(),
+            account_access: config.account_access.as_ref().is_some_and(|g| Some(g.host) == config.device_id),
             direct: config.direct_settings(),
             direct_active: host.direct_active(),
         }
@@ -228,6 +235,17 @@ mod imp {
                         UiRequest::Configure { server, permanent_password } => {
                             let answer = if is_elevated_admin(HANDLE(handle as _)) {
                                 configure(&host, &config, &server, permanent_password.as_deref())
+                            } else {
+                                Err("Nur Administratoren dürfen die Einstellungen des Dienstes ändern".into())
+                            };
+                            if answer.is_ok() {
+                                changed.send_replace(());
+                            }
+                            UiEvent::Configured(answer)
+                        }
+                        UiRequest::ConfigureAccountAccess(grant) => {
+                            let answer = if is_elevated_admin(HANDLE(handle as _)) {
+                                configure_account_access(&config, grant)
                             } else {
                                 Err("Nur Administratoren dürfen die Einstellungen des Dienstes ändern".into())
                             };
@@ -300,6 +318,20 @@ mod imp {
         if changed {
             host.set_direct(settings.clone());
         }
+        Ok(())
+    }
+
+    fn configure_account_access(config: &RwLock<Config>, grant: Option<crate::account::AccessGrant>) -> Result<(), String> {
+        let mut config = config.write().unwrap();
+        if let Some(grant) = &grant {
+            if Some(grant.host) != config.device_id || grant.witness_key().is_none() || grant.password.len() != 64 {
+                return Err("Die Freigabe passt nicht zu diesem Gerät".into());
+            }
+        }
+        let open = grant.is_some();
+        config.account_access = grant;
+        config.save().map_err(|e| format!("Einstellungen nicht gespeichert: {e:#}"))?;
+        info!(open, "Zugriff für Geräte des Kontos geändert");
         Ok(())
     }
 

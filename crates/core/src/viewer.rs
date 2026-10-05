@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
-use ctxremote_proto::session::{CursorShape, Features, HelloExtras, HelperProfile, HostInfo, HostMsg, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, Features, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
@@ -67,12 +67,16 @@ pub struct ViewerSession {
 
 impl ViewerSession {
     /// Connects through `server` and authenticates with `password`.
+    /// With `member` (this device's key), `password` is the account's access
+    /// password for `target` (see [`crate::account::access_for`]) and the
+    /// viewer proves its membership to the host.
     /// `on_event` runs on the network task and must not block.
     pub async fn connect(
         server: &str,
         own_id: Option<DeviceId>,
         target: DeviceId,
         password: &str,
+        member: Option<&ed25519_dalek::SigningKey>,
         profile: Option<HelperProfile>,
         on_event: impl Fn(ViewerEvent) + Send + Sync + 'static,
     ) -> Result<Self> {
@@ -83,7 +87,8 @@ impl ViewerSession {
         let (mut tx, mut rx) = viewer_handshake(t, target, password).await?;
         let name = format!("{} ({})", whoami::username(), whoami::devicename());
         // Older hosts read only the features from the trailer, or nothing; newer ones answer with theirs on `Welcome`.
-        let extras = HelloExtras { features: Features::CURRENT, profile };
+        let member = member.map(|key| MemberProof::sign(key, target, &rx.binding()));
+        let extras = HelloExtras { features: Features::CURRENT, profile, member };
         tx.send_with_trailer(&ViewerMsg::Hello { name, device: own_id }, &extras).await?;
         let (host, features) = match timeout(WELCOME_TIMEOUT, rx.recv_with_trailer::<HostMsg, Features>()).await?? {
             Some((HostMsg::Welcome(info), features)) => (info, features.unwrap_or(Features::NONE)),

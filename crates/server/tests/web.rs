@@ -118,4 +118,19 @@ async fn web_account_round_trip() {
     assert_eq!(cleared.as_deref(), Some("ctx_session="));
     assert_eq!(call(&http, "GET", "/api/book", Some(&second), ORIGIN, None).await.0, 401);
     assert_eq!(call(&http, "GET", "/api/session-pad", Some(&second), ORIGIN, None).await.0, 401);
+
+    // Deleting needs the password once more, then everything is gone.
+    let (_, third, _) = call(&http, "POST", "/api/login", None, ORIGIN, Some(json!({ "email": "web@example.org", "auth": b64(&[5; 32]) }))).await;
+    let third = third.expect("Sitzung");
+    let wrong = json!({ "auth": b64(&[9; 32]) });
+    assert_eq!(call(&http, "POST", "/api/account/delete", Some(&third), ORIGIN, Some(wrong)).await.0, 401);
+    let right = json!({ "auth": b64(&[5; 32]) });
+    let (status, cleared, _) = call(&http, "POST", "/api/account/delete", Some(&third), ORIGIN, Some(right.clone())).await;
+    assert_eq!((status, cleared.as_deref()), (200, Some("ctx_session=")));
+    assert_eq!(call(&http, "GET", "/api/book", Some(&third), ORIGIN, None).await.0, 401);
+    let again = json!({ "email": "web@example.org", "auth": b64(&[5; 32]) });
+    assert_eq!(call(&http, "POST", "/api/login", None, ORIGIN, Some(again)).await.0, 401);
+    // The address is free again.
+    let (status, _, _) = call(&http, "POST", "/api/register", None, ORIGIN, Some(setup("web@example.org", 7))).await;
+    assert_eq!(status, 200);
 }

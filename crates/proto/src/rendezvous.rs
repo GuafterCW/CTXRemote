@@ -51,6 +51,8 @@ pub enum ServerMsg {
     /// Answer to `Tunnel`: the server's ephemeral key; encrypted from here on
     /// (see [`crate::tunnel`]).
     Tunnel { ephemeral: [u8; 32] },
+    /// Answer to `SameAccount`.
+    SameAccount(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
@@ -106,6 +108,11 @@ pub enum ClientMsg {
     /// Starts encryption (see [`crate::tunnel`]); only as the first message,
     /// and the server then challenges again inside the encrypted connection.
     Tunnel { ephemeral: [u8; 32] },
+    /// Whether two device keys are members of the same account. A host asks
+    /// this before it lets an account device in without a password (see
+    /// `docs/ACCOUNTS.md`, "Zugriff ohne Passwort"). Servers from before
+    /// this close the connection.
+    SameAccount { a: [u8; 32], b: [u8; 32] },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]

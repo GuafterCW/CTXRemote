@@ -354,9 +354,17 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     }
 
     let one_time = shared.password.lock().unwrap().clone();
-    let permanent = shared.config.read().unwrap().permanent_password.clone();
+    let (permanent, grant) = {
+        let config = shared.config.read().unwrap();
+        (config.permanent_password.clone(), config.account_access.clone().filter(|g| g.host == id))
+    };
     let mut passwords = vec![one_time.as_str()];
     passwords.extend(permanent.as_deref().filter(|p| !p.is_empty()));
+    // Devices of the account: their own slot, see docs/ACCOUNTS.md.
+    let account_slot = grant.as_ref().map(|g| {
+        passwords.push(g.password.as_str());
+        passwords.len() - 1
+    });
 
     let (tx, mut rx, slot) = match host_handshake(t, id, &passwords).await {
         Ok(ok) => ok,
@@ -375,6 +383,27 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     };
     let features = extras.features;
     let profile = extras.profile.and_then(Profile::from_wire);
+
+    // The account password alone is not enough: the viewer's device must
+    // still be in the account (a removed device keeps the account key).
+    if Some(slot) == account_slot {
+        let grant = grant.as_ref().expect("account slot has a grant");
+        let server = shared.config.read().unwrap().server_addr();
+        let member = match (&extras.member, grant.witness_key()) {
+            (Some(proof), Some(witness)) if proof.verify(id, &rx.binding()) => {
+                crate::account::same_account(&server, proof.public_key, witness).await
+            }
+            _ => false,
+        };
+        if !member {
+            let mut tx = tx;
+            let _ = tx.send(&HostMsg::Bye("Dieses Gerät gehört nicht mehr zum Konto".into())).await;
+            tx.close().await;
+            record_failure(&shared);
+            bail!("{peer}: Kontozugriff ohne gültige Mitgliedschaft");
+        }
+        info!(%peer, "Zugriff über das Konto");
+    }
 
     let approver = shared.approver.lock().unwrap().clone();
     if let Some(approve) = approver {
