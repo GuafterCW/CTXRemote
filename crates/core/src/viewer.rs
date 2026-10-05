@@ -46,6 +46,8 @@ impl Found {
 pub enum ViewerEvent {
     Video(VideoFrame),
     Clipboard(String),
+    /// An image copied at the host, as PNG.
+    ClipboardImage(Vec<u8>),
     /// The host's pointer changed shape.
     Cursor(CursorShape),
     /// Progress or outcome of a file transfer started through [`ViewerSession::files`].
@@ -150,6 +152,7 @@ impl ViewerSession {
                             ViewerMsg::Tunnel(_) => features.has(Features::TUNNEL),
                             ViewerMsg::Draw(_) => features.has(Features::DRAW),
                             ViewerMsg::Mic(_) => features.has(Features::MIC),
+                            ViewerMsg::ClipboardImage(_) => features.has(Features::CLIPBOARD_IMAGE),
                             ViewerMsg::Restart => features.has(Features::RESTART),
                             ViewerMsg::SetQuality(_) => features.has(Features::QUALITY),
                             ViewerMsg::Chat(_) => features.has(Features::CHAT),
@@ -262,6 +265,7 @@ impl ViewerSession {
                     }
                     Ok(Some(HostMsg::Video(frame))) => on_event(ViewerEvent::Video(frame)),
                     Ok(Some(HostMsg::Clipboard(text))) => on_event(ViewerEvent::Clipboard(text)),
+                    Ok(Some(HostMsg::ClipboardImage(png))) => on_event(ViewerEvent::ClipboardImage(png)),
                     Ok(Some(HostMsg::Bye(reason))) => break Some(reason),
                     Ok(Some(HostMsg::Cursor(shape))) => on_event(ViewerEvent::Cursor(shape)),
                     Ok(Some(HostMsg::Audio(packet))) => on_event(ViewerEvent::Audio(packet.data)),

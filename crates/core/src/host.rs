@@ -714,7 +714,7 @@ fn needed_right(msg: &ViewerMsg) -> Option<u32> {
         // Puts files on the host's clipboard, so it needs both.
         ViewerMsg::File { op: FileOp::ClipboardFromDir { .. }, .. } => Some(Permissions::FILES | Permissions::CLIPBOARD),
         ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => Some(Permissions::FILES),
-        ViewerMsg::Clipboard(_) => Some(Permissions::CLIPBOARD),
+        ViewerMsg::Clipboard(_) | ViewerMsg::ClipboardImage(_) => Some(Permissions::CLIPBOARD),
         // Sound both ways goes with one right.
         ViewerMsg::SetAudio(true) | ViewerMsg::Mic(_) => Some(Permissions::AUDIO),
         ViewerMsg::Restart => Some(Permissions::RESTART),
@@ -774,6 +774,8 @@ async fn run_session(
                     Some(HostMsg::Cursor(_)) if !route.features.has(Features::CURSOR) => {}
                     Some(HostMsg::Audio(_)) if !route.features.has(Features::AUDIO) || !route.allows(Permissions::AUDIO) => {}
                     Some(HostMsg::Clipboard(_)) if !route.allows(Permissions::CLIPBOARD) => {}
+                    Some(HostMsg::ClipboardImage(_))
+                        if !route.features.has(Features::CLIPBOARD_IMAGE) || !route.allows(Permissions::CLIPBOARD) => {}
                     Some(HostMsg::ClipboardFiles(_))
                         if !route.features.has(Features::FILE_PASTE)
                             || !route.allows(Permissions::FILES | Permissions::CLIPBOARD) => {}

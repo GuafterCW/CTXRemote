@@ -183,6 +183,7 @@ fn describe(event: &Option<ViewerEvent>) -> String {
         Some(ViewerEvent::Rights(r)) => format!("Rights({})", r.0),
         Some(ViewerEvent::Privacy { on, error }) => format!("Privacy {{ on: {on}, error: {error:?} }}"),
         Some(ViewerEvent::Clipboard(t)) => format!("Clipboard({t})"),
+        Some(ViewerEvent::ClipboardImage(_)) => "ClipboardImage".into(),
         Some(ViewerEvent::Audio(_)) => "Audio".into(),
         Some(ViewerEvent::Closed(r)) => format!("Closed({r:?})"),
         Some(_) => "anderes Ereignis".into(),
@@ -235,6 +236,11 @@ async fn host_rights_are_enforced_and_can_change() {
             other => panic!("Privatsphäre-Modus hätte abgelehnt werden müssen: {}", describe(&other)),
         }
         echo(&session, &events, "erlaubt");
+        session.send(ViewerMsg::ClipboardImage(vec![0x89, b'P', b'N', b'G']));
+        match next_event(&events, Duration::from_secs(10)) {
+            Some(ViewerEvent::ClipboardImage(png)) => assert_eq!(png, vec![0x89, b'P', b'N', b'G']),
+            other => panic!("Bild nicht angekommen: {}", describe(&other)),
+        }
 
         // View only: clipboard and sound no longer reach the screen side.
         host.set_rights(number, Permissions::VIEW_ONLY).unwrap();
@@ -243,6 +249,7 @@ async fn host_rights_are_enforced_and_can_change() {
             other => panic!("Rechte nicht gemeldet: {}", describe(&other)),
         }
         session.send(ViewerMsg::Clipboard("gesperrt".into()));
+        session.send(ViewerMsg::ClipboardImage(vec![1, 2, 3]));
         session.set_audio(true);
         let event = next_event(&events, Duration::from_secs(1));
         assert!(event.is_none(), "Nichts darf ankommen, kam aber: {}", describe(&event));

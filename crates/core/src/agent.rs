@@ -64,9 +64,11 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     // The sender is kept so the receiver stays pending if there is no clipboard.
     let (clip_tx, mut clip_rx) = mpsc::unbounded_channel::<String>();
     let (files_tx, mut files_rx) = mpsc::unbounded_channel::<Vec<std::path::PathBuf>>();
+    let (image_tx, mut image_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let clipboard = {
         let clip_tx = clip_tx.clone();
         let files_tx = files_tx.clone();
+        let image_tx = image_tx.clone();
         ClipboardSync::start_with_files(
             false,
             move |text| {
@@ -74,6 +76,9 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
             },
             Some(Box::new(move |files| {
                 let _ = files_tx.send(files);
+            })),
+            Some(Box::new(move |png| {
+                let _ = image_tx.send(png);
             })),
         )
     };
@@ -98,6 +103,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
         loop {
             tokio::select! {
                 Some(text) = clip_rx.recv() => outbox.send(HostMsg::Clipboard(text)).await?,
+                Some(png) = image_rx.recv() => outbox.send(HostMsg::ClipboardImage(png)).await?,
                 Some(files) = files_rx.recv() => {
                     let paths = files.iter().map(|p| p.to_string_lossy().into_owned()).collect();
                     outbox.send(HostMsg::ClipboardFiles(paths)).await?;
@@ -196,6 +202,11 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                             clipboard.apply(text);
                         }
                     }
+                    Some(ViewerMsg::ClipboardImage(png)) => {
+                        if let Some(clipboard) = &clipboard {
+                            clipboard.apply_image(png);
+                        }
+                    }
                     // Pasted files: the uploaded copies go on this computer's clipboard.
                     Some(ViewerMsg::File { req, op: FileOp::ClipboardFromDir { dir } }) => {
                         let result = match (&clipboard, crate::files::entries_of(std::path::Path::new(&dir))) {
@@ -238,6 +249,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     drop(clipboard);
     drop(clip_tx);
     drop(files_tx);
+    drop(image_tx);
     drop(commands);
     drop(frames_rx);
     let _ = tokio::task::spawn_blocking(move || video.join()).await;

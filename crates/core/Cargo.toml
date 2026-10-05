@@ -27,7 +27,8 @@ openh264 = "0.9"
 openh264-sys2 = "0.9"
 directories = "6"
 whoami = "1"
-arboard = { version = "3", default-features = false }
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+png = "0.18"
 socket2 = "0.6"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }

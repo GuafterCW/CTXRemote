@@ -698,6 +698,11 @@ async fn connect(
                     clipboard.apply(text);
                 }
             }
+            ViewerEvent::ClipboardImage(png) => {
+                if let Some(clipboard) = &link.lock().unwrap().clipboard {
+                    clipboard.apply_image(png);
+                }
+            }
             ViewerEvent::Closed(reason) => {
                 {
                     let mut link = link.lock().unwrap();
@@ -735,9 +740,17 @@ async fn connect(
     session.request_system_info();
     link.lock().unwrap().clipboard = {
         let outbox = session.sender();
-        ctxremote_core::clipboard::ClipboardSync::start(true, move |text| {
-            let _ = outbox.send(ViewerMsg::Clipboard(text));
-        })
+        let images = session.sender();
+        ctxremote_core::clipboard::ClipboardSync::start_with_files(
+            true,
+            move |text| {
+                let _ = outbox.send(ViewerMsg::Clipboard(text));
+            },
+            None,
+            Some(Box::new(move |png| {
+                let _ = images.send(ViewerMsg::ClipboardImage(png));
+            })),
+        )
     };
     let label = {
         let mut config = state.config.write().unwrap();

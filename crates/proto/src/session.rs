@@ -56,6 +56,9 @@ pub enum HostMsg {
     SystemInfo(SystemInfo),
     /// A port tunnel's traffic (host → viewer); see [`TunnelMsg`].
     Tunnel(TunnelMsg),
+    /// An image was copied at the host, as PNG; only to viewers with
+    /// [`Features::CLIPBOARD_IMAGE`].
+    ClipboardImage(Vec<u8>),
 }
 
 /// Port tunnels: TCP connections the viewer accepts locally and the host
@@ -196,6 +199,8 @@ impl Features {
     pub const DRAW: u32 = 1 << 17;
     /// Plays `Mic` packets.
     pub const MIC: u32 = 1 << 18;
+    /// Takes and sends `ClipboardImage`.
+    pub const CLIPBOARD_IMAGE: u32 = 1 << 19;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -217,7 +222,8 @@ impl Features {
             | Self::RECORDING
             | Self::TUNNEL
             | Self::DRAW
-            | Self::MIC,
+            | Self::MIC
+            | Self::CLIPBOARD_IMAGE,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -394,6 +400,9 @@ pub enum ViewerMsg {
     /// The viewer's microphone, one Opus packet (20 ms, 48 kHz mono), played
     /// at the host; only to hosts with [`Features::MIC`].
     Mic(AudioPacket),
+    /// An image for the host's clipboard, as PNG; only to hosts with
+    /// [`Features::CLIPBOARD_IMAGE`].
+    ClipboardImage(Vec<u8>),
 }
 
 /// Lines the viewer draws over the shown display, visible to the person at

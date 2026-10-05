@@ -34,6 +34,7 @@ impl ScreenSource for Echo {
             while let Some(msg) = inbox.recv().await {
                 let answer = match msg {
                     ViewerMsg::Clipboard(text) => HostMsg::Clipboard(text),
+                    ViewerMsg::ClipboardImage(png) => HostMsg::ClipboardImage(png),
                     // Stands in for the sound: one packet per switch-on.
                     ViewerMsg::SetAudio(true) => HostMsg::Audio(ctxremote_proto::session::AudioPacket { data: vec![0xf8, 1, 2, 3] }),
                     // Stands in for blanking the screen: always works.
