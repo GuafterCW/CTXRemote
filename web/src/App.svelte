@@ -3,14 +3,16 @@
   import CodeView from "./CodeView.svelte";
   import Dashboard from "./Dashboard.svelte";
   import { onMount } from "svelte";
-  import { mayRestore, restore, signedIn, verifyEmail } from "./lib/session";
+  import { mayRestore, restore, signedIn, verifyEmail, watchOtherTabs } from "./lib/session";
 
-  // After a reload the tab may still hold its key (see lib/session.ts):
+  // After a reload, or in a new tab, the key may still be kept (lib/session.ts):
   // show nothing until that is settled, instead of a flash of the login form.
   const restoring = !signedIn() && mayRestore();
   let view = $state<"auth" | "code" | "dash" | "wait">(signedIn() ? "dash" : restoring ? "wait" : "auth");
   onMount(() => {
     if (restoring) restore().then((ok) => (view = ok ? "dash" : "auth"));
+    // Signing out or in in another tab changes the stored key: start over.
+    watchOtherTabs(() => location.reload());
   });
   let recoveryCode = $state("");
   let notice = $state("");

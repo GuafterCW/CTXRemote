@@ -1,8 +1,7 @@
 // The signed-in account in this browser tab. The account key lives in
-// memory; for a reload the tab keeps it XORed with a random pad of its server
-// session in sessionStorage (per tab, gone when the tab closes). Without that
-// session (logout, expiry, password change, server restart) what is stored
-// is worthless. Everything sent to the server is either a derived `auth`
+// memory; for reloads and other tabs it is also kept XORed with a random pad
+// of the server session in localStorage. Without that session (logout,
+// expiry, password change, server restart) what is stored is worthless. Everything sent to the server is either a derived `auth`
 // value or sealed with the account key (see docs/ACCOUNTS.md).
 
 import {
@@ -34,7 +33,7 @@ function keep(key: Uint8Array, pad: string) {
   accountKey = key;
   try {
     const p = fromBase64(pad);
-    if (p.length === key.length) sessionStorage.setItem(STORED, toBase64(xor(key, p)));
+    if (p.length === key.length) localStorage.setItem(STORED, toBase64(xor(key, p)));
   } catch {
     // No storage (private mode, blocked): a reload then asks for the password.
   }
@@ -43,7 +42,7 @@ function keep(key: Uint8Array, pad: string) {
 function forget() {
   accountKey = null;
   try {
-    sessionStorage.removeItem(STORED);
+    localStorage.removeItem(STORED);
   } catch {
     // Nothing stored.
   }
@@ -51,10 +50,17 @@ function forget() {
 
 function stored(): string | null {
   try {
-    return sessionStorage.getItem(STORED);
+    return localStorage.getItem(STORED);
   } catch {
     return null;
   }
+}
+
+/** Calls `onChange` when another tab signs out (or in as someone else). */
+export function watchOtherTabs(onChange: () => void) {
+  window.addEventListener("storage", (event) => {
+    if (event.key === STORED || event.key === null) onChange();
+  });
 }
 
 /** Whether this tab may still be signed in from before a reload. */
