@@ -54,6 +54,7 @@ features = [
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",
     "Win32_System_Environment",
+    "Win32_System_LibraryLoader",
     "Win32_System_RemoteDesktop",
     "Win32_Storage_FileSystem",
     "Win32_System_Services",

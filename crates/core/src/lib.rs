@@ -11,6 +11,7 @@ pub mod config;
 mod congestion;
 pub mod desktop;
 pub mod direct;
+pub mod privacy;
 pub mod profile;
 pub mod punch;
 pub mod encoder;

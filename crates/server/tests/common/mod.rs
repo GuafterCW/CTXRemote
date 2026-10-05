@@ -8,7 +8,7 @@ pub use std::time::Duration;
 
 pub use ctxremote_core::config::Config;
 pub use ctxremote_core::host::{Host, Presence, ScreenChannels, ScreenSource};
-pub use ctxremote_core::proto::session::{Features, HelperProfile, HostInfo, HostMsg, ViewerMsg};
+pub use ctxremote_core::proto::session::{Features, HelperProfile, HostInfo, HostMsg, Permissions, ViewerMsg};
 pub use ctxremote_core::proto::DeviceId;
 pub use ctxremote_core::viewer::{ViewerEvent, ViewerSession};
 pub use futures::future::BoxFuture;
@@ -36,6 +36,8 @@ impl ScreenSource for Echo {
                     ViewerMsg::Clipboard(text) => HostMsg::Clipboard(text),
                     // Stands in for the sound: one packet per switch-on.
                     ViewerMsg::SetAudio(true) => HostMsg::Audio(ctxremote_proto::session::AudioPacket { data: vec![0xf8, 1, 2, 3] }),
+                    // Stands in for blanking the screen: always works.
+                    ViewerMsg::Privacy(on) => HostMsg::Privacy { on, error: None },
                     _ => continue,
                 };
                 if outbox.send(answer).await.is_err() {

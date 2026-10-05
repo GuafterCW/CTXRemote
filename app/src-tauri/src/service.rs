@@ -9,6 +9,7 @@ use std::time::Duration;
 use ctxremote_core::account::AccessGrant;
 use ctxremote_core::config::DirectSettings;
 use ctxremote_core::history::Visit;
+use ctxremote_core::proto::session::Permissions;
 use ctxremote_core::host::{HostEvent, Presence};
 use ctxremote_core::ui_link::{ServiceLink, ServiceState, UiEvent, UiRequest};
 use tauri::{AppHandle, Emitter};
@@ -35,6 +36,9 @@ impl Service {
             unattended: false,
             sessions: Vec::new(),
             session_profiles: Vec::new(),
+            session_rights: Vec::new(),
+            rights_attended: Default::default(),
+            rights_unattended: Default::default(),
             direct: DirectSettings { enabled: false, port: 0, addresses: Vec::new() },
             direct_active: false,
             chat_sessions: Vec::new(),
@@ -174,6 +178,14 @@ struct Request<'a> {
     direct: Option<&'a DirectSettings>,
     /// When set, the helper only changes the access for the account's devices.
     access: Option<AccessChange>,
+    /// When set, the helper only changes the rights of new sessions.
+    rights: Option<RightsChange>,
+}
+
+#[derive(serde::Serialize)]
+struct RightsChange {
+    attended: Permissions,
+    unattended: Permissions,
 }
 
 #[derive(serde::Serialize)]
@@ -192,6 +204,14 @@ pub async fn configure(server: String, permanent_password: Option<String>) -> Re
 /// Applies the direct-connection settings the same way.
 pub async fn configure_direct(settings: DirectSettings) -> Result<(), String> {
     elevated(move |file, exe| run_elevated(exe, file, &Request { direct: Some(&settings), ..Default::default() })).await
+}
+
+/// What new sessions may do, the same way.
+pub async fn configure_rights(attended: Permissions, unattended: Permissions) -> Result<(), String> {
+    elevated(move |file, exe| {
+        run_elevated(exe, file, &Request { rights: Some(RightsChange { attended, unattended }), ..Default::default() })
+    })
+    .await
 }
 
 /// Lets the account's devices in without a password (`None`: no longer), the same way.

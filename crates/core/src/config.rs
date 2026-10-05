@@ -7,6 +7,7 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::{DeviceId, DEFAULT_PORT};
 use ed25519_dalek::SigningKey;
 use rand::Rng;
+use ctxremote_proto::session::Permissions;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +50,11 @@ pub struct Config {
     pub access: std::collections::BTreeMap<u32, crate::account::Access>,
     /// Set when this device lets the account's devices in without a password.
     pub account_access: Option<crate::account::AccessGrant>,
+    /// What viewers may do in sessions opened with the one-time password,
+    /// i.e. with someone at the computer. Changeable per session.
+    pub rights_attended: Permissions,
+    /// The same for the permanent password and the account's devices.
+    pub rights_unattended: Permissions,
 }
 
 /// The direct-connection part of the settings form.
@@ -110,6 +116,8 @@ impl Default for Config {
             account: None,
             access: Default::default(),
             account_access: None,
+            rights_attended: Permissions::ATTENDED,
+            rights_unattended: Permissions::ALL,
         }
     }
 }

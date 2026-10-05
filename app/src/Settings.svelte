@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { api, errorText, type DirectSettings, type Profile } from "./lib/api";
+  import { api, errorText, RIGHT, type DirectSettings, type Profile } from "./lib/api";
   import Icon from "./lib/Icon.svelte";
   import ProfileCard from "./lib/ProfileCard.svelte";
 
@@ -10,6 +10,8 @@
     unattended,
     direct: initialDirect,
     directActive: initialActive,
+    rightsAttended,
+    rightsUnattended,
     service,
     version,
     onclose,
@@ -19,6 +21,8 @@
     unattended: boolean;
     direct: DirectSettings;
     directActive: boolean;
+    rightsAttended: number;
+    rightsUnattended: number;
     service: boolean;
     version: string;
     onclose: () => void;
@@ -61,6 +65,19 @@
         ? `Aktiv auf Port ${savedDirect.port}`
         : "Nicht aktiv (Port belegt?)",
   );
+
+  // What new sessions may do; changeable per session in the banner while it runs.
+  let attended = $state(untrack(() => rightsAttended));
+  let unattendedRights = $state(untrack(() => rightsUnattended));
+  const rightsChanged = $derived(attended !== rightsAttended || unattendedRights !== rightsUnattended);
+  const RIGHTS: [number, string][] = [
+    [RIGHT.INPUT, "Maus und Tastatur"],
+    [RIGHT.FILES, "Dateien"],
+    [RIGHT.CLIPBOARD, "Zwischenablage"],
+    [RIGHT.AUDIO, "Ton"],
+    [RIGHT.RESTART, "Neu starten"],
+    [RIGHT.PRIVACY, "Bildschirm schwarz schalten"],
+  ];
 
   /** Returns false if the direct settings were rejected; the error shows in their section. */
   async function saveDirect(): Promise<boolean> {
@@ -137,6 +154,7 @@
       if (profileChanged && !(await saveProfile())) return;
       if (directChanged && !(await saveDirect())) return;
       if (settingsChanged) await api.saveSettings(server, passwordChange);
+      if (rightsChanged) await api.saveRights(attended, unattendedRights);
       onclose();
     } catch (err) {
       error = errorText(err);
@@ -194,6 +212,45 @@
     {#if error}
       <p class="error">{error}</p>
     {/if}
+
+    <section class="group section">
+      <h3>Rechte der Gegenseite</h3>
+      <span class="note">
+        Gilt für neue Sitzungen. Während einer Sitzung lässt sich das im Hauptfenster unter „Rechte“ ändern.
+      </span>
+      <div class="rights" role="table">
+        <div class="rights-row head" role="row">
+          <span role="columnheader"></span>
+          <span role="columnheader">Einmal&shy;passwort</span>
+          <span role="columnheader">Unbeaufsichtigt</span>
+        </div>
+        {#each RIGHTS as [bit, label] (bit)}
+          <div class="rights-row" role="row">
+            <span role="cell">{label}</span>
+            <span role="cell">
+              <input
+                type="checkbox"
+                aria-label={`${label}, mit Einmalpasswort`}
+                checked={(attended & bit) !== 0}
+                onchange={() => (attended ^= bit)}
+              />
+            </span>
+            <span role="cell">
+              <input
+                type="checkbox"
+                aria-label={`${label}, unbeaufsichtigt`}
+                checked={(unattendedRights & bit) !== 0}
+                onchange={() => (unattendedRights ^= bit)}
+              />
+            </span>
+          </div>
+        {/each}
+      </div>
+      <span class="note">
+        „Unbeaufsichtigt“ gilt für das feste Passwort und für Geräte des Kontos. Bei Sitzungen mit Einmalpasswort sitzt
+        meist jemand am Gerät, deshalb ist das Schwarzschalten dort standardmäßig aus.
+      </span>
+    </section>
 
     <section class="group section">
       <h3>Direktverbindung</h3>
@@ -463,6 +520,28 @@
   .version {
     margin-right: auto;
     color: var(--ink-3);
+    font-size: 12px;
+  }
+
+  .rights {
+    display: grid;
+    gap: 2px;
+  }
+
+  .rights-row {
+    display: grid;
+    grid-template-columns: 1fr 110px 110px;
+    align-items: center;
+    min-height: 30px;
+    font-size: 13.5px;
+  }
+
+  .rights-row span:not(:first-child) {
+    text-align: center;
+  }
+
+  .rights-row.head {
+    color: var(--ink-2);
     font-size: 12px;
   }
 </style>

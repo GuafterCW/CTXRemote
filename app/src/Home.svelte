@@ -13,6 +13,7 @@
     type Presence,
   } from "./lib/api";
   import { formatId, isCompleteId, isPublicAlias } from "./lib/format";
+  import RightsMenu from "./lib/RightsMenu.svelte";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
   import PeerList from "./PeerList.svelte";
@@ -88,8 +89,19 @@
         if (event.kind === "sessionStarted")
           hosted = [
             ...hosted,
-            { session: event.session, peer: event.peer, chat: event.chat, profile: event.profile ?? null },
+            {
+              session: event.session,
+              peer: event.peer,
+              chat: event.chat,
+              profile: event.profile ?? null,
+              rights: event.rights ?? 0,
+              privacy: false,
+            },
           ];
+        if (event.kind === "rights")
+          hosted = hosted.map((h) =>
+            h.session === event.session ? { ...h, rights: event.rights, privacy: event.privacy } : h,
+          );
         if (event.kind === "sessionEnded") {
           hosted = hosted.filter((h) => h.session !== event.session);
           delete chats[event.session];
@@ -267,6 +279,8 @@
           {:else}
             <span class="no-chat" title="Gegenstelle hat eine ältere Version ohne Chat">Kein Chat</span>
           {/if}
+          {#if h.privacy}<span class="private-tag" title="Der Bildschirm hier ist für die Gegenseite schwarz">Privat</span>{/if}
+          <RightsMenu hosted={h} class="banner-rights" />
           <button class="banner-btn" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
         </div>
       {/each}
@@ -536,6 +550,8 @@
     unattended={overview.unattended}
     direct={overview.direct}
     directActive={overview.directActive}
+    rightsAttended={overview.rightsAttended}
+    rightsUnattended={overview.rightsUnattended}
     service={overview.service}
     version={overview.version}
     onclose={() => {
@@ -988,6 +1004,20 @@
     margin-left: auto;
     opacity: 0.65;
     font-size: 12.5px;
+  }
+
+  .private-tag {
+    margin-left: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .banner-row :global(.banner-rights) {
+    margin-left: 8px;
+  }
+
+  .banner-row :global(.banner-rights + .banner-btn) {
+    margin-left: 8px;
   }
 
   .chat-wrap {

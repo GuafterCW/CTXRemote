@@ -21,7 +21,8 @@ export function profileLabel(profile: Profile): string {
 }
 
 export type HostEvent =
-  | { kind: "sessionStarted"; session: number; peer: string; chat: boolean; profile?: Profile | null }
+  | { kind: "sessionStarted"; session: number; peer: string; chat: boolean; profile?: Profile | null; rights?: number }
+  | { kind: "rights"; session: number; rights: number; privacy: boolean }
   | { kind: "sessionEnded"; session: number }
   | { kind: "chat"; session: number; text: string }
   | { kind: "passwordChanged" };
@@ -56,6 +57,10 @@ export interface Hosted {
   chat: boolean;
   /** How the viewer presents itself (self-declared). */
   profile: Profile | null;
+  /** `RIGHT` bits the viewer has; changeable while the session runs. */
+  rights: number;
+  /** This computer's screen is blank for the viewer (privacy mode). */
+  privacy: boolean;
 }
 
 /** Who controls a hosted session, as shown on this device. */
@@ -96,6 +101,10 @@ export interface Overview {
   account?: AccountView | null;
   /** Devices of the account may connect to this device without a password. */
   accountAccess: boolean;
+  /** `RIGHT` bits for new sessions with the one-time password. */
+  rightsAttended: number;
+  /** The same for the permanent password and the account's devices. */
+  rightsUnattended: number;
 }
 
 export interface AccountView {
@@ -143,7 +152,19 @@ export interface HostFeatures {
   chat: boolean;
   /** Sends its sound on request. */
   audio: boolean;
+  /** Can blank its screen (privacy mode). */
+  privacy: boolean;
 }
+
+/** Mirrors `Permissions` in crates/proto/src/session.rs. */
+export const RIGHT = {
+  INPUT: 1 << 0,
+  FILES: 1 << 1,
+  CLIPBOARD: 1 << 2,
+  AUDIO: 1 << 3,
+  RESTART: 1 << 4,
+  PRIVACY: 1 << 5,
+} as const;
 
 /** Mirrors `Quality` in crates/proto/src/session.rs. */
 export type Quality = "Speed" | "Balanced" | "Sharp";
@@ -232,7 +253,16 @@ export const api = {
   /** `target` is an ID or an alias. */
   connect: (target: string, password: string) => invoke<number>("connect", { target, password }),
   attach: (session: number, channel: Channel<ArrayBuffer>) =>
-    invoke<{ host: HostInfo; id: string; label: string; features: HostFeatures; direct: string | null }>(
+    invoke<{
+      host: HostInfo;
+      id: string;
+      label: string;
+      features: HostFeatures;
+      direct: string | null;
+      /** `RIGHT` bits; null from hosts that do not say (all allowed). */
+      rights: number | null;
+      privacy: boolean;
+    }>(
       "attach",
       { session, channel },
     ),
@@ -246,6 +276,11 @@ export const api = {
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
   /** Turns the host's sound on or off; false if the host has none. */
   setAudio: (session: number, on: boolean) => invoke<boolean>("set_audio", { session, on }),
+  /** Blanks the host's screen and blocks its local input, or ends that. */
+  setPrivacy: (session: number, on: boolean) => invoke<boolean>("set_privacy", { session, on }),
+  /** Changes what the viewer of a session at this computer may do. */
+  saveRights: (attended: number, unattended: number) => invoke<void>("save_rights", { attended, unattended }),
+  setHostedRights: (session: number, rights: number) => invoke<void>("set_hosted_rights", { session, rights }),
   endHostedSession: (session: number) => invoke<void>("end_hosted_session", { session }),
   installUpdate: () => invoke<void>("install_update"),
   /** `null` drops the alias; returns it as stored (lowercase). */

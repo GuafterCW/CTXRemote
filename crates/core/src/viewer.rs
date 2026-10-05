@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
-use ctxremote_proto::session::{CursorShape, Features, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, Features, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, Permissions, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
@@ -55,6 +55,10 @@ pub enum ViewerEvent {
     Chat(String),
     /// 20 ms of the host's sound (Opus, 48 kHz stereo), after [`ViewerSession::set_audio`].
     Audio(Vec<u8>),
+    /// What the host allows in this session (hosts with [`Features::RIGHTS`]).
+    Rights(Permissions),
+    /// Privacy mode went on or off; `error` if turning it on failed.
+    Privacy { on: bool, error: Option<String> },
     /// The session ended; carries the reason if it was not the viewer's choice.
     Closed(Option<String>),
 }
@@ -217,6 +221,8 @@ impl ViewerSession {
                     Ok(Some(HostMsg::Bye(reason))) => break Some(reason),
                     Ok(Some(HostMsg::Cursor(shape))) => on_event(ViewerEvent::Cursor(shape)),
                     Ok(Some(HostMsg::Audio(packet))) => on_event(ViewerEvent::Audio(packet.data)),
+                    Ok(Some(HostMsg::Rights(rights))) => on_event(ViewerEvent::Rights(rights)),
+                    Ok(Some(HostMsg::Privacy { on, error })) => on_event(ViewerEvent::Privacy { on, error }),
                     Ok(Some(HostMsg::Chat(text))) => {
                         if let Some(text) = crate::host::chat_text(&text) {
                             on_event(ViewerEvent::Chat(text));
@@ -254,6 +260,15 @@ impl ViewerSession {
             return false;
         }
         self.send(ViewerMsg::SetAudio(on));
+        true
+    }
+
+    /// Turns privacy mode on or off. Returns false for hosts without it.
+    pub fn set_privacy(&self, on: bool) -> bool {
+        if !self.features.has(Features::PRIVACY) {
+            return false;
+        }
+        self.send(ViewerMsg::Privacy(on));
         true
     }
 

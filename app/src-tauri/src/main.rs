@@ -16,7 +16,7 @@ use ctxremote_core::files::client::{FileClient, TransferEvent};
 use ctxremote_core::files::{self, UserContext};
 use ctxremote_core::host::{Host, Presence};
 use ctxremote_core::profile::Profile;
-use ctxremote_core::proto::session::{CursorShape, HostInfo, InputEvent, Listing, Quality, VideoFrame, ViewerMsg};
+use ctxremote_core::proto::session::{CursorShape, HostInfo, InputEvent, Listing, Permissions, Quality, VideoFrame, ViewerMsg};
 use ctxremote_core::proto::DeviceId;
 #[cfg(not(feature = "quick"))]
 use ctxremote_core::ui_link::UiRequest;
@@ -58,6 +58,17 @@ impl Side {
         }
     }
 
+    fn set_rights(&self, session: u64, rights: Permissions) -> Result<(), String> {
+        match self {
+            Side::Local(host) => host.set_rights(session, rights),
+            #[cfg(not(feature = "quick"))]
+            Side::Service(service) => {
+                service.send(UiRequest::SetRights { session, rights });
+                Ok(())
+            }
+        }
+    }
+
     fn send_chat(&self, session: u64, text: String) -> Result<(), String> {
         match self {
             Side::Local(host) => host.send_chat(session, &text),
@@ -88,6 +99,9 @@ struct Link {
     cursor: Option<Vec<u8>>,
     /// The direct connection's address once the session moved off the relay.
     direct: Option<String>,
+    /// What the host allows, once it said so (older hosts never do).
+    rights: Option<u32>,
+    privacy: bool,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -143,6 +157,10 @@ struct Overview {
     peers: Vec<PeerView>,
     hosted: Vec<Hosted>,
     version: &'static str,
+    /// `Permissions` bits for new sessions with the one-time password.
+    rights_attended: u32,
+    /// The same for the permanent password and the account's devices.
+    rights_unattended: u32,
     /// Version of an available update the app can install, if any.
     update: Option<String>,
     /// This device's public alias, `None` if it has none.
@@ -177,6 +195,10 @@ struct Hosted {
     chat: bool,
     /// How the viewer presents itself, if it sent a profile (self-declared).
     profile: Option<Profile>,
+    /// `Permissions` bits the viewer has.
+    rights: u32,
+    /// The screen here is blanked for the viewer (privacy mode).
+    privacy: bool,
 }
 
 #[tauri::command]
@@ -184,7 +206,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
     #[cfg(feature = "quick")]
     let _ = &app;
     let config = state.config.read().unwrap();
-    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles, account_access) = match &state.host {
+    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles, account_access, rights, defaults) = match &state.host {
         Side::Local(host) => (
             host.presence().borrow().clone(),
             host.password(),
@@ -198,11 +220,13 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
             host.public_alias(),
             host.session_profiles(),
             config.account_access.as_ref().is_some_and(|g| Some(g.host) == config.device_id),
+            host.session_rights(),
+            (config.rights_attended, config.rights_unattended),
         ),
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => {
             let s = service.state();
-            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles, s.account_access)
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles, s.account_access, s.session_rights, (s.rights_attended, s.rights_unattended))
         }
     };
     Overview {
@@ -232,6 +256,8 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
                 peer,
                 chat: chat.contains(&session),
                 profile: profiles.iter().find(|(n, _)| *n == session).map(|(_, p)| p.clone()),
+                rights: rights.iter().find(|(n, ..)| *n == session).map_or(0, |(_, r, _)| r.0),
+                privacy: rights.iter().any(|(n, _, on)| *n == session && *on),
             })
             .collect(),
         version: ctxremote_core::update::VERSION,
@@ -242,6 +268,8 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
         #[cfg(not(feature = "quick"))]
         account: account::view(&app),
         account_access,
+        rights_attended: defaults.0 .0,
+        rights_unattended: defaults.1 .0,
     }
 }
 
@@ -308,6 +336,21 @@ async fn save_settings(
         host.reconnect();
     }
     Ok(())
+}
+
+/// What new sessions may do. With the service this needs administrator
+/// rights (UAC), as it shapes unattended access.
+#[tauri::command]
+async fn save_rights(state: State<'_, AppState>, attended: u32, unattended: u32) -> CmdResult<()> {
+    let (attended, unattended) = (Permissions(attended), Permissions(unattended));
+    #[cfg(not(feature = "quick"))]
+    if let Side::Service(_) = &state.host {
+        return service::configure_rights(attended, unattended).await;
+    }
+    let mut config = state.config.write().unwrap();
+    config.rights_attended = attended;
+    config.rights_unattended = unattended;
+    config.save().map_err(err)
 }
 
 /// Direct-connection settings; not available in the quick build, which never listens.
@@ -441,6 +484,15 @@ async fn connect(
             ViewerEvent::Chat(text) => {
                 let _ = app.emit_to(format!("session-{number}"), "chat", text);
             }
+            // Kept for a window that attaches later; it comes right after `Welcome`.
+            ViewerEvent::Rights(rights) => {
+                link.lock().unwrap().rights = Some(rights.0);
+                let _ = app.emit_to(format!("session-{number}"), "rights", rights.0);
+            }
+            ViewerEvent::Privacy { on, error } => {
+                link.lock().unwrap().privacy = on;
+                let _ = app.emit_to(format!("session-{number}"), "privacy", PrivacyUpdate { on, error });
+            }
             ViewerEvent::Direct(addr) => {
                 link.lock().unwrap().direct = Some(addr.clone());
                 let _ = app.emit_to(format!("session-{number}"), "route", addr);
@@ -520,6 +572,15 @@ struct Attached {
     features: Features,
     /// Address of the direct connection, `None` while on the relay.
     direct: Option<String>,
+    /// `Permissions` bits the host allows; `None` from hosts that do not say.
+    rights: Option<u32>,
+    privacy: bool,
+}
+
+#[derive(Clone, Serialize)]
+struct PrivacyUpdate {
+    on: bool,
+    error: Option<String>,
 }
 
 /// The host's capabilities by name, for the session window.
@@ -530,6 +591,7 @@ struct Features {
     quality: bool,
     chat: bool,
     audio: bool,
+    privacy: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -541,6 +603,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             quality: f.has(F::QUALITY),
             chat: f.has(F::CHAT),
             audio: f.has(F::AUDIO),
+            privacy: f.has(F::PRIVACY),
         }
     }
 }
@@ -575,6 +638,8 @@ fn attach(
         label,
         features: viewer.session.features.into(),
         direct,
+        rights: link.rights,
+        privacy: link.privacy,
     })
 }
 
@@ -604,6 +669,14 @@ fn request_keyframe(state: State<AppState>, session: u32) {
 fn set_audio(state: State<AppState>, session: u32, on: bool) -> bool {
     let mut supported = false;
     with_viewer(&state, session, |s| supported = s.set_audio(on));
+    supported
+}
+
+/// Turns privacy mode on the host on or off; false if the host has none.
+#[tauri::command]
+fn set_privacy(state: State<AppState>, session: u32, on: bool) -> bool {
+    let mut supported = false;
+    with_viewer(&state, session, |s| supported = s.set_privacy(on));
     supported
 }
 
@@ -806,6 +879,12 @@ fn end_hosted_session(state: State<AppState>, session: u64) {
     state.host.end_session(session);
 }
 
+/// Changes what the viewer of a session at this computer may do.
+#[tauri::command]
+fn set_hosted_rights(state: State<AppState>, session: u64, rights: u32) -> CmdResult<()> {
+    state.host.set_rights(session, Permissions(rights))
+}
+
 /// Downloads the available update and starts its installer, which asks for
 /// administrator rights, closes this app and starts the new version.
 #[tauri::command]
@@ -859,6 +938,7 @@ macro_rules! handlers {
             refresh_password,
             history,
             save_settings,
+            save_rights,
             save_direct,
             forget_peer,
             set_alias,
@@ -868,6 +948,7 @@ macro_rules! handlers {
             select_display,
             request_keyframe,
             set_audio,
+            set_privacy,
             send_sas,
             lock_screen,
             restart_host,
@@ -876,6 +957,7 @@ macro_rules! handlers {
             set_quality,
             disconnect,
             end_hosted_session,
+            set_hosted_rights,
             save_profile,
             install_update,
             set_public_alias,

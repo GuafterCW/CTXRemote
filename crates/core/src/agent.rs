@@ -75,6 +75,8 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     // beyond that they are dropped instead of adding delay.
     let (audio_tx, mut audio_rx) = mpsc::channel::<Vec<u8>>(8);
     let mut audio: Option<crate::audio::AudioCapture> = None;
+    // Blanks this computer's screen while it runs (see `privacy`).
+    let mut privacy: Option<crate::privacy::PrivacyMode> = None;
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -106,6 +108,26 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                             }
                         }
                     }
+                    Some(ViewerMsg::Privacy(on)) => {
+                        let error = if !on {
+                            privacy = None;
+                            None
+                        } else if privacy.is_some() {
+                            None
+                        } else {
+                            match crate::privacy::PrivacyMode::start() {
+                                Ok(mode) => {
+                                    privacy = Some(mode);
+                                    None
+                                }
+                                Err(e) => {
+                                    warn!("Privatsphäre-Modus nicht möglich: {e:#}");
+                                    Some(format!("{e:#}"))
+                                }
+                            }
+                        };
+                        outbox.send(HostMsg::Privacy { on: privacy.is_some(), error }).await?;
+                    }
                     Some(ViewerMsg::Clipboard(text)) => {
                         if let Some(clipboard) = &clipboard {
                             clipboard.apply(text);
@@ -131,6 +153,8 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     }
     .await;
 
+    // First, so the person at the computer gets screen and input back.
+    drop(privacy);
     injector.release_all();
     drop(audio);
     drop(files);

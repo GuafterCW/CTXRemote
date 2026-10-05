@@ -1,7 +1,7 @@
 //! The controlled side: stays reachable at the server and serves sessions.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -10,7 +10,7 @@ use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, ServerMsg, SessionId};
 use ctxremote_proto::framing::Transport;
 use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender, TransportStream};
-use ctxremote_proto::session::{Features, HelloExtras, HostMsg, ViewerMsg, MAX_CHAT};
+use ctxremote_proto::session::{Features, HelloExtras, HostMsg, InputEvent, Permissions, Transfer, ViewerMsg, MAX_CHAT};
 use ctxremote_proto::DeviceId;
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -56,11 +56,16 @@ pub enum HostEvent {
         chat: bool,
         #[serde(default)]
         profile: Option<Profile>,
+        /// What the viewer may do; the person at the host can change it.
+        #[serde(default)]
+        rights: Permissions,
     },
     SessionEnded { session: u64 },
     PasswordChanged,
     /// A chat message from the viewer of `session`.
     Chat { session: u64, text: String },
+    /// The rights of `session` changed, or privacy mode went on or off.
+    Rights { session: u64, rights: Permissions, privacy: bool },
 }
 
 /// A running session as the rest of the host sees it.
@@ -70,6 +75,9 @@ struct SessionHandle {
     stop: Arc<Notify>,
     /// Chat messages to the viewer; `None` if the viewer has no chat.
     chat: Option<mpsc::UnboundedSender<String>>,
+    rights: watch::Sender<Permissions>,
+    /// Privacy mode is on (the host's screen is blank).
+    privacy: Arc<AtomicBool>,
 }
 
 struct Shared {
@@ -234,6 +242,25 @@ impl Host {
         let sessions = self.shared.sessions.lock().unwrap();
         let mut list: Vec<_> = sessions.iter().filter_map(|(n, h)| Some((*n, h.profile.clone()?))).collect();
         list.sort_unstable_by_key(|(n, _)| *n);
+        list
+    }
+
+    /// Changes what the viewer of `session` may do, from now on.
+    pub fn set_rights(&self, session: u64, rights: Permissions) -> Result<(), String> {
+        let sessions = self.shared.sessions.lock().unwrap();
+        let handle = sessions.get(&session).ok_or("Die Sitzung ist beendet")?;
+        handle.rights.send_replace(rights);
+        Ok(())
+    }
+
+    /// Rights and privacy mode of each running session.
+    pub fn session_rights(&self) -> Vec<(u64, Permissions, bool)> {
+        let sessions = self.shared.sessions.lock().unwrap();
+        let mut list: Vec<_> = sessions
+            .iter()
+            .map(|(n, h)| (*n, *h.rights.borrow(), h.privacy.load(Ordering::Relaxed)))
+            .collect();
+        list.sort_unstable_by_key(|(n, ..)| *n);
         list
     }
 
@@ -445,11 +472,30 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     let (chat, chat_out) = mpsc::unbounded_channel::<String>();
     let chat = features.has(Features::CHAT).then_some(chat);
     let can_chat = chat.is_some();
+    let initial = {
+        let config = shared.config.read().unwrap();
+        if slot == 0 { config.rights_attended } else { config.rights_unattended }
+    };
+    let (rights, rights_rx) = watch::channel(initial);
+    let privacy = Arc::new(AtomicBool::new(false));
     shared.sessions.lock().unwrap().insert(
         number,
-        SessionHandle { peer: peer.clone(), profile: profile.clone(), stop: stop.clone(), chat },
+        SessionHandle {
+            peer: peer.clone(),
+            profile: profile.clone(),
+            stop: stop.clone(),
+            chat,
+            rights,
+            privacy: privacy.clone(),
+        },
     );
-    let _ = shared.events.send(HostEvent::SessionStarted { session: number, peer: peer.clone(), chat: can_chat, profile });
+    let _ = shared.events.send(HostEvent::SessionStarted {
+        session: number,
+        peer: peer.clone(),
+        chat: can_chat,
+        profile,
+        rights: initial,
+    });
     info!(%peer, "Sitzung gestartet");
 
     let route = Route {
@@ -459,6 +505,8 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
         features,
         direct: shared.direct.lock().unwrap().clone(),
         server: shared.config.read().unwrap().server_addr(),
+        rights: rights_rx,
+        privacy,
     };
     let result = run_session(tx, rx, stop, shared.screen.as_ref(), route).await;
 
@@ -552,7 +600,32 @@ struct Route {
     features: Features,
     direct: Option<Arc<DirectListener>>,
     server: String,
+    /// What the viewer may do, as set at the host.
+    rights: watch::Receiver<Permissions>,
+    privacy: Arc<AtomicBool>,
 }
+
+impl Route {
+    fn rights_event(&self, rights: Permissions) {
+        let privacy = self.privacy.load(Ordering::Relaxed);
+        let _ = self.events.send(HostEvent::Rights { session: self.number, rights, privacy });
+    }
+}
+
+/// The right a viewer message needs, if any.
+fn needed_right(msg: &ViewerMsg) -> Option<u32> {
+    match msg {
+        ViewerMsg::Input(_) | ViewerMsg::SecureAttention | ViewerMsg::LockScreen => Some(Permissions::INPUT),
+        ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => Some(Permissions::FILES),
+        ViewerMsg::Clipboard(_) => Some(Permissions::CLIPBOARD),
+        ViewerMsg::SetAudio(true) => Some(Permissions::AUDIO),
+        ViewerMsg::Restart => Some(Permissions::RESTART),
+        ViewerMsg::Privacy(true) => Some(Permissions::PRIVACY),
+        _ => None,
+    }
+}
+
+const FILES_DENIED: &str = "Dateien sind in dieser Sitzung nicht erlaubt";
 
 /// Moves the sending side onto the direct connection: `Switch` is the last
 /// message on the relay. Returns the reading half.
@@ -589,15 +662,36 @@ async fn run_session(
     let (punch_ready, mut punch_prepared) = mpsc::unbounded_channel::<PunchHost>();
     let mut punch: Option<PunchHost> = None;
     let mut audio_on = false;
+    let mut rights = *route.rights.borrow_and_update();
+    // Transfers stopped because files were taken away; later parts are dropped.
+    let mut stopped: HashSet<u32> = HashSet::new();
     let result: Result<()> = async {
         loop {
             tokio::select! {
                 msg = from_agent.recv() => match msg {
                     Some(HostMsg::Cursor(_)) if !route.features.has(Features::CURSOR) => {}
-                    Some(HostMsg::Audio(_)) if !route.features.has(Features::AUDIO) => {}
+                    Some(HostMsg::Audio(_)) if !route.features.has(Features::AUDIO) || !rights.has(Permissions::AUDIO) => {}
+                    Some(HostMsg::Clipboard(_)) if !rights.has(Permissions::CLIPBOARD) => {}
+                    Some(HostMsg::Transfer { id, msg }) if !rights.has(Permissions::FILES) => {
+                        // A download the host no longer allows: stop it on both ends.
+                        if stopped.insert(id) && !matches!(msg, Transfer::End | Transfer::Failed(_) | Transfer::Cancel) {
+                            let _ = to_agent.send(ViewerMsg::Transfer { id, msg: Transfer::Cancel }).await;
+                            tx.send(&HostMsg::Transfer { id, msg: Transfer::Failed(FILES_DENIED.into()) }).await?;
+                        }
+                    }
+                    Some(HostMsg::Privacy { on, error }) => {
+                        route.privacy.store(on, Ordering::Relaxed);
+                        route.rights_event(rights);
+                        if route.features.has(Features::PRIVACY) {
+                            tx.send(&HostMsg::Privacy { on, error }).await?;
+                        }
+                    }
                     Some(msg @ HostMsg::Welcome(_)) => {
                         // Older viewers ignore the trailer; newer ones learn what we support.
                         tx.send_with_trailer(&msg, &Features::CURRENT).await?;
+                        if route.features.has(Features::RIGHTS) {
+                            tx.send(&HostMsg::Rights(rights)).await?;
+                        }
                         if let (false, true, Some(listener)) = (offered, route.features.has(Features::DIRECT), &route.direct) {
                             offered = true;
                             let new = listener.offer(&route.server);
@@ -634,6 +728,10 @@ async fn run_session(
                             if audio_on {
                                 let _ = to_agent.send(ViewerMsg::SetAudio(true)).await;
                             }
+                            // Likewise blank: e.g. after someone signed in at the computer.
+                            if route.privacy.load(Ordering::Relaxed) {
+                                let _ = to_agent.send(ViewerMsg::Privacy(true)).await;
+                            }
                         }
                         None => {
                             let _ = tx.send(&HostMsg::Bye("Der Bildschirm ist nicht mehr verfügbar".into())).await;
@@ -642,6 +740,26 @@ async fn run_session(
                     },
                 },
                 Some(text) = route.chat.recv() => tx.send(&HostMsg::Chat(text)).await?,
+                Ok(()) = route.rights.changed() => {
+                    rights = *route.rights.borrow_and_update();
+                    info!(rights = rights.0, "Rechte der Sitzung geändert");
+                    if route.features.has(Features::RIGHTS) {
+                        tx.send(&HostMsg::Rights(rights)).await?;
+                    }
+                    if !rights.has(Permissions::INPUT) {
+                        // No key or button may stay down at the host.
+                        let _ = to_agent.send(ViewerMsg::Input(InputEvent::ReleaseAll)).await;
+                    }
+                    if audio_on && !rights.has(Permissions::AUDIO) {
+                        audio_on = false;
+                        let _ = to_agent.send(ViewerMsg::SetAudio(false)).await;
+                    }
+                    if route.privacy.load(Ordering::Relaxed) && !rights.has(Permissions::PRIVACY) {
+                        // The agent confirms with `Privacy { on: false }`.
+                        let _ = to_agent.send(ViewerMsg::Privacy(false)).await;
+                    }
+                    route.rights_event(rights);
+                }
                 Some(prepared) = punch_prepared.recv() => {
                     // Only while the offer stands; after a switch it is moot.
                     if offer.is_some() {
@@ -652,6 +770,27 @@ async fn run_session(
                 }
                 msg = rx.recv::<ViewerMsg>() => match msg? {
                     Some(ViewerMsg::Bye) | None => return Ok(()),
+                    // Cancelling a transfer is always allowed.
+                    Some(msg @ ViewerMsg::Transfer { msg: Transfer::Cancel, .. }) => {
+                        let _ = to_agent.send(msg).await;
+                    }
+                    Some(msg) if needed_right(&msg).is_some_and(|r| !rights.has(r)) => match msg {
+                        // Answered, so the viewer does not wait for them.
+                        ViewerMsg::File { req, .. } => {
+                            tx.send(&HostMsg::FileReply { req, result: Err(FILES_DENIED.into()) }).await?;
+                        }
+                        ViewerMsg::Transfer { id, .. } => {
+                            if stopped.insert(id) {
+                                let _ = to_agent.send(ViewerMsg::Transfer { id, msg: Transfer::Cancel }).await;
+                                tx.send(&HostMsg::Transfer { id, msg: Transfer::Cancel }).await?;
+                            }
+                        }
+                        ViewerMsg::Privacy(_) if route.features.has(Features::PRIVACY) => {
+                            let error = Some("Der Privatsphäre-Modus ist in dieser Sitzung nicht erlaubt".to_string());
+                            tx.send(&HostMsg::Privacy { on: false, error }).await?;
+                        }
+                        other => debug!("Nicht erlaubt in dieser Sitzung: {other:?}"),
+                    },
                     Some(ViewerMsg::Chat(text)) => {
                         if let Some(text) = chat_text(&text) {
                             let _ = route.events.send(HostEvent::Chat { session: route.number, text });

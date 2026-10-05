@@ -176,3 +176,95 @@ async fn sound_reaches_the_viewer_once_asked_for() {
     assert_eq!(packet, Some(vec![0xf8, 1, 2, 3]));
     session.set_audio(false);
 }
+
+fn describe(event: &Option<ViewerEvent>) -> String {
+    match event {
+        None => "nichts".into(),
+        Some(ViewerEvent::Rights(r)) => format!("Rights({})", r.0),
+        Some(ViewerEvent::Privacy { on, error }) => format!("Privacy {{ on: {on}, error: {error:?} }}"),
+        Some(ViewerEvent::Clipboard(t)) => format!("Clipboard({t})"),
+        Some(ViewerEvent::Audio(_)) => "Audio".into(),
+        Some(ViewerEvent::Closed(r)) => format!("Closed({r:?})"),
+        Some(_) => "anderes Ereignis".into(),
+    }
+}
+
+/// The next event that is not video or a pointer, so tests see what matters.
+fn next_event(events: &std_mpsc::Receiver<ViewerEvent>, wait: Duration) -> Option<ViewerEvent> {
+    let deadline = std::time::Instant::now() + wait;
+    while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+        match events.recv_timeout(left) {
+            Ok(ViewerEvent::Video(_) | ViewerEvent::Cursor(_)) => continue,
+            Ok(event) => return Some(event),
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn host_rights_are_enforced_and_can_change() {
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+    let (session, events) = connect(&addr, &host, id).await;
+    let number = host.sessions()[0].0;
+
+    // Without the right, file requests get an answer instead of waiting.
+    host.set_rights(number, Permissions::ATTENDED.with(Permissions::FILES, false)).unwrap();
+    let listed = tokio::time::timeout(Duration::from_secs(10), session.files().list(String::new())).await;
+    let error = listed.expect("Antwort kam").expect_err("Dateien sind gesperrt");
+    assert!(format!("{error:#}").contains("nicht erlaubt"), "{error:#}");
+    host.set_rights(number, Permissions::ATTENDED).unwrap();
+
+    tokio::task::spawn_blocking(move || {
+        // One-time password: someone sits at the computer, so no privacy mode.
+        // The changes above arrive in order: start, without files, back again.
+        let mut seen = Vec::new();
+        wait_for(&events, |e| match e {
+            ViewerEvent::Rights(r) => {
+                seen.push(r);
+                (seen.len() == 3).then_some(())
+            }
+            _ => None,
+        });
+        let without_files = Permissions::ATTENDED.with(Permissions::FILES, false);
+        assert_eq!(seen, vec![Permissions::ATTENDED, without_files, Permissions::ATTENDED]);
+        assert!(session.set_privacy(true));
+        match next_event(&events, Duration::from_secs(10)) {
+            Some(ViewerEvent::Privacy { on: false, error: Some(_) }) => {}
+            other => panic!("Privatsphäre-Modus hätte abgelehnt werden müssen: {}", describe(&other)),
+        }
+        echo(&session, &events, "erlaubt");
+
+        // View only: clipboard and sound no longer reach the screen side.
+        host.set_rights(number, Permissions::VIEW_ONLY).unwrap();
+        match next_event(&events, Duration::from_secs(10)) {
+            Some(ViewerEvent::Rights(r)) => assert_eq!(r, Permissions::VIEW_ONLY),
+            other => panic!("Rechte nicht gemeldet: {}", describe(&other)),
+        }
+        session.send(ViewerMsg::Clipboard("gesperrt".into()));
+        session.set_audio(true);
+        let event = next_event(&events, Duration::from_secs(1));
+        assert!(event.is_none(), "Nichts darf ankommen, kam aber: {}", describe(&event));
+
+        // Everything, then privacy mode on; taking that right away ends it.
+        host.set_rights(number, Permissions::ALL).unwrap();
+        assert!(matches!(next_event(&events, Duration::from_secs(10)), Some(ViewerEvent::Rights(Permissions::ALL))));
+        session.set_privacy(true);
+        assert!(matches!(next_event(&events, Duration::from_secs(10)), Some(ViewerEvent::Privacy { on: true, error: None })));
+        assert_eq!(host.session_rights(), vec![(number, Permissions::ALL, true)]);
+        host.set_rights(number, Permissions::ATTENDED).unwrap();
+        let mut saw_off = false;
+        for _ in 0..2 {
+            match next_event(&events, Duration::from_secs(10)) {
+                Some(ViewerEvent::Rights(r)) => assert_eq!(r, Permissions::ATTENDED),
+                Some(ViewerEvent::Privacy { on: false, .. }) => saw_off = true,
+                other => panic!("unerwartet: {}", describe(&other)),
+            }
+        }
+        assert!(saw_off, "Privatsphäre-Modus muss enden");
+        assert_eq!(host.session_rights(), vec![(number, Permissions::ATTENDED, false)]);
+    })
+    .await
+    .unwrap();
+}

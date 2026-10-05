@@ -39,6 +39,42 @@ pub enum HostMsg {
     PunchOffer { candidates: Vec<String>, cert: [u8; 32] },
     /// Sound of the host, after the viewer asked with `SetAudio(true)`.
     Audio(AudioPacket),
+    /// What the person at the host allows in this session; sent at the start
+    /// and on every change, only to viewers with [`Features::RIGHTS`].
+    Rights(Permissions),
+    /// Whether privacy mode is on, after [`ViewerMsg::Privacy`] or when the
+    /// host ended it; `error` says why it could not be turned on.
+    Privacy { on: bool, error: Option<String> },
+}
+
+/// What a viewer may do in a session, as bits. The host enforces them;
+/// the viewer only hides what it may not use.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Permissions(pub u32);
+
+impl Permissions {
+    /// Mouse and keyboard, including Ctrl+Alt+Del and locking the screen.
+    pub const INPUT: u32 = 1 << 0;
+    pub const FILES: u32 = 1 << 1;
+    pub const CLIPBOARD: u32 = 1 << 2;
+    pub const AUDIO: u32 = 1 << 3;
+    pub const RESTART: u32 = 1 << 4;
+    /// Blank the host's screen and block its local input.
+    pub const PRIVACY: u32 = 1 << 5;
+
+    pub const ALL: Self =
+        Self(Self::INPUT | Self::FILES | Self::CLIPBOARD | Self::AUDIO | Self::RESTART | Self::PRIVACY);
+    /// For someone sitting at the host: everything but blanking their screen.
+    pub const ATTENDED: Self = Self(Self::ALL.0 & !Self::PRIVACY);
+    pub const VIEW_ONLY: Self = Self(0);
+
+    pub fn has(self, right: u32) -> bool {
+        self.0 & right == right
+    }
+
+    pub fn with(self, right: u32, on: bool) -> Self {
+        if on { Self(self.0 | right) } else { Self(self.0 & !right) }
+    }
 }
 
 /// 20 ms of the host's sound: one Opus packet, 48 kHz stereo.
@@ -71,9 +107,26 @@ impl Features {
     pub const ACCOUNT: u32 = 1 << 8;
     /// Understands `SetAudio` and sends `Audio`.
     pub const AUDIO: u32 = 1 << 9;
+    /// Understands `Rights` and enforces permissions (the host always does).
+    pub const RIGHTS: u32 = 1 << 10;
+    /// Understands `ViewerMsg::Privacy` and `HostMsg::Privacy`.
+    pub const PRIVACY: u32 = 1 << 11;
 
     /// Everything this build supports.
-    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT | Self::PUNCH | Self::PROFILE | Self::ACCOUNT | Self::AUDIO);
+    pub const CURRENT: Self = Self(
+        Self::FILES
+            | Self::CURSOR
+            | Self::RESTART
+            | Self::QUALITY
+            | Self::DIRECT
+            | Self::CHAT
+            | Self::PUNCH
+            | Self::PROFILE
+            | Self::ACCOUNT
+            | Self::AUDIO
+            | Self::RIGHTS
+            | Self::PRIVACY,
+    );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
 
@@ -233,6 +286,8 @@ pub enum ViewerMsg {
     PunchAnswer { candidates: Vec<String> },
     /// Turns the host's sound on or off; only to hosts with [`Features::AUDIO`].
     SetAudio(bool),
+    /// Turns privacy mode on or off; only to hosts with [`Features::PRIVACY`].
+    Privacy(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

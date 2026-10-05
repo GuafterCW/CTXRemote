@@ -22,6 +22,14 @@ pub struct ServiceState {
     /// Profiles of the viewers in `sessions` that sent one.
     #[serde(default)]
     pub session_profiles: Vec<(u64, crate::profile::Profile)>,
+    /// Rights and privacy mode of each session in `sessions`.
+    #[serde(default)]
+    pub session_rights: Vec<(u64, ctxremote_proto::session::Permissions, bool)>,
+    /// What new sessions may do (see [`Config::rights_attended`]).
+    #[serde(default)]
+    pub rights_attended: ctxremote_proto::session::Permissions,
+    #[serde(default)]
+    pub rights_unattended: ctxremote_proto::session::Permissions,
     pub direct: DirectSettings,
     /// The listener for direct connections runs.
     pub direct_active: bool,
@@ -54,6 +62,12 @@ pub enum UiRequest {
     ConfigureAccountAccess(Option<crate::account::AccessGrant>),
     /// The connection log; any signed-in user, like the sessions in the state.
     History,
+    /// Changes what the viewer of a session may do; any signed-in user, like
+    /// `EndSession`: it is the person at the computer deciding.
+    SetRights { session: u64, rights: ctxremote_proto::session::Permissions },
+    /// What new sessions may do; elevated administrators only, like the
+    /// permanent password, as it shapes unattended access.
+    ConfigureRights { attended: ctxremote_proto::session::Permissions, unattended: ctxremote_proto::session::Permissions },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,6 +203,9 @@ mod imp {
             unattended: config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
             sessions: host.sessions(),
             session_profiles: host.session_profiles(),
+            session_rights: host.session_rights(),
+            rights_attended: config.rights_attended,
+            rights_unattended: config.rights_unattended,
             chat_sessions: host.chat_sessions(),
             public_alias: config.public_alias.clone(),
             account_access: config.account_access.as_ref().is_some_and(|g| Some(g.host) == config.device_id),
@@ -223,6 +240,12 @@ mod imp {
                     match request {
                         UiRequest::RefreshPassword => { host.refresh_password(); continue; }
                         UiRequest::EndSession(session) => { host.end_session(session); continue; }
+                        UiRequest::SetRights { session, rights } => {
+                            if let Err(e) = host.set_rights(session, rights) {
+                                tracing::debug!("Rechte nicht geändert: {e}");
+                            }
+                            continue;
+                        }
                         UiRequest::SetPublicAlias(alias) => {
                             let answer = host.set_public_alias(alias).await;
                             if answer.is_ok() {
@@ -251,6 +274,20 @@ mod imp {
                         UiRequest::ConfigureAccountAccess(grant) => {
                             let answer = if is_elevated_admin(HANDLE(handle as _)) {
                                 configure_account_access(&config, grant)
+                            } else {
+                                Err("Nur Administratoren dürfen die Einstellungen des Dienstes ändern".into())
+                            };
+                            if answer.is_ok() {
+                                changed.send_replace(());
+                            }
+                            UiEvent::Configured(answer)
+                        }
+                        UiRequest::ConfigureRights { attended, unattended } => {
+                            let answer = if is_elevated_admin(HANDLE(handle as _)) {
+                                let mut config = config.write().unwrap();
+                                config.rights_attended = attended;
+                                config.rights_unattended = unattended;
+                                config.save().map_err(|e| format!("{e:#}"))
                             } else {
                                 Err("Nur Administratoren dürfen die Einstellungen des Dienstes ändern".into())
                             };

@@ -284,6 +284,19 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
   - **Keine App nach Ab- und Anmelden (Dienst).** Die App startete bei der Anmeldung gar nicht. `--install` (läuft bei jeder Installation und jedem Update) trägt sie jetzt unter `HKLM\...\Run` mit `--tray` ein, `--uninstall` entfernt den Eintrag. Meldet der Dienst beim Verbinden schon laufende Sitzungen, öffnet sich das Hauptfenster.
   - CI: Testports werden auch für UDP geprüft (Windows-Runner, os error 10013).
 
+### Sitzungsrechte und Privatsphäre-Modus (5. Oktober, Cloud-Sitzung)
+
+- **Rechte pro Sitzung** (`Permissions` in `crates/proto/src/session.rs`): Maus und Tastatur, Dateien, Zwischenablage, Ton, Neustart, Privatsphäre-Modus.
+  - Der Host setzt sie in `run_session` durch. Verbotene Dateianfragen bekommen eine Fehlerantwort. Laufende Übertragungen werden beim Entziehen abgebrochen (`Cancel`/`Failed`). Beim Entziehen von Maus und Tastatur lässt der Host alle Tasten los.
+  - Standard: Mit Einmalpasswort alles außer Privatsphäre-Modus (`ATTENDED`), mit festem Passwort oder Konto alles (`ALL`). Einstellbar unter Einstellungen → „Rechte der Gegenseite“ (mit Dienst per UAC, `UiRequest::ConfigureRights`).
+  - Während der Sitzung ändert die Person am Gerät die Rechte über „Rechte“ im Banner des Hauptfensters bzw. der Schnellhilfe (`UiRequest::SetRights`, ohne Admin). In der Schnellhilfe gibt es den Privatsphäre-Modus nicht, dort sitzt immer jemand am Gerät.
+  - Der Viewer bekommt `HostMsg::Rights` (Fähigkeit `RIGHTS`) und blendet aus, was nicht erlaubt ist. Ohne Maus und Tastatur steht „Nur ansehen“ in der Leiste.
+- **Privatsphäre-Modus** (`crates/core/src/privacy.rs`, Fähigkeit `PRIVACY`, Knopf mit dem Auge im Sitzungsfenster):
+  - Ein schwarzes, klick-durchlässiges Fenster über allen Monitoren mit `WDA_EXCLUDEFROMCAPTURE`. Der Viewer sieht darunter weiter den Desktop. Braucht Windows 10 2004 oder neuer, sonst kommt eine Fehlermeldung beim Viewer.
+  - Low-Level-Hooks verwerfen jede nicht injizierte Eingabe. Die Person am Gerät kann nichts tun, außer Strg+Alt+Entf, das bewusst als Ausweg bleibt.
+  - Endet mit der Sitzung, mit dem Agentenprozess und wenn das Recht entzogen wird. Nach einem Sitzungswechsel (Ab- und Anmelden) schaltet der Host ihn im neuen Agenten wieder ein.
+- Getestet: `--test sessions` (`host_rights_are_enforced_and_can_change`) und die Windows-Typprüfung. **Unter Windows ungetestet**: der Privatsphäre-Modus selbst und die Oberfläche.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -367,6 +380,15 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Gerät aus dem Konto entfernen und Konto löschen: Das Panel zeigt wieder die Anmeldung, die Geräteliste ist leer. Danach in ein anderes Konto: Dort tauchen keine fremden Geräte auf.
     - Mit einem öffentlichen Alias verbinden, der nicht in der eigenen Liste steht.
     - Mit Dienst eine Sitzung laufen lassen, ab- und wieder anmelden: Die App startet, und das Fenster mit der laufenden Sitzung öffnet sich. Auch ohne Sitzung muss sie im Tray sein.
+25. Sitzungsrechte und Privatsphäre-Modus (beide PCs aktualisiert):
+    - Mit Einmalpasswort verbinden: Am Host im Banner auf „Rechte“, „Maus und Tastatur“ abwählen. Im Viewer erscheint „Nur ansehen“, Maus und Tastatur wirken nicht mehr. Wieder anhaken: geht wieder.
+    - „Dateien“ während eines großen Downloads abwählen: Der Download bricht mit Meldung ab, keine `.ctxpart` bleibt liegen. Der Dateien-Knopf verschwindet.
+    - Zwischenablage und Ton abwählen: Kopierter Text kommt nicht mehr an, der Ton verstummt, der Ton-Knopf verschwindet.
+    - Mit festem Passwort verbinden, Augen-Knopf drücken: Am Host werden alle Monitore schwarz mit Hinweistext, Maus und Tastatur dort tun nichts. Der Viewer sieht und steuert normal weiter.
+    - **Mit Dienst wiederholen.** Wichtig: Sieht der Viewer wirklich den Desktop und nicht Schwarz? Funktionieren Klicks des Viewers durch die Abdeckung?
+    - Am Host Strg+Alt+Entf drücken: Der Sicherheitsbildschirm erscheint. Was passiert danach?
+    - Augen-Knopf erneut, Sitzung trennen, Recht im Banner entziehen: Der Bildschirm am Host muss jedes Mal sofort zurückkommen.
+    - Einstellungen → „Rechte der Gegenseite“ ändern, mit Dienst kommt UAC. Neue Sitzungen bekommen die neuen Rechte.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

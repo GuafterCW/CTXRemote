@@ -4,7 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { api, errorText, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
+  import { api, errorText, RIGHT, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
@@ -28,7 +28,15 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false });
+  /** What the host allows; null from older hosts, which allow everything. */
+  let rights = $state<number | null>(null);
+  const can = (right: number) => rights === null || (rights & right) !== 0;
+  /** The host's screen is blank for the person there (privacy mode). */
+  let privacy = $state(false);
+  /** A short message under the toolbar, e.g. why privacy mode failed. */
+  let notice = $state("");
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   /** The host's sound; remembered across sessions. */
   let soundOn = $state(loadSound());
   let sound: SoundPlayer | null = null;
@@ -55,8 +63,34 @@
   ];
   const BUTTONS: MouseButton[] = ["Left", "Middle", "Right", "Back", "Forward"];
   const send = (event: InputEvent) => {
-    if (closed === null) api.sendInput(session, event);
+    // View only: the host would drop it anyway.
+    if (closed === null && can(RIGHT.INPUT)) api.sendInput(session, event);
   };
+
+  function showNotice(text: string) {
+    notice = text;
+    toolbarVisible = true;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => (notice = ""), 6000);
+  }
+
+  function applyRights(next: number) {
+    const before = rights;
+    rights = next;
+    const had = (bit: number) => before === null || (before & bit) !== 0;
+    if (had(RIGHT.INPUT) && !can(RIGHT.INPUT)) showNotice("Die Gegenseite erlaubt nur noch das Ansehen.");
+    else if (!had(RIGHT.INPUT) && can(RIGHT.INPUT)) showNotice("Maus und Tastatur sind jetzt erlaubt.");
+    // Taking sound away stops it at the host; giving it back starts it again if wanted.
+    if (!had(RIGHT.AUDIO) && can(RIGHT.AUDIO) && soundOn && sound) api.setAudio(session, true).catch(() => {});
+  }
+
+  async function togglePrivacy() {
+    try {
+      await api.setPrivacy(session, !privacy);
+    } catch (e) {
+      showNotice(errorText(e));
+    }
+  }
 
   onMount(() => {
     const player = new Player(
@@ -88,13 +122,16 @@
 
     api
       .attach(session, channel)
-      .then(({ host: info, id, label: name, features: supported, direct: route }) => {
+      .then((attached) => {
+        const { host: info, id, label: name, features: supported, direct: route } = attached;
         host = info;
         hostId = id;
         label = name;
         display = info.active_display;
         features = supported;
         direct = route ?? direct;
+        if (attached.rights !== null) applyRights(attached.rights);
+        privacy = attached.privacy;
         if (supported.audio && SoundPlayer.supported()) {
           sound = new SoundPlayer();
           soundReady = true;
@@ -107,6 +144,11 @@
     hideToolbarSoon();
 
     const unlistenRoute = getCurrentWindow().listen<string>("route", (e) => (direct = e.payload));
+    const unlistenRights = getCurrentWindow().listen<number>("rights", (e) => applyRights(e.payload));
+    const unlistenPrivacy = getCurrentWindow().listen<{ on: boolean; error: string | null }>("privacy", (e) => {
+      privacy = e.payload.on;
+      if (e.payload.error) showNotice(e.payload.error);
+    });
     const unlistenChat = getCurrentWindow().listen<string>("chat", (e) => {
       chatMessages = [...chatMessages, { mine: false, text: e.payload, at: Date.now() }];
       if (!chatOpen) {
@@ -133,6 +175,9 @@
       window.removeEventListener("keydown", wake);
       unlistenDrop.then((off) => off());
       unlistenRoute.then((off) => off());
+      unlistenRights.then((off) => off());
+      unlistenPrivacy.then((off) => off());
+      clearTimeout(noticeTimer);
       unlistenChat.then((off) => off());
     };
   });
@@ -413,6 +458,12 @@
         <span class="route" title={direct ? `Direkt verbunden über ${direct}` : "Die Verbindung läuft über den Server"}>
           {direct ? "Direkt" : "Über Server"}
         </span>
+        {#if !can(RIGHT.INPUT)}
+          <span class="route" title="Die Gegenseite erlaubt Maus und Tastatur nicht">Nur ansehen</span>
+        {/if}
+        {#if privacy}
+          <span class="route private" title="Der Bildschirm am Gerät ist schwarz, Maus und Tastatur dort sind gesperrt">Privat</span>
+        {/if}
       </div>
 
       {#if host.displays.length > 1}
@@ -430,6 +481,7 @@
       {/if}
 
       <div class="sep"></div>
+      {#if can(RIGHT.INPUT)}
       <div class="menu-anchor">
         <button
           class="tool"
@@ -449,7 +501,7 @@
             <button role="menuitem" onclick={() => combo("AltLeft", "Tab")}>Alt + Tab</button>
             <button role="menuitem" onclick={() => combo("ControlLeft", "ShiftLeft", "Escape")}>Task-Manager</button>
             <button role="menuitem" onclick={lockScreen}>Sperren</button>
-            {#if features.restart}
+            {#if features.restart && can(RIGHT.RESTART)}
               <div class="menu-sep"></div>
               <button role="menuitem" class:danger={confirmRestart} onclick={restart}>
                 {confirmRestart ? "Wirklich neu starten?" : "Neu starten …"}
@@ -458,6 +510,7 @@
           </div>
         {/if}
       </div>
+      {/if}
       <div class="menu-anchor">
         <button
           class="tool"
@@ -495,12 +548,22 @@
           {#if unread > 0}<span class="badge">{unread > 9 ? "9+" : unread}</span>{/if}
         </button>
       {/if}
-      {#if features.files}
+      {#if features.files && can(RIGHT.FILES)}
         <button class="tool" title="Dateien" onclick={() => api.openFiles(session)}>
           <Icon name="folder" size={17} />
         </button>
       {/if}
-      {#if features.audio && soundReady}
+      {#if features.privacy && can(RIGHT.PRIVACY)}
+        <button
+          class="tool"
+          class:active={privacy}
+          title={privacy ? "Privatsphäre-Modus beenden" : "Privatsphäre-Modus: Bildschirm am Gerät schwarz, Maus und Tastatur dort gesperrt"}
+          onclick={togglePrivacy}
+        >
+          <Icon name={privacy ? "eyeOff" : "eye"} size={17} />
+        </button>
+      {/if}
+      {#if features.audio && soundReady && can(RIGHT.AUDIO)}
         <button class="tool" title={soundOn ? "Ton aus" : "Ton an"} onclick={toggleSound}>
           <Icon name={soundOn ? "volume" : "volumeOff"} size={17} />
         </button>
@@ -512,6 +575,10 @@
         <Icon name="power" size={17} />
       </button>
     </div>
+  {/if}
+
+  {#if notice && closed === null}
+    <div class="notice" role="status">{notice}</div>
   {/if}
 
   {#if chatOpen && features.chat}
@@ -768,6 +835,25 @@
     border-radius: 999px;
     color: #a5a39c;
     font-size: 11.5px;
+  }
+
+  .route.private {
+    border-color: #4a4537;
+    color: #e0c98a;
+  }
+
+  .notice {
+    position: absolute;
+    top: 60px;
+    left: 50%;
+    max-width: min(520px, calc(100% - 32px));
+    padding: 8px 14px;
+    border: 1px solid #2f2e2b;
+    border-radius: 8px;
+    background: #181816;
+    color: #d8d6d0;
+    font-size: 13px;
+    transform: translateX(-50%);
   }
 
   .menu-sep {

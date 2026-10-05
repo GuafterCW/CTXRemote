@@ -730,6 +730,15 @@ struct SettingsRequest {
     /// Set instead when only the access for the account's devices changes.
     #[serde(default)]
     access: Option<AccessChange>,
+    /// Set instead when only the rights of new sessions change.
+    #[serde(default)]
+    rights: Option<RightsChange>,
+}
+
+#[derive(serde::Deserialize)]
+struct RightsChange {
+    attended: ctxremote_core::proto::session::Permissions,
+    unattended: ctxremote_core::proto::session::Permissions,
 }
 
 #[derive(serde::Deserialize)]
@@ -771,10 +780,13 @@ fn apply_settings(request: &[u8]) -> Result<(), String> {
         .await
         .map_err(|e| format!("{e:#}"))?;
         let direct = request.direct.clone();
-        match (&direct, request.access) {
-            (Some(settings), _) => link.send(UiRequest::ConfigureDirect(settings.clone())),
-            (None, Some(access)) => link.send(UiRequest::ConfigureAccountAccess(access.grant)),
-            (None, None) => link.send(UiRequest::Configure {
+        match (&direct, request.access, request.rights) {
+            (Some(settings), ..) => link.send(UiRequest::ConfigureDirect(settings.clone())),
+            (None, Some(access), _) => link.send(UiRequest::ConfigureAccountAccess(access.grant)),
+            (None, None, Some(rights)) => {
+                link.send(UiRequest::ConfigureRights { attended: rights.attended, unattended: rights.unattended })
+            }
+            (None, None, None) => link.send(UiRequest::Configure {
                 server: request.server,
                 permanent_password: request.permanent_password,
             }),

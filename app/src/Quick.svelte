@@ -11,6 +11,7 @@
     type Overview,
     type Presence,
   } from "./lib/api";
+  import RightsMenu from "./lib/RightsMenu.svelte";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
   import ProfileCard from "./lib/ProfileCard.svelte";
@@ -48,8 +49,19 @@
         if (event.kind === "sessionStarted")
           hosted = [
             ...hosted,
-            { session: event.session, peer: event.peer, chat: event.chat, profile: event.profile ?? null },
+            {
+              session: event.session,
+              peer: event.peer,
+              chat: event.chat,
+              profile: event.profile ?? null,
+              rights: event.rights ?? 0,
+              privacy: false,
+            },
           ];
+        if (event.kind === "rights")
+          hosted = hosted.map((h) =>
+            h.session === event.session ? { ...h, rights: event.rights, privacy: event.privacy } : h,
+          );
         if (event.kind === "sessionEnded") {
           hosted = hosted.filter((h) => h.session !== event.session);
           delete chats[event.session];
@@ -145,6 +157,7 @@
               <div class="live-row">
                 <span class="live"></span>
                 <span class="live-text">Verbunden mit <strong>{hostedLabel(h)}</strong></span>
+                <RightsMenu hosted={h} allowPrivacy={false} class="quick-rights" />
                 <button class="btn btn-quiet end" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
               </div>
               {#if h.chat}
@@ -367,6 +380,10 @@
   .end {
     height: 34px;
     padding: 0 14px;
+  }
+
+  .live-row :global(.quick-rights) {
+    margin-left: auto;
   }
 
   .ask {
