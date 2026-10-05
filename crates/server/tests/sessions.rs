@@ -146,3 +146,15 @@ async fn helper_profile_reaches_the_host() {
     assert_eq!(host.session_profiles().len(), 1);
     tokio::task::spawn_blocking(move || echo(&session, &viewer_events, "mit Profil")).await.unwrap();
 }
+
+/// Clients from before encryption still get answers, for the transition.
+#[tokio::test(flavor = "multi_thread")]
+async fn unencrypted_clients_still_work() {
+    use ctxremote_core::proto::framing;
+    use ctxremote_core::proto::rendezvous::{ClientMsg, ServerMsg};
+    let (_server, addr) = start_server().await;
+    let mut t = framing::transport(tokio::net::TcpStream::connect(&addr).await.unwrap());
+    assert!(matches!(framing::recv::<ServerMsg>(&mut t).await.unwrap(), ServerMsg::Challenge { .. }));
+    framing::send(&mut t, &ClientMsg::UpdateCheck { platform: "test".into() }).await.unwrap();
+    assert!(matches!(framing::recv::<ServerMsg>(&mut t).await.unwrap(), ServerMsg::Update(None)));
+}

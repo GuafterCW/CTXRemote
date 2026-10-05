@@ -57,6 +57,8 @@ jobs:
       # Built into the clients: where they connect and which key updates must carry.
       CTXREMOTE_DEFAULT_SERVER: ${{ vars.CTXREMOTE_SERVER }}
       CTXREMOTE_UPDATE_KEY: ${{ vars.CTXREMOTE_UPDATE_KEY }}
+      # The server's tunnel key: connections to the server are encrypted (docs/DEPLOY.md).
+      CTXREMOTE_SERVER_KEY: ${{ vars.CTXREMOTE_SERVER_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

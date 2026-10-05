@@ -215,6 +215,29 @@ Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb je
 3. Nach etwa 3 Minuten muss die App-Version (unten in den Einstellungen) die neue Nummer zeigen.
 4. Das Protokoll steht in `C:\ProgramData\CTXRemote\logs\service.log` und enthält „Update verfügbar“ und „Update wird installiert“.
 
+## Verschlüsselte Verbindung zum Server (einmalig einrichten)
+
+Seit Oktober 2026 verschlüsseln die Clients ihre Verbindung zum Server, also Anmeldung, Verbindungsaufbau, Alias, Konten, Updates und weitergeleitete Sitzungen. Das schützt die Metadaten (wer verbindet sich mit wem) und alles, was der Server antwortet. Die Sitzungsinhalte sind ohnehin schon Ende-zu-Ende verschlüsselt.
+
+- **Funktionsweise:** Der Server hat einen festen X25519-Schlüssel in `tunnel.key` im Datenordner. Er entsteht beim ersten Start mit dieser Version. Dessen öffentlicher Teil wird in die Clients eingebaut, wie beim Update-Schlüssel. Ein Angreifer dazwischen kann sich deshalb nicht als Server ausgeben. Technik: Noise-NK-Handshake, danach ChaCha20-Poly1305-Datensätze (`crates/proto/src/tunnel.rs`).
+- **Übergang:** Clients ohne eingebauten Schlüssel, also alle älteren Versionen, sprechen weiter unverschlüsselt. Der Server nimmt beides an.
+
+**Einrichten, nachdem die erste Version mit Verschlüsselung ausgeliefert ist:**
+
+1. Den öffentlichen Schlüssel auf dem Server ausgeben:
+
+   ```bash
+   # sudo -u ctxremote /opt/ctxremote/ctxremote-server tunnel-key --data /var/lib/ctxremote
+   ```
+
+   Ausgabe: 64 Hex-Zeichen. Sie stehen auch im Log beim Start, „Server-Schlüssel (CTXREMOTE_SERVER_KEY)“.
+2. In GitHub unter **Settings → Secrets and variables → Actions → Variables** die Variable `CTXREMOTE_SERVER_KEY` mit diesem Wert anlegen. Er ist öffentlich, also eine Variable und kein Secret.
+3. Einmal nach `master` pushen. Ab dieser Version verschlüsseln alle Clients.
+
+**Wichtig:**
+- `tunnel.key` gehört in die Datensicherung des Servers.
+- Geht er verloren oder wird er getauscht, erreichen die ausgelieferten Clients den Server nicht mehr. Dann bleibt nur, alle Geräte von Hand neu zu installieren.
+
 ## Website (https://ctxremote.ctx.ink)
 
 **Warum nicht `remote.ctx.ink`:** Die Adresse der App muss bei Cloudflare auf „Nur DNS“ stehen, weil Port 21300 nicht durch den Proxy geht. Caddy hat beim Nutzer aber das Cloudflare-Origin-Zertifikat für `*.ctx.ink` geladen und holt deshalb für `remote.ctx.ink` kein eigenes. Der Browser bekäme also das Origin-Zertifikat zu sehen und lehnt es ab. Die Website läuft deshalb unter `ctxremote.ctx.ink` **mit** Cloudflare-Proxy, wie die anderen Seiten auch. `remote.ctx.ink` bleibt allein für die App. Ausprobiert, aber verworfen:
@@ -265,6 +288,7 @@ Ohne `setup-website.sh` lässt die Pipeline die Website einfach aus. Server und 
 | Job „deploy“ wird übersprungen | Variable `DEPLOY_HOST` fehlt, oder der Lauf war nicht auf `master` |
 | `Permission denied (publickey)` | `DEPLOY_SSH_KEY` unvollständig (BEGIN/END-Zeilen fehlen) oder öffentlicher Schlüssel nicht auf dem Server (Schritt 5 wiederholen) |
 | `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` fehlt oder passt nicht zu `DEPLOY_HOST` (Schritt 7 mit genau dem Namen aus `DEPLOY_HOST` wiederholen) |
+| App meldet „Der Server hat sich nicht als der erwartete ausgewiesen“ | `CTXREMOTE_SERVER_KEY` in GitHub passt nicht zu `tunnel.key` auf dem Server (Schlüssel neu erzeugt oder Datenordner gewechselt). Schlüssel neu ausgeben, Variable korrigieren, neu bauen |
 | Website lädt nicht oder Zertifikatsfehler | TCP 80/443 in der Firewall freigegeben? `journalctl -u caddy -n 50` zeigt, warum das Zertifikat nicht kam. Bei Cloudflare muss „Nur DNS“ eingestellt sein |
 | „Neuer Server startet nicht, vorherige Version wird wiederhergestellt“ | Port 21300 ist noch belegt (Schritt 4) oder es gibt einen echten Fehler: `journalctl -u ctxremote-server -n 50` |
 | Warnung „Kein CTXREMOTE_UPDATE_SIGNING_KEY“ | Secret fehlt; der Server wurde trotzdem aktualisiert, nur kein Client-Update veröffentlicht |

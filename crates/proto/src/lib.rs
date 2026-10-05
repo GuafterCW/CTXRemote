@@ -11,6 +11,7 @@ pub mod reflect;
 pub mod rendezvous;
 pub mod secure;
 pub mod session;
+pub mod tunnel;
 pub mod update;
 
 use std::fmt;

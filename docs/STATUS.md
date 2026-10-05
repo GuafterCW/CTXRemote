@@ -168,6 +168,20 @@ Ohne E-Mail und Passwort: Ein Konto ist eine Menge von Geräteschlüsseln, neue 
 - Neue Felder in `config.json`: `account`, `removed`, `peers[].alias_at`.
 - Tests: `accounts::tests` im Server und im Kern, sowie `--test accounts` mit echtem Server.
 
+### Verschlüsselte Verbindung zum Server (5. Oktober, Cloud-Sitzung)
+
+Wunsch des Nutzers: Konten in App und Website, Geräteverwaltung im Web, alles Ende-zu-Ende verschlüsselt. Plan in 4 Schritten (Details in `docs/ACCOUNTS.md`, Abschnitt „Ausbau“):
+1. Verschlüsselte Verbindung App ↔ Server: **erledigt**
+2. Anmeldung mit E-Mail und Passwort, mit Wiederherstellungscode
+3. Webinterface
+4. Mails per SMTP (der Nutzer hat einen SMTP-Zugang)
+
+Zu Schritt 1:
+- **Technik:** Noise NK mit festem Server-Schlüssel (`tunnel.key`), Datensatz-Schicht `SecureIo` unter dem Framing (`crates/proto/src/tunnel.rs`). Der Server leitet Sitzungen weiter, indem er entschlüsselt und wieder verschlüsselt. Die Inhalte bleiben dabei Ende-zu-Ende verschlüsselt.
+- **Übergang:** Unverschlüsselte Clients werden noch angenommen.
+- **Tests:** Alle Tests mit echtem Server laufen verschlüsselt (fester Testschlüssel in `tests/common`). `unencrypted_clients_still_work` prüft den Übergang.
+- **Offen beim Nutzer:** `tunnel-key` auf dem Server ausgeben und als GitHub-Variable `CTXREMOTE_SERVER_KEY` eintragen (`docs/DEPLOY.md`). Erst danach verschlüsseln die ausgelieferten Clients.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.

@@ -40,6 +40,21 @@ Ein Konto hält die Geräteliste eines Nutzers (`Config::peers`, also Geräte mi
 - Grenzen: 20 Geräte je Konto, 256 KB je Liste.
 - Alte Server legen bei Kontoanfragen auf. Die App meldet dann „Server-Update nötig“.
 
+## Ausbau (vom Nutzer gewünscht, 5. Oktober 2026)
+
+Konten mit Anmeldung in App **und** Website, Geräte im Webinterface verwalten, alles Ende-zu-Ende verschlüsselt. Entscheidungen des Nutzers:
+- **Passwort vergessen:** Wiederherstellungscode, der bei der Registrierung einmal angezeigt wird. Ohne Code und ohne Passwort bleibt nur ein neues Konto. Jedes angemeldete Gerät kann ein neues Passwort setzen.
+- **Mails:** gleich mit einbauen, der Nutzer hat SMTP-Zugangsdaten. Gemeint sind die Bestätigung der Adresse und ein Hinweis bei einer neuen Anmeldung.
+
+Geplantes Schlüsselschema (wie bei Bitwarden):
+- **Hauptschlüssel:** `Argon2id(Passwort, Salz des Kontos)`.
+- Daraus per HKDF zwei unabhängige Werte:
+  - **Anmeldewert:** geht an den Server, der nur seinen Hash speichert.
+  - **Wickelschlüssel:** verschlüsselt den Kontoschlüssel, verlässt aber nie das Gerät.
+- **Unbekannte E-Mail-Adressen:** Der Server gibt dafür ein festes, vorgetäuschtes Salz aus, damit sich nicht testen lässt, welche Adressen ein Konto haben.
+- **Wiederherstellungscode:** 128 Bit, wickelt den Kontoschlüssel ein zweites Mal ein.
+- Die App spricht über die verschlüsselte Verbindung (Schritt 1), das Webinterface über HTTPS mit einer HTTP-API des Servers hinter Caddy. Die Krypto läuft im Browser, ChaCha20-Poly1305 und Argon2id sind ins Webinterface eingebunden.
+
 ## Später
 
 - Anmeldung mit E-Mail und Zahlungen über die Website (`docs/PLANS.md`). Das Konto bekommt dann zusätzlich eine E-Mail. Die Geräteschlüssel bleiben der Weg, auf dem Geräte sprechen.

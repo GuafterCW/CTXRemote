@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use ctxremote_proto::account::AccountError;
 use ctxremote_proto::framing::{self, Transport};
+use ctxremote_proto::tunnel;
 use ctxremote_proto::rendezvous::{
     verify_alias_claim, verify_challenge, AliasError, ClientMsg, ServerError, ServerMsg, SessionId,
 };
@@ -47,6 +48,8 @@ const CONNECTS_PER_MINUTE: u32 = 30;
 const PARALLEL_DOWNLOADS: usize = 8;
 
 struct Server {
+    /// Static key of the encrypted connections; its public half is in the clients.
+    tunnel: x25519_dalek::StaticSecret,
     registry: Mutex<Registry>,
     accounts: Mutex<Accounts>,
     online: Mutex<HashMap<DeviceId, mpsc::Sender<ServerMsg>>>,
@@ -68,6 +71,7 @@ async fn main() -> Result<()> {
     match args.peek().map(String::as_str) {
         Some("update-keygen") => return updates::keygen(),
         Some("update-sign") => return updates::sign(args.skip(1).collect()),
+        Some("tunnel-key") => return print_tunnel_key(args.skip(1).collect()),
         _ => {}
     }
     let mut listen: SocketAddr = ([0, 0, 0, 0], DEFAULT_PORT).into();
@@ -79,6 +83,7 @@ async fn main() -> Result<()> {
             "-h" | "--help" => {
                 println!("ctxremote-server [--listen 0.0.0.0:{DEFAULT_PORT}] [--data ./data]");
                 println!("ctxremote-server update-keygen");
+                println!("ctxremote-server tunnel-key [--data ./data]");
                 println!("ctxremote-server update-sign --platform P --version V --file F --out DIR [--notes TEXT]");
                 return Ok(());
             }
@@ -86,7 +91,10 @@ async fn main() -> Result<()> {
         }
     }
 
+    let tunnel = load_tunnel_key(&data)?;
+    info!("Server-Schlüssel (CTXREMOTE_SERVER_KEY): {}", hex::encode(tunnel::public_key(&tunnel)));
     let server = Arc::new(Server {
+        tunnel,
         registry: Mutex::new(Registry::open(data.join("devices.json"))?),
         accounts: Mutex::new(Accounts::open(data.join("accounts.json"))?),
         online: Mutex::default(),
@@ -138,7 +146,19 @@ impl Server {
         rand::thread_rng().fill_bytes(&mut nonce);
         framing::send(&mut t, &ServerMsg::Challenge { version: PROTOCOL_VERSION, nonce }).await?;
 
-        match timeout(HELLO_TIMEOUT, framing::recv::<ClientMsg>(&mut t)).await?? {
+        let mut first = timeout(HELLO_TIMEOUT, framing::recv::<ClientMsg>(&mut t)).await??;
+        // Encrypted from here on; signatures then cover the new, encrypted nonce.
+        // Clients without the server key still speak plaintext for now.
+        if let ClientMsg::Tunnel { ephemeral } = first {
+            let mut next = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut next);
+            t = tunnel::server(t, &self.tunnel, &ephemeral, nonce, next).await?;
+            nonce = next;
+            first = timeout(HELLO_TIMEOUT, framing::recv::<ClientMsg>(&mut t)).await??;
+        }
+
+        match first {
+            ClientMsg::Tunnel { .. } => bail!("doppelter Verbindungsaufbau"),
             ClientMsg::Register { id, public_key, signature } => {
                 if !verify_challenge(&public_key, &nonce, &signature) {
                     framing::send(&mut t, &ServerMsg::Error(ServerError::BadSignature)).await?;
@@ -318,4 +338,47 @@ async fn relay(a: Transport, b: Transport) -> Result<(u64, u64)> {
         a_io.write_all(&b.read_buf).await?;
     }
     Ok(tokio::io::copy_bidirectional(&mut a_io, &mut b_io).await?)
+}
+
+/// The server's static tunnel key from `tunnel.key` in the data folder,
+/// created on first start. Losing it means rebuilding all clients.
+fn load_tunnel_key(data: &std::path::Path) -> Result<x25519_dalek::StaticSecret> {
+    let path = data.join("tunnel.key");
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            let bytes: [u8; 32] = hex::decode(text.trim())
+                .ok()
+                .and_then(|b| b.try_into().ok())
+                .with_context(|| format!("{} ist beschädigt", path.display()))?;
+            Ok(x25519_dalek::StaticSecret::from(bytes))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(data)?;
+            let mut bytes = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut bytes);
+            let tmp = path.with_extension("tmp");
+            std::fs::write(&tmp, hex::encode(bytes))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+            }
+            std::fs::rename(&tmp, &path)?;
+            warn!("Neuer Server-Schlüssel erzeugt: {}", path.display());
+            Ok(x25519_dalek::StaticSecret::from(bytes))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// `tunnel-key [--data DIR]`: prints the public key to build into the clients.
+fn print_tunnel_key(args: Vec<String>) -> Result<()> {
+    let data = match args.as_slice() {
+        [] => PathBuf::from("data"),
+        [flag, dir] if flag == "--data" => PathBuf::from(dir),
+        _ => bail!("Aufruf: ctxremote-server tunnel-key [--data ./data]"),
+    };
+    let key = load_tunnel_key(&data)?;
+    println!("{}", hex::encode(tunnel::public_key(&key)));
+    Ok(())
 }

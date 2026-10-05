@@ -55,9 +55,16 @@ pub fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
+/// Every test server uses this tunnel key; clients learn it from the environment.
+const TUNNEL_KEY: [u8; 32] = [7; 32];
+
 pub async fn start_server() -> (Server, String) {
     let port = free_port();
     let data = std::env::temp_dir().join(format!("ctxremote-test-server-{port}"));
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(data.join("tunnel.key"), hex::encode(TUNNEL_KEY)).unwrap();
+    let public = ctxremote_core::proto::tunnel::public_key(&x25519_dalek::StaticSecret::from(TUNNEL_KEY));
+    std::env::set_var("CTXREMOTE_SERVER_KEY", hex::encode(public));
     let child = Command::new(env!("CARGO_BIN_EXE_ctxremote-server"))
         .args(["--listen", &format!("127.0.0.1:{port}"), "--data"])
         .arg(&data)

@@ -48,6 +48,9 @@ pub enum ServerMsg {
     AliasResolved(Option<DeviceId>),
     /// Answer to `Account`.
     Account(Result<crate::account::AccountReply, crate::account::AccountError>),
+    /// Answer to `Tunnel`: the server's ephemeral key; encrypted from here on
+    /// (see [`crate::tunnel`]).
+    Tunnel { ephemeral: [u8; 32] },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
@@ -100,6 +103,9 @@ pub enum ClientMsg {
     /// An account request, signed over the nonce and `op` (see [`crate::account`]).
     /// Servers from before accounts close the connection.
     Account { auth: crate::account::DeviceAuth, op: crate::account::AccountOp },
+    /// Starts encryption (see [`crate::tunnel`]); only as the first message,
+    /// and the server then challenges again inside the encrypted connection.
+    Tunnel { ephemeral: [u8; 32] },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
