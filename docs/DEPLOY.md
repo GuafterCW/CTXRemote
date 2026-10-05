@@ -248,6 +248,7 @@ Die Website liegt im Ordner `website/`: statische Seiten ohne JavaScript, im Des
 - Die Seiten gehen nach `/var/www/ctxremote/site`. Das ist ein Symlink auf die neueste Fassung und wird atomar umgeschaltet.
 - In `download.html` setzt die Pipeline die Versionsnummer ein, und zwar zwischen `<!--version-->` und `<!--/version-->`.
 - Der neueste Installer und die Schnellhilfe liegen unter festen Namen in `/var/www/ctxremote/download/` (`CTXRemote-Setup.exe`, `CTXRemote-Hilfe.exe`). Die Links auf der Website ändern sich also nie.
+- `CTXRemote-Setup.exe` ist das Setup-Fenster aus `crates/setup` mit dem NSIS-Installer darin. Automatische Updates bekommen den NSIS-Installer direkt.
 
 Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werden nicht protokolliert, so steht es auch in der Datenschutzerklärung.
 

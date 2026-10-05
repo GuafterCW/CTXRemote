@@ -1,0 +1,31 @@
+[package]
+name = "ctxremote-setup"
+description = "Setup program for Windows: a window in the app's design around the silent NSIS installer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "CTXRemote-Setup"
+path = "src/main.rs"
+
+[dependencies]
+winit = "0.30"
+softbuffer = "0.4"
+tiny-skia = "0.11"
+fontdue = "0.9"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[build-dependencies]
+embed-resource = "3"

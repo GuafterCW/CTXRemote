@@ -34,7 +34,7 @@ sidecar="$root/app/src-tauri/binaries/ctxremote-service-x86_64-pc-windows-msvc.e
 export PATH="$fake:$PATH"
 export CC_x86_64_pc_windows_msvc=cl.exe CXX_x86_64_pc_windows_msvc=cl.exe AR_x86_64_pc_windows_msvc=lib.exe
 cd "$root"
-cargo check --target x86_64-pc-windows-msvc -p ctxremote-core -p ctxremote-service -p ctxremote "$@"
+cargo check --target x86_64-pc-windows-msvc -p ctxremote-core -p ctxremote-service -p ctxremote -p ctxremote-setup "$@"
 CTXREMOTE_QUICK_SERVER=check.invalid:21300 \
   cargo check --target x86_64-pc-windows-msvc -p ctxremote --features quick "$@"
 

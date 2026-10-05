@@ -193,9 +193,31 @@ Zu Schritt 1:
 - **Tests:** Alle Tests mit echtem Server laufen verschlüsselt (fester Testschlüssel in `tests/common`). `unencrypted_clients_still_work` prüft den Übergang.
 - **Offen beim Nutzer:** `tunnel-key` auf dem Server ausgeben und als GitHub-Variable `CTXREMOTE_SERVER_KEY` eintragen (`docs/DEPLOY.md`). Erst danach verschlüsseln die ausgelieferten Clients.
 
+### Eigenes Setup-Fenster (5. Oktober, Cloud-Sitzung)
+
+Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` statt des NSIS-Assistenten („Weg 2“):
+- **Aussehen:** Ein randloses Fenster im App-Design mit Logo, Titel, Text, einem Knopf und einem Fortschrittsbalken. Es hat einen echten Dark Mode und folgt dem Windows-Theme. Es zeichnet sich selbst mit winit, softbuffer, tiny-skia und fontdue mit Segoe UI. Es braucht also kein WebView und läuft auch dort, wo WebView2 noch fehlt.
+- **Ablauf:**
+  - Das Fenster läuft als Benutzer (`asInvoker`).
+  - „Installieren“ entpackt den eingebetteten NSIS-Installer in einen Temp-Ordner und startet ihn per UAC mit `/S`.
+  - Danach kommt „CTXRemote starten“, die App startet dann als Benutzer und nicht als Administrator.
+  - UAC abgelehnt: Hinweis, „Installieren“ bleibt.
+  - NSIS-Fehlercode: Fehlerseite mit „Erneut versuchen“.
+- **Fortschritt:** NSIS meldet keinen. Der Balken nähert sich geschätzt 90 % und springt am Ende auf fertig.
+- **Erkennt vorhandene Installationen** über den Uninstall-Eintrag in der Registry (`DisplayVersion`, `InstallLocation`, `MainBinaryName`):
+  - ältere Version: „Aktualisieren“
+  - gleiche Version: „Erneut installieren“ oder „CTXRemote starten“
+  - neuere Version: nur „CTXRemote starten“
+- **Für Administratoren:** `CTXRemote-Setup.exe /S` installiert ohne Fenster.
+- **Deinstallation** läuft weiter über „Apps & Features“, also über den NSIS-Uninstaller.
+- **Updates** nutzen weiter den NSIS-Installer direkt.
+- **Pipeline:** `release.yml` baut das Fenster nach dem NSIS-Installer mit `CTXREMOTE_SETUP_PAYLOAD`, auf der Website liegt es als `download/CTXRemote-Setup.exe`.
+- **Ohne Payload**, also bei Entwickler-Builds, wird die Installation nur simuliert.
+- **Design prüfen ohne Windows:** `CTXRemote-Setup --preview <ready|update|same|newer|installing|done|failed|declined> bild.png [dark] [primary|secondary|close]` rendert einen Zustand als PNG.
+
 ### Testliste für den nächsten Windows-Termin
 
-1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
+1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
 2. Dateien, **ohne Dienst**:
    - Hochladen und Herunterladen einer Datei und eines Ordners mit Unterordnern
    - Ein zweites Mal übertragen: Ziel `Name (2)`
@@ -250,6 +272,14 @@ Zu Schritt 1:
     - Ein Gerät auf A umbenennen: Spätestens nach wenigen Sekunden muss der neue Name auf B stehen, eventuell nach erneutem Öffnen des Fensters.
     - Ein Gerät auf B entfernen: Es muss auch auf A verschwinden.
     - Mit Dienst auf einem der PCs wiederholen.
+19. Setup-Fenster (von der Website herunterladen):
+    - Auf einem Rechner ohne CTXRemote: Fenster, Schrift und Dark Mode prüfen, bei 100 % und 150 % Skalierung.
+    - „Installieren“, dann muss die UAC-Abfrage kommen. Ablehnen: Hinweis, nochmal klicken, zustimmen. Danach kommt der Balken und schließlich „CTXRemote ist bereit“.
+    - „CTXRemote starten“: Die App muss **ohne** Administratorrechte laufen (Task-Manager, Spalte „Erhöht“).
+    - Erneut starten: „CTXRemote ist installiert“ mit „Erneut installieren“.
+    - Fenster ziehen, Esc schließt, Enter drückt den Hauptknopf.
+    - Deinstallation über „Apps & Features“ muss weiter funktionieren.
+    - Wie lange dauert die Installation wirklich? Danach den Schätzwert in `crates/setup/src/ui.rs` (`estimated_progress`) anpassen.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.
@@ -269,17 +299,6 @@ Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 Weitere Roadmap: Remote-Mauszeiger, Adressbuch auf dem Server.
 
 ## Ideen für später
-
-- **Eigenes Setup-Fenster (vom Nutzer gewählt: Weg 2):** Der NSIS-Assistent von Tauri sieht im Originalzustand nach Windows XP aus. Statt ihn nur mit Bildern aufzuhübschen (Weg 1, verworfen) soll ein eigenes Setup-Programm im App-Design entstehen:
-  - **Aussehen:** Logo, Text, ein Knopf „Installieren“ und ein Fortschrittsbalken, wie bei Discord oder Spotify. Gestaltung nach den Regeln unten.
-  - **Technik (Vorschlag):**
-    - eine kleine eigene Rust-Anwendung (Tauri-Fenster oder natives Fenster), die den NSIS-Installer eingebettet mitbringt
-    - sie startet diesen per UAC mit `/S` unsichtbar und zeigt den Fortschritt an
-    - Abschlussseite mit „CTXRemote starten“
-  - **Pipeline:** `release.yml` baut das Setup-Programm zusätzlich und legt es als Artefakt ab, z. B. `CTXRemote-Setup.exe`. Für automatische Updates bleibt der NSIS-Installer zuständig, sie laufen ja still.
-  - **Offen:**
-    - Fortschrittsanzeige: NSIS meldet keinen Fortschritt nach außen. Entweder Zwischenschritte schätzen oder die Dateien selbst kopieren statt NSIS zu nutzen.
-    - Deinstallation über „Apps & Features“ muss weiter funktionieren.
 
 ## Bekannte Kompromisse
 

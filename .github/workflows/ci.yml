@@ -45,7 +45,7 @@ jobs:
           npm run build
 
       - name: Tests
-        run: cargo test --locked -p ctxremote-proto -p ctxremote-core -p ctxremote-server
+        run: cargo test --locked -p ctxremote-proto -p ctxremote-core -p ctxremote-server -p ctxremote-setup
 
       - name: Dienst für den Installer (nur Windows)
         if: runner.os == 'Windows'
@@ -54,6 +54,9 @@ jobs:
 
       - name: App
         run: cargo build --locked -p ctxremote
+
+      - name: Setup-Fenster
+        run: cargo build --locked -p ctxremote-setup
 
   # The web interface (website/konto): types, build, and the check that the
   # browser derives the same keys as the app.

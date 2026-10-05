@@ -98,11 +98,19 @@ jobs:
         env:
           CTXREMOTE_QUICK_SERVER: ${{ vars.CTXREMOTE_SERVER }}
         run: npm run build:quick -- --config src-tauri/tauri.version.json
+      # The setup window for downloads (crates/setup) carries the NSIS
+      # installer inside; automatic updates keep using the NSIS installer.
+      - name: Setup-Fenster
+        shell: bash
+        run: |
+          nsis=$(ls target/release/bundle/nsis/*-setup.exe)
+          CTXREMOTE_SETUP_PAYLOAD="$PWD/$nsis" cargo build --release --locked -p ctxremote-setup
       - name: Dateien einsammeln
         shell: bash
         run: |
           mkdir out
           cp target/release/bundle/nsis/*-setup.exe "out/CTXRemote-$CTXREMOTE_VERSION-setup.exe"
+          cp target/release/CTXRemote-Setup.exe out/CTXRemote-Setup.exe
           if [ -f target/release/CTXRemote-Hilfe.exe ]; then cp target/release/CTXRemote-Hilfe.exe out/; fi
       - uses: actions/upload-artifact@v4
         with:
@@ -144,7 +152,8 @@ jobs:
           cp -r website incoming/website
           printf '%s' "$VERSION" > incoming/VERSION
           mkdir -p incoming/download
-          cp "artifacts/client/CTXRemote-$VERSION-setup.exe" incoming/download/CTXRemote-Setup.exe
+          # Downloads get the setup window; the bare NSIS installer stays for updates.
+          cp artifacts/client/CTXRemote-Setup.exe incoming/download/CTXRemote-Setup.exe
           if [ -f artifacts/client/CTXRemote-Hilfe.exe ]; then
             cp artifacts/client/CTXRemote-Hilfe.exe incoming/download/CTXRemote-Hilfe.exe
           fi
