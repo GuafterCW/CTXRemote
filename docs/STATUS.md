@@ -172,7 +172,7 @@ Ohne E-Mail und Passwort: Ein Konto ist eine Menge von Geräteschlüsseln, neue 
 
 Wunsch des Nutzers: Konten in App und Website, Geräteverwaltung im Web, alles Ende-zu-Ende verschlüsselt. Plan in 4 Schritten (Details in `docs/ACCOUNTS.md`, Abschnitt „Ausbau“):
 1. Verschlüsselte Verbindung App ↔ Server: **erledigt**
-2. Anmeldung mit E-Mail und Passwort, mit Wiederherstellungscode
+2. Anmeldung mit E-Mail und Passwort, mit Wiederherstellungscode: **erledigt** (App: Personen-Symbol oben rechts → Konto-Panel; der Kontobereich ist aus den Einstellungen dorthin umgezogen)
 3. Webinterface
 4. Mails per SMTP (der Nutzer hat einen SMTP-Zugang)
 
@@ -228,6 +228,12 @@ Zu Schritt 1:
     - Echt: Viewer im Handy-Hotspot, Host zu Hause, ohne Portweiterleitung. Erwartet: „Direkt“ über die öffentliche Adresse des Routers.
     - Bild, Dateien und Chat laufen danach normal, auch nach 5 Minuten ohne Bildänderung (Keep-Alive).
 16. Schnellhilfe direkt: Mit der App auf eine Schnellhilfe in einem anderen Netz verbinden, z. B. über einen Handy-Hotspot. Nach wenigen Sekunden sollte „Direkt“ im Sitzungsfenster stehen. **Kommt bei der Schnellhilfe eine Windows-Firewall-Abfrage?** Das sollte nicht passieren, weil sie nur antwortet und keinen Port öffnet.
+18. Anmeldung (erst nachdem `CTXREMOTE_SERVER_KEY` eingetragen und neu gebaut ist, sonst kommt „nicht verschlüsselt“):
+    - Auf PC A im Konto-Panel registrieren und den Wiederherstellungscode notieren.
+    - Auf PC B mit E-Mail und Passwort anmelden.
+    - Die Geräteliste in „Geräte im Konto“ muss beide Geräte mit Computernamen und Online-Punkt zeigen.
+    - Ein falsches Passwort muss abgelehnt werden.
+    - „Passwort vergessen?“ mit dem notierten Code ausprobieren.
 17. Konten: Auf PC A „Konto anlegen“, dann „Gerät hinzufügen“. Auf PC B „Mit Code verbinden“ und den Code eingeben.
     - Danach muss die Geräteliste beider PCs zusammengeführt sein.
     - Ein Gerät auf A umbenennen: Spätestens nach wenigen Sekunden muss der neue Name auf B stehen, eventuell nach erneutem Öffnen des Fensters.

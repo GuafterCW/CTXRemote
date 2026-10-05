@@ -13,8 +13,11 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use ctxremote_proto::account::{
-    self as wire, AccountError, AccountInfo, AccountOp, AccountReply, CODE_ALPHABET, CODE_ID_LEN,
+    self as wire, AccountError, AccountInfo, AccountOp, AccountReply, Kdf, LoginInfo, LoginSetup, CODE_ALPHABET,
+    CODE_ID_LEN,
 };
+use hkdf::Hkdf;
+use sha2::Sha256;
 use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{ClientMsg, ServerMsg};
 use ctxremote_proto::DeviceId;
@@ -28,6 +31,13 @@ use crate::net;
 const STEP_TIMEOUT: Duration = Duration::from_secs(15);
 const BOOK_AAD: &[u8] = b"ctxremote/book/v1";
 const SEAL_AAD: &[u8] = b"ctxremote/pairing/v1";
+const LOGIN_AAD: &[u8] = b"ctxremote/login/v1";
+const RECOVERY_AAD: &[u8] = b"ctxremote/recovery/v1";
+const LABEL_AAD: &[u8] = b"ctxremote/label/v1";
+/// Shortest password accepted for a login.
+pub const MIN_PASSWORD: usize = 10;
+/// Characters of a recovery code (125 bits).
+const RECOVERY_LEN: usize = 25;
 /// Tombstones of removed devices are kept this long, then forgotten.
 const TOMBSTONE_MS: u64 = 90 * 24 * 3600 * 1000;
 
@@ -275,6 +285,201 @@ impl Book {
     }
 }
 
+// ---- Logins (e-mail and password), see docs/ACCOUNTS.md ----
+
+/// The password's two independent values: `auth` for the server, `wrap` to
+/// seal the account key. Argon2id makes guessing expensive.
+fn password_keys(password: &str, salt: &[u8; 16], kdf: &Kdf) -> Result<([u8; 32], [u8; 32])> {
+    if !kdf.acceptable() {
+        bail!("Der Server verlangt ungültige Einstellungen für die Schlüsselableitung");
+    }
+    let params = Params::new(kdf.memory_kib, kdf.iterations, kdf.parallelism, Some(32)).map_err(|e| anyhow!("{e}"))?;
+    let mut master = [0u8; 32];
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+        .hash_password_into(password.as_bytes(), salt, &mut master)
+        .map_err(|e| anyhow!("{e}"))?;
+    Ok(split(&master, b"ctxremote/login/v1"))
+}
+
+/// The recovery code's values; it has 125 random bits, so no slow hash is needed.
+fn recovery_keys(code: &str) -> Result<([u8; 32], [u8; 32])> {
+    let code: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_uppercase();
+    if code.len() != RECOVERY_LEN || !code.bytes().all(|b| CODE_ALPHABET.contains(&b)) {
+        bail!("Der Wiederherstellungscode hat 25 Zeichen, z. B. ABCDE-FGHJK-MNPQR-STVWX-YZ012");
+    }
+    Ok(split(code.as_bytes(), b"ctxremote/recovery/v1"))
+}
+
+fn split(ikm: &[u8], salt: &[u8]) -> ([u8; 32], [u8; 32]) {
+    let hk = Hkdf::<Sha256>::new(Some(salt), ikm);
+    let (mut auth, mut wrap) = ([0u8; 32], [0u8; 32]);
+    hk.expand(b"auth", &mut auth).expect("32 bytes");
+    hk.expand(b"wrap", &mut wrap).expect("32 bytes");
+    (auth, wrap)
+}
+
+/// A fresh recovery code, grouped as `ABCDE-FGHJK-MNPQR-STVWX-YZ012`.
+pub fn new_recovery_code() -> String {
+    let chars: Vec<char> =
+        (0..RECOVERY_LEN).map(|_| CODE_ALPHABET[rand::random::<usize>() % CODE_ALPHABET.len()] as char).collect();
+    chars.chunks(5).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join("-")
+}
+
+fn check_password(password: &str) -> Result<()> {
+    if password.chars().count() < MIN_PASSWORD {
+        bail!("Das Passwort braucht mindestens {MIN_PASSWORD} Zeichen");
+    }
+    Ok(())
+}
+
+/// The login for `account_key`, with a new recovery code (returned).
+fn login_setup(email: &str, password: &str, account_key: &[u8; 32]) -> Result<(LoginSetup, String)> {
+    let email = wire::normalize_email(email).ok_or(AccountError::InvalidEmail)?;
+    check_password(password)?;
+    let salt: [u8; 16] = rand::random();
+    let kdf = Kdf::CURRENT;
+    let (auth, wrap) = password_keys(password, &salt, &kdf)?;
+    let code = new_recovery_code();
+    let (recovery_auth, recovery_wrap) = recovery_keys(&code)?;
+    let setup = LoginSetup {
+        email,
+        salt,
+        kdf,
+        auth,
+        wrapped: seal(&wrap, LOGIN_AAD, account_key)?,
+        recovery_auth,
+        recovery_wrapped: seal(&recovery_wrap, RECOVERY_AAD, account_key)?,
+    };
+    Ok((setup, code))
+}
+
+fn unwrap_key(wrap: &[u8; 32], aad: &[u8], wrapped: &[u8]) -> Result<[u8; 32]> {
+    open(wrap, aad, wrapped)?.try_into().map_err(|_| anyhow!("Kontoschlüssel ist beschädigt"))
+}
+
+/// Creates an account with a login and this device. Returns the link and the
+/// recovery code, which must be shown to the user once.
+pub async fn register(server: &str, key: &SigningKey, email: &str, password: &str) -> Result<(AccountLink, String)> {
+    let account_key: [u8; 32] = rand::random();
+    let (login, code) = login_setup(email, password, &account_key)?;
+    match request(server, key, AccountOp::Register { login }).await? {
+        AccountReply::LoggedIn { info, .. } => Ok((AccountLink { key: hex::encode(account_key), devices: info.devices }, code)),
+        other => bail!("unerwartete Serverantwort: {other:?}"),
+    }
+}
+
+/// Adds this device to the account of `email`.
+pub async fn login(server: &str, key: &SigningKey, email: &str, password: &str) -> Result<AccountLink> {
+    let (salt, kdf) = match request(server, key, AccountOp::Prelogin { email: email.into() }).await? {
+        AccountReply::Prelogin { salt, kdf } => (salt, kdf),
+        other => bail!("unerwartete Serverantwort: {other:?}"),
+    };
+    let (auth, wrap) = password_keys(password, &salt, &kdf)?;
+    match request(server, key, AccountOp::Login { email: email.into(), auth }).await? {
+        AccountReply::LoggedIn { info, wrapped } => {
+            Ok(AccountLink { key: hex::encode(unwrap_key(&wrap, LOGIN_AAD, &wrapped)?), devices: info.devices })
+        }
+        other => bail!("unerwartete Serverantwort: {other:?}"),
+    }
+}
+
+/// Adds this device with the recovery code and sets `new_password`. Returns
+/// the link and a new recovery code (the old one stops working).
+pub async fn recover(
+    server: &str,
+    key: &SigningKey,
+    email: &str,
+    code: &str,
+    new_password: &str,
+) -> Result<(AccountLink, String)> {
+    check_password(new_password)?;
+    let (recovery_auth, recovery_wrap) = recovery_keys(code)?;
+    let (info, account_key) = match request(server, key, AccountOp::Recover { email: email.into(), recovery_auth }).await? {
+        AccountReply::LoggedIn { info, wrapped } => (info, unwrap_key(&recovery_wrap, RECOVERY_AAD, &wrapped)?),
+        other => bail!("unerwartete Serverantwort: {other:?}"),
+    };
+    let link = AccountLink { key: hex::encode(account_key), devices: info.devices };
+    let code = set_login(server, key, &link, email, new_password).await?;
+    Ok((link, code))
+}
+
+/// Adds a login to this device's account or changes it (password or
+/// address). Returns the new recovery code.
+pub async fn set_login(server: &str, key: &SigningKey, link: &AccountLink, email: &str, password: &str) -> Result<String> {
+    let (login, code) = login_setup(email, password, &link.key()?)?;
+    match request(server, key, AccountOp::SetLogin { login }).await? {
+        AccountReply::Done => Ok(code),
+        other => bail!("unerwartete Serverantwort: {other:?}"),
+    }
+}
+
+pub async fn login_status(server: &str, key: &SigningKey) -> Result<Option<LoginInfo>> {
+    match request(server, key, AccountOp::LoginStatus).await? {
+        AccountReply::LoginStatus(info) => Ok(info),
+        other => bail!("unerwartete Serverantwort: {other:?}"),
+    }
+}
+
+/// A device of the account as the app shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDevice {
+    /// Hex; identifies it for [`remove_device`].
+    pub public_key: String,
+    /// Its ID, e.g. `482 913 077`, if registered.
+    pub id: Option<String>,
+    pub online: bool,
+    /// Its own name, decrypted; empty if it set none.
+    pub name: String,
+    /// This device.
+    pub this: bool,
+}
+
+pub async fn devices(server: &str, key: &SigningKey, link: &AccountLink) -> Result<Vec<AccountDevice>> {
+    let account_key = link.key()?;
+    let own = key.verifying_key().to_bytes();
+    match request(server, key, AccountOp::Devices).await? {
+        AccountReply::Devices(members) => Ok(members
+            .into_iter()
+            .map(|m| AccountDevice {
+                public_key: hex::encode(m.public_key),
+                id: m.device.map(|d| d.to_string()),
+                online: m.online,
+                name: open(&account_key, LABEL_AAD, &m.label)
+                    .ok()
+                    .and_then(|n| String::from_utf8(n).ok())
+                    .unwrap_or_default(),
+                this: m.public_key == own,
+            })
+            .collect()),
+        other => bail!("unerwartete Serverantwort: {other:?}"),
+    }
+}
+
+/// Takes another device out of the account (it keeps its local list).
+pub async fn remove_device(server: &str, key: &SigningKey, public_key: &str) -> Result<()> {
+    let public_key: [u8; 32] = hex::decode(public_key).ok().and_then(|k| k.try_into().ok()).context("ungültiges Gerät")?;
+    match request(server, key, AccountOp::RemoveDevice { public_key }).await? {
+        AccountReply::Done => Ok(()),
+        other => bail!("unerwartete Serverantwort: {other:?}"),
+    }
+}
+
+/// The name a device gives itself in the account: its computer name.
+pub fn default_label() -> String {
+    whoami::devicename()
+}
+
+/// This device's name for the other devices of the account (encrypted).
+pub async fn set_label(server: &str, key: &SigningKey, link: &AccountLink, name: &str) -> Result<()> {
+    let name: String = name.trim().chars().take(80).collect();
+    let label = if name.is_empty() { Vec::new() } else { seal(&link.key()?, LABEL_AAD, name.as_bytes())? };
+    match request(server, key, AccountOp::SetLabel { label }).await? {
+        AccountReply::Done => Ok(()),
+        other => bail!("unerwartete Serverantwort: {other:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +532,21 @@ mod tests {
         assert_eq!(other.peers.len(), 1);
         assert_eq!(other.peers[0].alias.as_deref(), Some("Büro"));
         assert_eq!(other.removed.len(), 1);
+    }
+
+    #[test]
+    fn login_keys() {
+        let kdf = Kdf { memory_kib: 19 * 1024, iterations: 2, parallelism: 1 };
+        let (auth, wrap) = password_keys("richtig-langes-pw", &[1; 16], &kdf).unwrap();
+        assert_ne!(auth, wrap);
+        assert_eq!(password_keys("richtig-langes-pw", &[1; 16], &kdf).unwrap(), (auth, wrap));
+        assert_ne!(password_keys("richtig-langes-pX", &[1; 16], &kdf).unwrap().0, auth);
+        assert!(password_keys("x", &[1; 16], &Kdf { memory_kib: 8, ..kdf }).is_err());
+
+        let code = new_recovery_code();
+        assert_eq!(code.len(), 29, "{code}");
+        assert_eq!(recovery_keys(&code).unwrap(), recovery_keys(&code.to_lowercase().replace('-', " ")).unwrap());
+        assert!(recovery_keys("ABC").is_err());
     }
 
     #[test]

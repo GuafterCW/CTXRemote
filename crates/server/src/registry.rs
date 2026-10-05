@@ -91,6 +91,12 @@ impl Registry {
         Ok(alias)
     }
 
+    /// The ID registered with `public_key`, if any.
+    pub fn id_for_key(&self, public_key: &[u8; 32]) -> Option<DeviceId> {
+        let key = hex::encode(public_key);
+        self.stored.devices.iter().find(|(_, owner)| **owner == key).and_then(|(id, _)| DeviceId::new(*id))
+    }
+
     pub fn resolve_alias(&self, alias: &str) -> Option<DeviceId> {
         let alias = normalize_alias(alias).ok()?;
         self.stored.aliases.get(&alias).and_then(|raw| DeviceId::new(*raw))

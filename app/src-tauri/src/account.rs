@@ -104,11 +104,7 @@ pub async fn account_create(app: AppHandle, state: State<'_, AppState>, sync: St
     let _turn = sync.turn.lock().await;
     let (server, key) = credentials(&state)?;
     let link = account::create(&server, &key).await.map_err(|e| format!("{e:#}"))?;
-    save_link(&state, Some(link))?;
-    drop(_turn);
-    sync.poke();
-    let _ = app.emit("peers-changed", ());
-    Ok(())
+    linked(&app, &state, link, _turn).await
 }
 
 /// A one-time code for another device; valid for ten minutes.
@@ -126,11 +122,7 @@ pub async fn account_join(app: AppHandle, state: State<'_, AppState>, sync: Stat
     let _turn = sync.turn.lock().await;
     let (server, key) = credentials(&state)?;
     let link = account::join(&server, &key, &code).await.map_err(|e| format!("{e:#}"))?;
-    save_link(&state, Some(link))?;
-    drop(_turn);
-    sync_now(&app).await;
-    let _ = app.emit("peers-changed", ());
-    Ok(())
+    linked(&app, &state, link, _turn).await
 }
 
 /// Takes this device out of the account; its list stays as it is.
@@ -141,6 +133,98 @@ pub async fn account_leave(app: AppHandle, state: State<'_, AppState>, sync: Sta
     account::leave(&server, &key).await.map_err(|e| format!("{e:#}"))?;
     save_link(&state, None)?;
     *sync.error.lock().unwrap() = None;
+    let _ = app.emit("peers-changed", ());
+    Ok(())
+}
+
+/// Registers an account with a login; returns the recovery code to show once.
+#[tauri::command]
+pub async fn account_register(app: AppHandle, state: State<'_, AppState>, sync: State<'_, Sync>, email: String, password: String) -> CmdResult<String> {
+    let turn = sync.turn.lock().await;
+    let (server, key) = credentials(&state)?;
+    let (link, code) = account::register(&server, &key, &email, &password).await.map_err(|e| format!("{e:#}"))?;
+    linked(&app, &state, link, turn).await?;
+    Ok(code)
+}
+
+/// Adds this device to the account of `email`.
+#[tauri::command]
+pub async fn account_login(app: AppHandle, state: State<'_, AppState>, sync: State<'_, Sync>, email: String, password: String) -> CmdResult<()> {
+    let turn = sync.turn.lock().await;
+    let (server, key) = credentials(&state)?;
+    let link = account::login(&server, &key, &email, &password).await.map_err(|e| format!("{e:#}"))?;
+    linked(&app, &state, link, turn).await
+}
+
+/// Password forgotten: adds this device with the recovery code and sets a new
+/// password. Returns the new recovery code.
+#[tauri::command]
+pub async fn account_recover(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    sync: State<'_, Sync>,
+    email: String,
+    code: String,
+    password: String,
+) -> CmdResult<String> {
+    let turn = sync.turn.lock().await;
+    let (server, key) = credentials(&state)?;
+    let (link, code) = account::recover(&server, &key, &email, &code, &password).await.map_err(|e| format!("{e:#}"))?;
+    linked(&app, &state, link, turn).await?;
+    Ok(code)
+}
+
+/// Sets address and password of this device's account (adds a login to an
+/// account made by pairing). Returns the new recovery code.
+#[tauri::command]
+pub async fn account_set_login(state: State<'_, AppState>, email: String, password: String) -> CmdResult<String> {
+    let (server, key) = credentials(&state)?;
+    let link = state.config.read().unwrap().account.clone().ok_or("Dieses Gerät gehört zu keinem Konto")?;
+    account::set_login(&server, &key, &link, &email, &password).await.map_err(|e| format!("{e:#}"))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDetails {
+    email: Option<String>,
+    verified: bool,
+    devices: Vec<account::AccountDevice>,
+}
+
+/// The account's login and devices, fresh from the server.
+#[tauri::command]
+pub async fn account_details(state: State<'_, AppState>) -> CmdResult<AccountDetails> {
+    let (server, key) = credentials(&state)?;
+    let link = state.config.read().unwrap().account.clone().ok_or("Dieses Gerät gehört zu keinem Konto")?;
+    let login = account::login_status(&server, &key).await.map_err(|e| format!("{e:#}"))?;
+    let devices = account::devices(&server, &key, &link).await.map_err(|e| format!("{e:#}"))?;
+    Ok(AccountDetails {
+        email: login.as_ref().map(|l| l.email.clone()),
+        verified: login.is_some_and(|l| l.verified),
+        devices,
+    })
+}
+
+/// Takes another device out of the account.
+#[tauri::command]
+pub async fn account_remove_device(state: State<'_, AppState>, public_key: String) -> CmdResult<()> {
+    let (server, key) = credentials(&state)?;
+    account::remove_device(&server, &key, &public_key).await.map_err(|e| format!("{e:#}"))
+}
+
+/// Stores the link, names this device for the others and syncs the list.
+async fn linked(
+    app: &AppHandle,
+    state: &AppState,
+    link: account::AccountLink,
+    turn: tokio::sync::MutexGuard<'_, ()>,
+) -> CmdResult<()> {
+    save_link(state, Some(link.clone()))?;
+    drop(turn);
+    if let Ok((server, key)) = credentials(state) {
+        let _ = account::set_label(&server, &key, &link, &account::default_label()).await;
+    }
+    sync_now(app).await;
     let _ = app.emit("peers-changed", ());
     Ok(())
 }

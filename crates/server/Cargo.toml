@@ -19,6 +19,7 @@ hex.workspace = true
 ed25519-dalek.workspace = true
 sha2.workspace = true
 x25519-dalek.workspace = true
+hkdf.workspace = true
 
 [dev-dependencies]
 ctxremote-core.workspace = true

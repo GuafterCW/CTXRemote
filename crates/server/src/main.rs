@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
-use ctxremote_proto::account::AccountError;
+use ctxremote_proto::account::{AccountError, AccountReply};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::tunnel;
 use ctxremote_proto::rendezvous::{
@@ -94,9 +94,10 @@ async fn main() -> Result<()> {
     let tunnel = load_tunnel_key(&data)?;
     info!("Server-Schlüssel (CTXREMOTE_SERVER_KEY): {}", hex::encode(tunnel::public_key(&tunnel)));
     let server = Arc::new(Server {
-        tunnel,
         registry: Mutex::new(Registry::open(data.join("devices.json"))?),
-        accounts: Mutex::new(Accounts::open(data.join("accounts.json"))?),
+        // Made-up salts must stay the same across restarts; derived from the tunnel key.
+        accounts: Mutex::new(Accounts::open(data.join("accounts.json"), pepper(&tunnel))?),
+        tunnel,
         online: Mutex::default(),
         pending: Mutex::default(),
         rate: Mutex::default(),
@@ -147,6 +148,7 @@ impl Server {
         framing::send(&mut t, &ServerMsg::Challenge { version: PROTOCOL_VERSION, nonce }).await?;
 
         let mut first = timeout(HELLO_TIMEOUT, framing::recv::<ClientMsg>(&mut t)).await??;
+        let encrypted = matches!(first, ClientMsg::Tunnel { .. });
         // Encrypted from here on; signatures then cover the new, encrypted nonce.
         // Clients without the server key still speak plaintext for now.
         if let ClientMsg::Tunnel { ephemeral } = first {
@@ -215,8 +217,11 @@ impl Server {
                     Err(AccountError::RateLimited)
                 } else if !ctxremote_proto::account::verify(&auth, &nonce, &op) {
                     Err(AccountError::BadSignature)
+                } else if op.carries_secrets() && !encrypted {
+                    Err(AccountError::Unencrypted)
                 } else {
-                    self.accounts.lock().unwrap().handle(auth.public_key, op)
+                    let result = self.accounts.lock().unwrap().handle(auth.public_key, op);
+                    result.map(|reply| self.with_presence(reply))
                 };
                 if let Err(e) = &result {
                     debug!(%peer, "Kontoanfrage abgelehnt: {e}");
@@ -309,6 +314,18 @@ impl Server {
         Ok(())
     }
 
+    /// Fills in which member devices are registered and online.
+    fn with_presence(&self, reply: AccountReply) -> AccountReply {
+        let AccountReply::Devices(mut members) = reply else { return reply };
+        let registry = self.registry.lock().unwrap();
+        let online = self.online.lock().unwrap();
+        for member in &mut members {
+            member.device = registry.id_for_key(&member.public_key);
+            member.online = member.device.is_some_and(|id| online.contains_key(&id));
+        }
+        AccountReply::Devices(members)
+    }
+
     fn allow_connect(&self, ip: IpAddr) -> bool {
         let mut rate = self.rate.lock().unwrap();
         let now = Instant::now();
@@ -381,4 +398,12 @@ fn print_tunnel_key(args: Vec<String>) -> Result<()> {
     let key = load_tunnel_key(&data)?;
     println!("{}", hex::encode(tunnel::public_key(&key)));
     Ok(())
+}
+
+fn pepper(tunnel: &x25519_dalek::StaticSecret) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    hkdf::Hkdf::<sha2::Sha256>::new(Some(b"ctxremote/pepper/v1"), tunnel.as_bytes())
+        .expand(b"accounts", &mut out)
+        .expect("32 bytes is a valid HKDF length");
+    out
 }

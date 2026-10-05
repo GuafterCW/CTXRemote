@@ -951,7 +951,13 @@ fn main() {
         account::account_pairing_code,
         account::account_join,
         account::account_leave,
-        account::account_sync
+        account::account_sync,
+        account::account_register,
+        account::account_login,
+        account::account_recover,
+        account::account_set_login,
+        account::account_details,
+        account::account_remove_device
     ];
     #[cfg(feature = "quick")]
     let builder = builder.manage(quick::Approvals::default());

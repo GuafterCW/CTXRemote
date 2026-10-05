@@ -46,13 +46,20 @@ Konten mit Anmeldung in App **und** Website, Geräte im Webinterface verwalten, 
 - **Passwort vergessen:** Wiederherstellungscode, der bei der Registrierung einmal angezeigt wird. Ohne Code und ohne Passwort bleibt nur ein neues Konto. Jedes angemeldete Gerät kann ein neues Passwort setzen.
 - **Mails:** gleich mit einbauen, der Nutzer hat SMTP-Zugangsdaten. Gemeint sind die Bestätigung der Adresse und ein Hinweis bei einer neuen Anmeldung.
 
-Geplantes Schlüsselschema (wie bei Bitwarden):
-- **Hauptschlüssel:** `Argon2id(Passwort, Salz des Kontos)`.
+**Stand:** Schritt 1 (verschlüsselte Verbindung) und Schritt 2 (Anmeldung) sind gebaut. Offen sind Schritt 3 (Webinterface) und Schritt 4 (Mails).
+
+Schlüsselschema, umgesetzt in `crates/core/src/account.rs` (`password_keys`, `recovery_keys`, `login_setup`):
+- **Hauptschlüssel:** `Argon2id(Passwort, Salz des Kontos)` mit 64 MiB und 3 Durchläufen (`Kdf::CURRENT`). Die Werte stehen am Konto, damit sie sich später erhöhen lassen. Clients akzeptieren nur Werte in `Kdf::acceptable`.
 - Daraus per HKDF zwei unabhängige Werte:
   - **Anmeldewert:** geht an den Server, der nur seinen Hash speichert.
   - **Wickelschlüssel:** verschlüsselt den Kontoschlüssel, verlässt aber nie das Gerät.
 - **Unbekannte E-Mail-Adressen:** Der Server gibt dafür ein festes, vorgetäuschtes Salz aus, damit sich nicht testen lässt, welche Adressen ein Konto haben.
-- **Wiederherstellungscode:** 128 Bit, wickelt den Kontoschlüssel ein zweites Mal ein.
+- **Wiederherstellungscode:** 25 Zeichen (125 Bit), wickelt den Kontoschlüssel ein zweites Mal ein. Jede neue Anmeldung (Passwort ändern, Wiederherstellen) erzeugt einen neuen Code, der alte gilt dann nicht mehr.
+- **Server:** speichert nur SHA-256 der abgeleiteten Werte und die beiden versiegelten Schlüssel. Er nimmt Anmeldedaten **nur über die verschlüsselte Verbindung** an (`AccountError::Unencrypted`). Nach 10 Fehlversuchen ist das Konto 15 Minuten gesperrt.
+- **Konten, die per Code entstanden sind**, bekommen E-Mail und Passwort nachträglich (`SetLogin`). Ein Konto mit Anmeldung bleibt bestehen, auch wenn alle Geräte es verlassen.
+- **Geräte im Konto:** Jedes Gerät meldet seinen Computernamen verschlüsselt (`SetLabel`). Der Server ergänzt ID und Online-Status. Andere Geräte lassen sich entfernen (`RemoveDevice`).
+- **App:** Personen-Symbol oben rechts im Hauptfenster öffnet das Konto-Panel (`app/src/Account.svelte`). Ohne Konto zeigt es Anmelden, Registrieren, Mit Code und „Passwort vergessen?“. Mit Konto zeigt es Geräte, „Gerät per Code hinzufügen“, Passwort oder E-Mail ändern und Abmelden.
+- **Tests:** `login_with_password_and_recovery_code` und `logins_need_an_encrypted_connection` (`--test accounts`), dazu `accounts::tests::logins` im Server.
 - Die App spricht über die verschlüsselte Verbindung (Schritt 1), das Webinterface über HTTPS mit einer HTTP-API des Servers hinter Caddy. Die Krypto läuft im Browser, ChaCha20-Poly1305 und Argon2id sind ins Webinterface eingebunden.
 
 ## Später

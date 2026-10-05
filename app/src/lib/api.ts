@@ -100,6 +100,21 @@ export interface AccountView {
   error: string | null;
 }
 
+/** Mirrors `AccountDevice` in crates/core/src/account.rs. */
+export interface AccountDevice {
+  publicKey: string;
+  id: string | null;
+  online: boolean;
+  name: string;
+  this: boolean;
+}
+
+export interface AccountDetails {
+  email: string | null;
+  verified: boolean;
+  devices: AccountDevice[];
+}
+
 export interface DisplayInfo {
   index: number;
   name: string;
@@ -172,6 +187,16 @@ export const api = {
   accountJoin: (code: string) => invoke<void>("account_join", { code }),
   accountLeave: () => invoke<void>("account_leave"),
   accountSync: () => invoke<void>("account_sync"),
+  /** Returns the recovery code, to be shown once. */
+  accountRegister: (email: string, password: string) => invoke<string>("account_register", { email, password }),
+  accountLogin: (email: string, password: string) => invoke<void>("account_login", { email, password }),
+  /** Returns the new recovery code. */
+  accountRecover: (email: string, code: string, password: string) =>
+    invoke<string>("account_recover", { email, code, password }),
+  /** Returns the new recovery code. */
+  accountSetLogin: (email: string, password: string) => invoke<string>("account_set_login", { email, password }),
+  accountDetails: () => invoke<AccountDetails>("account_details"),
+  accountRemoveDevice: (publicKey: string) => invoke<void>("account_remove_device", { publicKey }),
   /** An empty profile removes it; returns the profile as stored. */
   saveProfile: (profile: Profile) => invoke<Profile | null>("save_profile", { profile }),
   forgetPeer: (id: string) => invoke<void>("forget_peer", { id }),

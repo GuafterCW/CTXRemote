@@ -28,6 +28,7 @@
     arrowUp: "M10 16V4M5 9l5-5 5 5",
     chat: "M4.5 3.5h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9.5L6 16.5v-3H4.5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1ZM7 7.5h6M7 10h3.5",
     home: "M3 9.5 10 3.5l7 6M5 8.5v7.5h3.5v-4.5h3V16H15V8.5",
+    user: "M10 10a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5ZM3.5 16.5a6.5 6.5 0 0 1 13 0",
   } as const;
 
   export type IconName = keyof typeof paths;

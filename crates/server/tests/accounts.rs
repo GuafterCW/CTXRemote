@@ -61,3 +61,66 @@ async fn two_devices_share_one_address_book() {
     assert_eq!(account::status(&addr, &b_key).await.unwrap(), None);
     assert_eq!(account::status(&addr, &a_key).await.unwrap().map(|i| i.devices), Some(1));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn login_with_password_and_recovery_code() {
+    let (_server, addr) = start_server().await;
+    let keys: Vec<SigningKey> = (10..14).map(|n| SigningKey::from_bytes(&[n; 32])).collect();
+    let (a, b, c, d) = (&keys[0], &keys[1], &keys[2], &keys[3]);
+    let email = "Philipp@Example.org";
+
+    assert!(account::register(&addr, a, email, "kurz").await.is_err(), "zu kurzes Passwort");
+    let (link_a, code) = account::register(&addr, a, email, "ein langes Passwort").await.unwrap();
+    assert!(account::register(&addr, b, "philipp@example.org", "noch ein Passwort").await.is_err(), "Adresse vergeben");
+    account::set_label(&addr, a, &link_a, "Büro-PC").await.unwrap();
+
+    // The book A writes is readable after logging in elsewhere.
+    let mut config = Config::default();
+    config.set_alias("731004552".parse().unwrap(), Some("Mama")).unwrap();
+    account::sync(&addr, a, &link_a, &Book::from_config(&config)).await.unwrap();
+    assert!(account::login(&addr, b, email, "falsches Passwort!").await.is_err());
+    let link_b = account::login(&addr, b, "philipp@example.org", "ein langes Passwort").await.unwrap();
+    assert_eq!(link_b.key, link_a.key);
+    let (book, _) = account::sync(&addr, b, &link_b, &Book::default()).await.unwrap();
+    let mut other = Config::default();
+    book.apply_to(&mut other);
+    assert_eq!(other.resolve("mama"), Some("731004552".parse().unwrap()));
+
+    // Devices with their names; B sees A's name and itself.
+    let devices = account::devices(&addr, b, &link_b).await.unwrap();
+    assert_eq!(devices.len(), 2);
+    assert!(devices.iter().any(|d| d.name == "Büro-PC" && !d.this));
+    assert!(devices.iter().any(|d| d.this));
+
+    // Recovery: the code gives the key back and sets a new password.
+    let (link_c, new_code) = account::recover(&addr, c, email, &code.to_lowercase(), "das neue Passwort").await.unwrap();
+    assert_eq!(link_c.key, link_a.key);
+    assert_ne!(new_code, code);
+    assert!(account::login(&addr, d, email, "ein langes Passwort").await.is_err(), "altes Passwort");
+    assert!(account::recover(&addr, d, email, &code, "noch ein neues Passwort").await.is_err(), "alter Code");
+    let link_d = account::login(&addr, d, email, "das neue Passwort").await.unwrap();
+    assert_eq!(link_d.key, link_a.key);
+
+    // Removing a device takes it out.
+    let c_key = hex::encode(c.verifying_key().to_bytes());
+    account::remove_device(&addr, a, &c_key).await.unwrap();
+    assert_eq!(account::status(&addr, c).await.unwrap(), None);
+    let status = account::login_status(&addr, a).await.unwrap().unwrap();
+    assert_eq!(status.email, "philipp@example.org");
+}
+
+/// Values derived from passwords never travel unencrypted.
+#[tokio::test(flavor = "multi_thread")]
+async fn logins_need_an_encrypted_connection() {
+    use ctxremote_core::proto::account::{sign, AccountError, AccountOp};
+    use ctxremote_core::proto::framing;
+    use ctxremote_core::proto::rendezvous::{ClientMsg, ServerMsg};
+    let (_server, addr) = start_server().await;
+    let mut t = framing::transport(tokio::net::TcpStream::connect(&addr).await.unwrap());
+    let ServerMsg::Challenge { nonce, .. } = framing::recv::<ServerMsg>(&mut t).await.unwrap() else { panic!() };
+    let op = AccountOp::Login { email: "a@b.de".into(), auth: [1; 32] };
+    let auth = sign(&SigningKey::from_bytes(&[20; 32]), &nonce, &op);
+    framing::send(&mut t, &ClientMsg::Account { auth, op }).await.unwrap();
+    let reply = framing::recv::<ServerMsg>(&mut t).await.unwrap();
+    assert!(matches!(reply, ServerMsg::Account(Err(AccountError::Unencrypted))), "{reply:?}");
+}

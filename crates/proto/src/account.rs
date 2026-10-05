@@ -54,6 +54,79 @@ pub enum AccountOp {
     PutBook { base: u64, blob: Vec<u8> },
     /// Removes this device from its account; the last one deletes it.
     Leave,
+    /// Salt and KDF settings for logging in as `email`. Unknown addresses get
+    /// a made-up but stable salt, so this reveals nothing.
+    Prelogin { email: String },
+    /// Creates an account with a login, this device as its first member.
+    Register { login: LoginSetup },
+    /// Adds or replaces the login of this device's account (new password,
+    /// new address, or a login for an account made by pairing).
+    SetLogin { login: LoginSetup },
+    /// Joins the account of `email`; `auth` is derived from the password.
+    Login { email: String, auth: [u8; 32] },
+    /// Joins the account of `email` with the recovery code instead of the
+    /// password; the device should set a new password right after.
+    Recover { email: String, recovery_auth: [u8; 32] },
+    /// The login of this device's account, if it has one.
+    LoginStatus,
+    /// The devices of this device's account.
+    Devices,
+    /// Removes another device from this device's account.
+    RemoveDevice { public_key: [u8; 32] },
+    /// This device's name for the others, encrypted with the account key.
+    SetLabel { label: Vec<u8> },
+}
+
+/// Everything the server keeps for a login. The password and the account key
+/// never leave the devices: `auth` is derived from the password separately
+/// from the key that seals the account key into `wrapped` (see `docs/ACCOUNTS.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoginSetup {
+    pub email: String,
+    pub salt: [u8; 16],
+    pub kdf: Kdf,
+    pub auth: [u8; 32],
+    pub wrapped: Vec<u8>,
+    pub recovery_auth: [u8; 32],
+    pub recovery_wrapped: Vec<u8>,
+}
+
+/// Argon2id settings of a login.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Kdf {
+    pub memory_kib: u32,
+    pub iterations: u32,
+    pub parallelism: u32,
+}
+
+impl Kdf {
+    /// For new logins: about a second in a browser, much less in the app.
+    pub const CURRENT: Self = Self { memory_kib: 64 * 1024, iterations: 3, parallelism: 1 };
+
+    /// Whether these settings are within what clients accept, so a server
+    /// cannot make them weak or absurdly expensive.
+    pub fn acceptable(&self) -> bool {
+        (19 * 1024..=1024 * 1024).contains(&self.memory_kib)
+            && (2..=10).contains(&self.iterations)
+            && (1..=4).contains(&self.parallelism)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoginInfo {
+    pub email: String,
+    /// The address was confirmed through the link in the mail.
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Member {
+    pub public_key: [u8; 32],
+    /// Its ID, if it is registered as a device.
+    pub device: Option<crate::DeviceId>,
+    pub online: bool,
+    /// Its name, encrypted with the account key; empty if not set.
+    pub label: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +141,13 @@ pub enum AccountReply {
     Book { revision: u64, blob: Vec<u8> },
     Stored { revision: u64 },
     Left,
+    Prelogin { salt: [u8; 16], kdf: Kdf },
+    /// After `Register`, `Login` or `Recover`: the account key as sealed for
+    /// the password (or for the recovery code after `Recover`).
+    LoggedIn { info: AccountInfo, wrapped: Vec<u8> },
+    LoginStatus(Option<LoginInfo>),
+    Devices(Vec<Member>),
+    Done,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +178,38 @@ pub enum AccountError {
     RateLimited,
     #[error("Der Server konnte das Konto nicht speichern")]
     Storage,
+    #[error("Für diese E-Mail-Adresse gibt es schon ein Konto")]
+    EmailTaken,
+    #[error("E-Mail-Adresse oder Passwort stimmen nicht")]
+    WrongPassword,
+    #[error("Zu viele falsche Versuche, das Konto ist für 15 Minuten gesperrt")]
+    Locked,
+    #[error("Bitte eine gültige E-Mail-Adresse angeben")]
+    InvalidEmail,
+    #[error("Die Verbindung zum Server ist nicht verschlüsselt, Anmelden ist so nicht möglich (Update nötig)")]
+    Unencrypted,
+}
+
+impl AccountOp {
+    /// Requests that carry values derived from a password or recovery code;
+    /// the server takes them only over an encrypted connection.
+    pub fn carries_secrets(&self) -> bool {
+        matches!(self, Self::Register { .. } | Self::SetLogin { .. } | Self::Login { .. } | Self::Recover { .. })
+    }
+}
+
+/// An address in canonical form (trimmed, lowercase), if it looks like one.
+pub fn normalize_email(email: &str) -> Option<String> {
+    let email = email.trim().to_lowercase();
+    let (local, domain) = email.split_once('@')?;
+    let ok = !local.is_empty()
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && email.len() <= 254
+        && !email.chars().any(|c| c.is_whitespace() || c.is_control())
+        && !domain.contains('@');
+    ok.then_some(email)
 }
 
 fn signed_payload(nonce: &Nonce, op: &AccountOp) -> Vec<u8> {
@@ -156,6 +268,16 @@ mod tests {
         // A registration signature over the same nonce is no account signature.
         let register = DeviceAuth { signature: crate::rendezvous::sign_challenge(&key, &[1; 32]), ..auth };
         assert!(!verify(&register, &[1; 32], &AccountOp::GetBook));
+    }
+
+    #[test]
+    fn emails() {
+        assert_eq!(normalize_email(" Philipp@Example.ORG ").as_deref(), Some("philipp@example.org"));
+        for bad in ["", "a@b", "@b.de", "a@.de", "a@b.", "a b@c.de", "a@b@c.de"] {
+            assert_eq!(normalize_email(bad), None, "{bad}");
+        }
+        assert!(Kdf::CURRENT.acceptable());
+        assert!(!Kdf { memory_kib: 1024, ..Kdf::CURRENT }.acceptable());
     }
 
     #[test]
