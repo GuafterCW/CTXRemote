@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time setup of the website on the server, after setup-server.sh. Run as root:
 #
-#   bash setup-website.sh [domain]            (default: remote.ctx.ink)
+#   bash setup-website.sh [domain]            (default: ctxremote.ctx.ink)
 #   bash setup-website.sh --docker [domain]   Caddy runs in a container: only
 #                                             creates the folder and prints the
 #                                             block and the volume to add
@@ -21,7 +21,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 docker=false
 if [ "${1:-}" = "--docker" ]; then docker=true; shift; fi
-domain="${1:-remote.ctx.ink}"
+domain="${1:-ctxremote.ctx.ink}"
 id ctxremote >/dev/null 2>&1 || { echo "Erst setup-server.sh ausführen." >&2; exit 1; }
 
 if $docker; then

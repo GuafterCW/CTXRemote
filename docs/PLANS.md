@@ -55,7 +55,7 @@ Gewählt wurde „jeder Kunde sein eigenes Branding“. Zwei Wege:
   - Updates müssten je Kunde gebaut werden.
 - **B: Eine Datei, Branding zur Laufzeit (Empfehlung):**
   - Es gibt nur eine signierte Schnellhilfe.
-  - Der Kunde lädt sie über seinen Link herunter, z. B. `remote.ctx.ink/h/ecker-it`.
+  - Der Kunde lädt sie über seinen Link herunter, z. B. `ctxremote.ctx.ink/h/ecker-it`.
   - Der Server hängt ein kleines, signiertes Branding-Paket an die Datei an (Name, Logo, Farbe, Texte, Telefonnummer), ohne die Code-Signatur zu brechen. Windows erlaubt Daten im Signatur-Bereich am Dateiende, wie es Chrome bei Installer-Tags macht.
   - Beim Start liest die Schnellhilfe das Paket, prüft die Signatur des Servers und zeigt das Branding.
   - Ohne gültiges Paket erscheint das normale CTXRemote-Aussehen.
@@ -110,7 +110,7 @@ Jeder Schritt ist für sich nutzbar:
 ## Entscheidungen des Nutzers (5. Oktober 2026)
 
 - **Noch keine Firma.** Verkauft wird erst, wenn es eine gibt. Bis dahin baue ich nichts, was Geld annimmt.
-- **Später über die eigene Website mit Stripe**, noch nicht endgültig festgelegt. Die Website gibt es jetzt (`website/`, https://remote.ctx.ink). Konten und Kundenbereich gehören später dorthin.
+- **Später über die eigene Website mit Stripe**, noch nicht endgültig festgelegt. Die Website gibt es jetzt (`website/`, https://ctxremote.ctx.ink). Konten und Kundenbereich gehören später dorthin.
 - **Free nur für private Nutzung**, gewerblich nicht. Das steht so auf der Preisseite. Durchsetzen lässt es sich erst mit Konten und AGB.
 - **Selbst-Hosting wird erst einmal nicht angeboten.** Die Website erwähnt es nicht. Der Code bleibt AGPL, die Frage nach einer kommerziellen Lizenz stellt sich damit vorerst nicht.
 

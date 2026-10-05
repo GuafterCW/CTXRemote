@@ -215,7 +215,11 @@ Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb je
 3. Nach etwa 3 Minuten muss die App-Version (unten in den Einstellungen) die neue Nummer zeigen.
 4. Das Protokoll steht in `C:\ProgramData\CTXRemote\logs\service.log` und enthält „Update verfügbar“ und „Update wird installiert“.
 
-## Website (https://remote.ctx.ink)
+## Website (https://ctxremote.ctx.ink)
+
+**Warum nicht `remote.ctx.ink`:** Die Adresse der App muss bei Cloudflare auf „Nur DNS“ stehen, weil Port 21300 nicht durch den Proxy geht. Caddy hat beim Nutzer aber das Cloudflare-Origin-Zertifikat für `*.ctx.ink` geladen und holt deshalb für `remote.ctx.ink` kein eigenes. Der Browser bekäme also das Origin-Zertifikat zu sehen und lehnt es ab. Die Website läuft deshalb unter `ctxremote.ctx.ink` **mit** Cloudflare-Proxy, wie die anderen Seiten auch. `remote.ctx.ink` bleibt allein für die App. Ausprobiert, aber verworfen:
+- `tls { issuer … }` im Block hilft nicht.
+- `auto_https ignore_loaded_certs` würde Zertifikate für alle Seiten anfordern.
 
 Die Website liegt im Ordner `website/`: statische Seiten ohne JavaScript, im Design der App. Jeder Push nach `master` liefert sie zusammen mit dem Server aus:
 - Die Seiten gehen nach `/var/www/ctxremote/site`. Das ist ein Symlink auf die neueste Fassung und wird atomar umgeschaltet.
@@ -231,15 +235,15 @@ Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werd
 3. **Auf dem Server** als root, aus dem Ordner mit den Einrichtungsdateien (Schritt 3 oben; `deploy/setup-website.sh` vorher mit hineinkopieren):
 
    ```bash
-   # bash setup-website.sh remote.ctx.ink
+   # bash setup-website.sh ctxremote.ctx.ink
    ```
 
-   Erwartet: „Website eingerichtet für https://remote.ctx.ink“. Läuft Caddy dort schon als Dienst, bleiben deine bestehenden Seiten unverändert: Das Skript legt nur `/etc/caddy/ctxremote.caddy` an, hängt eine `import`-Zeile an die `Caddyfile` und nimmt beides zurück, falls die Konfiguration danach ungültig wäre.
+   Erwartet: „Website eingerichtet für https://ctxremote.ctx.ink“. Läuft Caddy dort schon als Dienst, bleiben deine bestehenden Seiten unverändert: Das Skript legt nur `/etc/caddy/ctxremote.caddy` an, hängt eine `import`-Zeile an die `Caddyfile` und nimmt beides zurück, falls die Konfiguration danach ungültig wäre.
 
    **Caddy im Docker-Container** (so beim Nutzer): stattdessen
 
    ```bash
-   # bash setup-website.sh --docker remote.ctx.ink
+   # bash setup-website.sh --docker ctxremote.ctx.ink
    ```
 
    Das legt nur den Ordner `/var/www/ctxremote` an und gibt zwei Dinge aus, die du selbst einträgst. Am Server selbst ändert es nichts.
@@ -247,10 +251,10 @@ Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werd
    - den Block für die Caddyfile des Containers, mit den Pfaden `/srv/ctxremote`
 
    Danach den Container mit dem neuen Volume neu erstellen (`docker compose up -d caddy`). Der Symlink `site` ist relativ, funktioniert also auch unter dem anderen Pfad im Container.
-4. **Einmal nach `master` pushen** (oder den Release-Workflow von Hand starten). Danach zeigt https://remote.ctx.ink die Seite.
+4. **Einmal nach `master` pushen** (oder den Release-Workflow von Hand starten). Danach zeigt https://ctxremote.ctx.ink die Seite.
 5. **Vor dem Veröffentlichen** in `website/impressum.html` und `website/datenschutz.html` die markierten Platzhalter ersetzen, also Name, Anschrift und E-Mail. Bei Hetzner im Robot den **Vertrag zur Auftragsverarbeitung** abschließen, die Datenschutzerklärung verweist darauf.
 
-Prüfen: `curl -I https://remote.ctx.ink` muss `HTTP/2 200` liefern, `ls -l /var/www/ctxremote` zeigt `site -> site-…` und `download/`.
+Prüfen: `curl -I https://ctxremote.ctx.ink` muss `HTTP/2 200` liefern, `ls -l /var/www/ctxremote` zeigt `site -> site-…` und `download/`.
 
 Ohne `setup-website.sh` lässt die Pipeline die Website einfach aus. Server und Updates laufen wie bisher.
 

@@ -148,9 +148,9 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
   - Download: Installer und Schnellhilfe, mit SmartScreen-Hinweis
   - Preise: Free privat kostenlos, Pro und Ultra „bald verfügbar“, ohne Preise
   - Impressum und Datenschutz als Vorlagen mit **markierten Platzhaltern** (`<span class="todo">`), die der Nutzer füllen muss
-- **Adresse und Server:** https://remote.ctx.ink auf dem Hetzner-Server, ausgeliefert von Caddy. Einrichtung einmalig mit `deploy/setup-website.sh`, siehe `docs/DEPLOY.md`, Abschnitt „Website“.
+- **Adresse und Server:** https://ctxremote.ctx.ink (**online seit 5. Oktober**, hinter dem Cloudflare-Proxy) auf dem Hetzner-Server, ausgeliefert vom Caddy-Docker-Container des Nutzers. Nicht `remote.ctx.ink`, weil dort das Cloudflare-Origin-Zertifikat für `*.ctx.ink` greifen würde (siehe DEPLOY.md). Einrichtung einmalig mit `deploy/setup-website.sh`, siehe `docs/DEPLOY.md`, Abschnitt „Website“.
   - **Caddy des Nutzers läuft in Docker** mit weiteren Seiten. Deshalb `setup-website.sh --docker`: Es legt nur den Ordner an und gibt Volume und Caddy-Block aus. Ohne `--docker` bricht das Skript ab, wenn die Ports fremd belegt sind.
-  - **Offen beim Nutzer:** `setup-website.sh --docker` ausführen, Volume und Block in den Container eintragen, Platzhalter füllen, AVV mit Hetzner abschließen.
+  - **Offen beim Nutzer:** Platzhalter in Impressum und Datenschutz füllen, AVV mit Hetzner abschließen.
 - **Pipeline:** `release.yml` packt `website/`, die Version und die Downloads unter festen Namen dazu. `remote-deploy.sh` schaltet die Seite per Symlink atomar um, aber nur, wenn `/var/www/ctxremote` existiert.
 - **Selbst-Hosting** bietet die Seite bewusst nicht an (Entscheidung des Nutzers).
 - Die App-Screenshots in `website/img/` stammen aus dem Frontend mit nachgebauter Tauri-API. Bei sichtbaren UI-Änderungen neu erzeugen.
@@ -212,7 +212,7 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
 2. Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig). UDP-Weg auch für die Schnellhilfe als Host (braucht Token-Verwaltung ohne TCP-Listener).
 3. Adressbuch und Geräteverwaltung über den Server, Code-Signatur (braucht ein Konto bei Microsoft Trusted Signing).
-4. Bezahlte Pläne nach `docs/PLANS.md`. Erst wenn es eine Firma gibt. Schritt 1 (Konten und Adressbuch) ginge auch vorher schon. Konten gehören auf die Website (remote.ctx.ink), später mit Stripe.
+4. Bezahlte Pläne nach `docs/PLANS.md`. Erst wenn es eine Firma gibt. Schritt 1 (Konten und Adressbuch) ginge auch vorher schon. Konten gehören auf die Website (ctxremote.ctx.ink), später mit Stripe.
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 
