@@ -340,3 +340,45 @@ async fn host_sees_that_the_viewer_records() {
     .unwrap();
     assert_eq!(host.recording_sessions(), vec![number]);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn port_tunnel_needs_its_right_and_carries_data() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let echo = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let target = echo.local_addr().unwrap().to_string();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = echo.accept().await {
+            tokio::spawn(async move {
+                let (mut r, mut w) = s.split();
+                let _ = tokio::io::copy(&mut r, &mut w).await;
+            });
+        }
+    });
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+    let (session, _events) = connect(&addr, &host, id).await;
+    let number = host.sessions()[0].0;
+    let port = session.tunnels().open(0, &target).await.unwrap();
+
+    // One-time password: no way into the host's network.
+    let mut refused = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let mut buf = [0u8; 8];
+    let n = tokio::time::timeout(Duration::from_secs(15), refused.read(&mut buf)).await.unwrap();
+    assert!(matches!(n, Ok(0) | Err(_)), "ohne Recht muss die Verbindung enden");
+
+    host.set_rights(number, Permissions::ALL).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let payload: Vec<u8> = (0..1_000_000u32).map(|i| (i % 253) as u8).collect();
+    let (mut r, mut w) = socket.split();
+    let send = async {
+        w.write_all(&payload).await.unwrap();
+        w.shutdown().await.unwrap();
+    };
+    let mut back = Vec::new();
+    let (_, got) = tokio::time::timeout(Duration::from_secs(30), async { tokio::join!(send, r.read_to_end(&mut back)) })
+        .await
+        .expect("Tunnel hängt");
+    got.unwrap();
+    assert!(back == payload, "{} von {} Bytes zurück", back.len(), payload.len());
+}

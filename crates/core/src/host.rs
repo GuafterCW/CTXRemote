@@ -10,7 +10,7 @@ use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, ServerMsg, SessionId};
 use ctxremote_proto::framing::Transport;
 use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender, TransportStream};
-use ctxremote_proto::session::{Features, FileOp, HelloExtras, HostMsg, InputEvent, Permissions, Transfer, ViewerMsg, MAX_CHAT};
+use ctxremote_proto::session::{Features, FileOp, HelloExtras, HostMsg, InputEvent, Permissions, Transfer, TunnelMsg, ViewerMsg, MAX_CHAT};
 use ctxremote_proto::DeviceId;
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -707,6 +707,7 @@ fn needed_right(msg: &ViewerMsg) -> Option<u32> {
         ViewerMsg::SetAudio(true) => Some(Permissions::AUDIO),
         ViewerMsg::Restart => Some(Permissions::RESTART),
         ViewerMsg::Privacy(true) => Some(Permissions::PRIVACY),
+        ViewerMsg::Tunnel(TunnelMsg::Open { .. }) => Some(Permissions::TUNNEL),
         _ => None,
     }
 }
@@ -751,6 +752,9 @@ async fn run_session(
     let mut rights = *route.rights.borrow_and_update();
     // Transfers stopped because files were taken away; later parts are dropped.
     let mut stopped: HashSet<u32> = HashSet::new();
+    // Port tunnels into this network; their traffic goes out with the rest.
+    let (tunnel_out, mut tunnel_rx) = mpsc::unbounded_channel::<TunnelMsg>();
+    let tunnels = crate::tunnel::TunnelHost::new(tunnel_out);
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -829,6 +833,7 @@ async fn run_session(
                     },
                 },
                 Some(text) = route.chat.recv() => tx.send(&HostMsg::Chat(text)).await?,
+                Some(msg) = tunnel_rx.recv() => tx.send(&HostMsg::Tunnel(msg)).await?,
                 Ok(()) = route.rights.changed() => {
                     rights = *route.rights.borrow_and_update();
                     info!(rights = rights.0, "Rechte der Sitzung geändert");
@@ -842,6 +847,9 @@ async fn run_session(
                     if audio_on && !rights.has(Permissions::AUDIO) {
                         audio_on = false;
                         let _ = to_agent.send(ViewerMsg::SetAudio(false)).await;
+                    }
+                    if !rights.has(Permissions::TUNNEL) {
+                        tunnels.close_all();
                     }
                     if route.privacy.load(Ordering::Relaxed) && !rights.has(Permissions::PRIVACY) {
                         // The agent confirms with `Privacy { on: false }`.
@@ -874,12 +882,16 @@ async fn run_session(
                                 tx.send(&HostMsg::Transfer { id, msg: Transfer::Cancel }).await?;
                             }
                         }
+                        ViewerMsg::Tunnel(TunnelMsg::Open { id, .. }) => {
+                            tunnels.refuse(id, "Port-Tunnel sind in dieser Sitzung nicht erlaubt");
+                        }
                         ViewerMsg::Privacy(_) if route.features.has(Features::PRIVACY) => {
                             let error = Some("Der Privatsphäre-Modus ist in dieser Sitzung nicht erlaubt".to_string());
                             tx.send(&HostMsg::Privacy { on: false, error }).await?;
                         }
                         other => debug!("Nicht erlaubt in dieser Sitzung: {other:?}"),
                     },
+                    Some(ViewerMsg::Tunnel(msg)) => tunnels.handle(msg),
                     // Only shown here; recording itself happens at the viewer.
                     Some(ViewerMsg::Recording(on)) => {
                         route.recording.store(on, Ordering::Relaxed);
@@ -953,6 +965,8 @@ async fn run_session(
     }
     .await;
 
+    // Tunnels hold their sockets until cut.
+    tunnels.close_all();
     // Dropping the sender ends the screen side.
     drop(to_agent);
     drop(from_agent);

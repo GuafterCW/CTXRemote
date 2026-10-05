@@ -26,6 +26,7 @@ pub mod sas;
 pub mod sysinfo;
 pub mod totp;
 pub mod ui_link;
+pub mod tunnel;
 pub mod update;
 pub mod viewer;
 pub mod wol;

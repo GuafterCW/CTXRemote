@@ -746,6 +746,7 @@ struct Features {
     file_paste: bool,
     sysinfo: bool,
     recording: bool,
+    tunnel: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -761,6 +762,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             file_paste: f.has(F::FILE_PASTE),
             sysinfo: f.has(F::SYSINFO),
             recording: f.has(F::RECORDING),
+            tunnel: f.has(F::TUNNEL),
         }
     }
 }
@@ -859,6 +861,30 @@ fn stop_recording(state: State<AppState>, session: u32) -> CmdResult<Vec<String>
     let Some(mut recording) = recording else { return Ok(Vec::new()) };
     recording.close();
     Ok(recording.files.iter().map(|p| p.to_string_lossy().into_owned()).collect())
+}
+
+/// Opens a port tunnel: `127.0.0.1:port` here (0: any free port) leads to
+/// `target` in the host's network. Returns the port.
+#[tauri::command]
+async fn open_tunnel(state: State<'_, AppState>, session: u32, port: Option<u16>, target: String) -> CmdResult<u16> {
+    let tunnels = {
+        let viewers = state.viewers.lock().unwrap();
+        let viewer = viewers.get(&session).ok_or("Die Sitzung ist beendet")?;
+        viewer.session.tunnels().clone()
+    };
+    tunnels.open(port.unwrap_or(0), &target).await.map_err(chain)
+}
+
+#[tauri::command]
+fn close_tunnel(state: State<AppState>, session: u32, port: u16) {
+    with_viewer(&state, session, |s| s.tunnels().close(port));
+}
+
+#[tauri::command]
+fn list_tunnels(state: State<AppState>, session: u32) -> Vec<ctxremote_core::tunnel::TunnelInfo> {
+    let mut list = Vec::new();
+    with_viewer(&state, session, |s| list = s.tunnels().list());
+    list
 }
 
 /// Asks the host about its computer; the answer arrives as `system-info`.
@@ -1187,6 +1213,9 @@ macro_rules! handlers {
             set_audio,
             set_privacy,
             request_system_info,
+            open_tunnel,
+            close_tunnel,
+            list_tunnels,
             start_recording,
             stop_recording,
             paste_files,

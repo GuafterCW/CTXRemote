@@ -28,7 +28,7 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false });
   /** What the host allows; null from older hosts, which allow everything. */
   let rights = $state<number | null>(null);
   const can = (right: number) => rights === null || (rights & right) !== 0;
@@ -67,6 +67,38 @@
     } catch (e) {
       showNotice(errorText(e));
     }
+  }
+
+  /** Port tunnels: local ports leading into the host's network. */
+  let tunnelOpen = $state(false);
+  let tunnels = $state<{ port: number; target: string }[]>([]);
+  let tunnelTarget = $state("");
+  let tunnelPort = $state("");
+  let tunnelError = $state("");
+
+  async function toggleTunnels() {
+    tunnelOpen = !tunnelOpen;
+    infoOpen = false;
+    if (tunnelOpen) tunnels = await api.listTunnels(session).catch(() => []);
+  }
+
+  async function openTunnel(e: SubmitEvent) {
+    e.preventDefault();
+    tunnelError = "";
+    const port = tunnelPort.trim() ? Number(tunnelPort) : undefined;
+    try {
+      await api.openTunnel(session, tunnelTarget, port);
+      tunnelTarget = "";
+      tunnelPort = "";
+      tunnels = await api.listTunnels(session);
+    } catch (err) {
+      tunnelError = errorText(err);
+    }
+  }
+
+  async function closeTunnel(port: number) {
+    await api.closeTunnel(session, port).catch(() => {});
+    tunnels = await api.listTunnels(session).catch(() => []);
   }
 
   /** The info panel about the host's computer. */
@@ -381,6 +413,7 @@
 
   function toggleInfo() {
     infoOpen = !infoOpen;
+    tunnelOpen = false;
     // Fresh each time it opens: disks and memory change.
     if (infoOpen) api.requestSystemInfo(session).catch(() => {});
   }
@@ -670,6 +703,11 @@
         <Icon name="record" size={17} />
         {#if recordingSince !== null}<span class="rec-time">{recordingFor}</span>{/if}
       </button>
+      {#if features.tunnel && can(RIGHT.TUNNEL)}
+        <button class="tool" class:active={tunnelOpen} title="Port-Tunnel ins Netzwerk des Geräts" onclick={toggleTunnels}>
+          <Icon name="tunnel" size={17} />
+        </button>
+      {/if}
       {#if features.sysinfo}
         <button class="tool" class:active={infoOpen} title="Informationen zum Gerät" onclick={toggleInfo}>
           <Icon name="info" size={17} />
@@ -713,6 +751,36 @@
         <Icon name="close" size={14} />
       </button>
     </div>
+  {/if}
+
+  {#if tunnelOpen && closed === null}
+    <aside class="info-box" aria-label="Port-Tunnel">
+      <header>
+        <strong>Port-Tunnel</strong>
+        <button class="offer-close" title="Schließen" onclick={() => (tunnelOpen = false)}>
+          <Icon name="close" size={14} />
+        </button>
+      </header>
+      <p class="info-wait">
+        Verbindungen zu einem Port auf diesem Computer gehen über das Gerät an ein Ziel in dessen Netz, z. B. Remotedesktop
+        (Port 3389) auf einem Server dort.
+      </p>
+      {#each tunnels as t (t.port)}
+        <div class="tunnel-row">
+          <code>localhost:{t.port}</code>
+          <span>→ {t.target}</span>
+          <button class="offer-close" title="Tunnel schließen" onclick={() => closeTunnel(t.port)}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      {/each}
+      <form class="tunnel-form" onsubmit={openTunnel}>
+        <input class="tunnel-field" bind:value={tunnelTarget} placeholder="Ziel, z. B. 192.168.1.10:3389" spellcheck="false" />
+        <input class="tunnel-field port" bind:value={tunnelPort} inputmode="numeric" placeholder="Port hier (frei)" />
+        <button class="offer-btn" disabled={!tunnelTarget.includes(":")}>Öffnen</button>
+      </form>
+      {#if tunnelError}<p class="tunnel-error">{tunnelError}</p>{/if}
+    </aside>
   {/if}
 
   {#if infoOpen && closed === null}
@@ -1016,6 +1084,47 @@
     height: 100%;
     border-radius: 2px;
     background: #4fb495;
+  }
+
+  .tunnel-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+  }
+
+  .tunnel-row span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tunnel-form {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .tunnel-field {
+    flex: 1;
+    min-width: 0;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid #3b3a37;
+    border-radius: 6px;
+    background: #23221f;
+    color: inherit;
+    font: inherit;
+  }
+
+  .tunnel-field.port {
+    flex: 0 0 110px;
+  }
+
+  .tunnel-error {
+    margin: 6px 0 0;
+    color: #e5654f;
   }
 
   .info-wait {

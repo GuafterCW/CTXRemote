@@ -167,6 +167,8 @@ export interface HostFeatures {
   sysinfo: boolean;
   /** Shows the person there that the session is recorded. */
   recording: boolean;
+  /** Carries port tunnels into its network. */
+  tunnel: boolean;
 }
 
 /** Mirrors `SystemInfo` in crates/proto/src/session.rs. */
@@ -197,6 +199,7 @@ export const RIGHT = {
   AUDIO: 1 << 3,
   RESTART: 1 << 4,
   PRIVACY: 1 << 5,
+  TUNNEL: 1 << 6,
 } as const;
 
 /** Mirrors `Quality` in crates/proto/src/session.rs. */
@@ -315,6 +318,11 @@ export const api = {
   setAudio: (session: number, on: boolean) => invoke<boolean>("set_audio", { session, on }),
   /** Blanks the host's screen and blocks its local input, or ends that. */
   setPrivacy: (session: number, on: boolean) => invoke<boolean>("set_privacy", { session, on }),
+  /** `127.0.0.1:port` here leads to `target` behind the host; returns the port. */
+  openTunnel: (session: number, target: string, port?: number) =>
+    invoke<number>("open_tunnel", { session, target, port: port ?? null }),
+  closeTunnel: (session: number, port: number) => invoke<void>("close_tunnel", { session, port }),
+  listTunnels: (session: number) => invoke<{ port: number; target: string }[]>("list_tunnels", { session }),
   /** Records the session as MP4 into the video folder; returns the folder. */
   startRecording: (session: number) => invoke<string>("start_recording", { session }),
   /** Ends the recording; returns the files written. */

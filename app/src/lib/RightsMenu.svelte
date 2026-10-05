@@ -19,9 +19,12 @@
     [RIGHT.AUDIO, "Ton"],
     [RIGHT.RESTART, "Neu starten"],
   ];
-  const items = $derived(
-    allowPrivacy ? [...ITEMS, [RIGHT.PRIVACY, "Bildschirm hier schwarz schalten"] as [number, string]] : ITEMS,
-  );
+  // Only where nobody needs to sit at the computer (not in the quick helper).
+  const UNATTENDED: [number, string][] = [
+    [RIGHT.PRIVACY, "Bildschirm hier schwarz schalten"],
+    [RIGHT.TUNNEL, "Port-Tunnel in dieses Netz"],
+  ];
+  const items = $derived(allowPrivacy ? [...ITEMS, ...UNATTENDED] : ITEMS);
   const viewOnly = $derived((hosted.rights & RIGHT.INPUT) === 0);
 
   async function toggle(bit: number) {

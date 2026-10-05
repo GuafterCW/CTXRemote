@@ -54,6 +54,24 @@ pub enum HostMsg {
     ClipboardFiles(Vec<String>),
     /// The answer to [`ViewerMsg::GetSystemInfo`].
     SystemInfo(SystemInfo),
+    /// A port tunnel's traffic (host → viewer); see [`TunnelMsg`].
+    Tunnel(TunnelMsg),
+}
+
+/// Port tunnels: TCP connections the viewer accepts locally and the host
+/// opens to a target in its network, carried inside the session. Each side
+/// keeps at most a window of unacknowledged bytes per connection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TunnelMsg {
+    /// Viewer → host: connect to `target` ("host:port") for connection `id`.
+    Open { id: u32, target: String },
+    /// Host → viewer: the connection stands, or why not.
+    Opened { id: u32, result: Result<(), String> },
+    Data { id: u32, data: Vec<u8> },
+    /// The receiver passed on `bytes` more; the sender may send that much again.
+    Ack { id: u32, bytes: u32 },
+    /// The sender's side ended (or failed); no more data follows.
+    Close { id: u32 },
 }
 
 /// What the host's computer is, for the viewer's info panel.
@@ -110,11 +128,15 @@ impl Permissions {
     pub const RESTART: u32 = 1 << 4;
     /// Blank the host's screen and block its local input.
     pub const PRIVACY: u32 = 1 << 5;
+    /// Port tunnels into the host's network.
+    pub const TUNNEL: u32 = 1 << 6;
 
-    pub const ALL: Self =
-        Self(Self::INPUT | Self::FILES | Self::CLIPBOARD | Self::AUDIO | Self::RESTART | Self::PRIVACY);
-    /// For someone sitting at the host: everything but blanking their screen.
-    pub const ATTENDED: Self = Self(Self::ALL.0 & !Self::PRIVACY);
+    pub const ALL: Self = Self(
+        Self::INPUT | Self::FILES | Self::CLIPBOARD | Self::AUDIO | Self::RESTART | Self::PRIVACY | Self::TUNNEL,
+    );
+    /// For someone sitting at the host: no blanking their screen, no way
+    /// into their network.
+    pub const ATTENDED: Self = Self(Self::ALL.0 & !Self::PRIVACY & !Self::TUNNEL);
     pub const VIEW_ONLY: Self = Self(0);
 
     pub fn has(self, right: u32) -> bool {
@@ -168,6 +190,8 @@ impl Features {
     pub const SYSINFO: u32 = 1 << 14;
     /// Shows `Recording` to the person at the host.
     pub const RECORDING: u32 = 1 << 15;
+    /// Carries port tunnels (`Tunnel`).
+    pub const TUNNEL: u32 = 1 << 16;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -186,7 +210,8 @@ impl Features {
             | Self::CODE
             | Self::FILE_PASTE
             | Self::SYSINFO
-            | Self::RECORDING,
+            | Self::RECORDING
+            | Self::TUNNEL,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -356,6 +381,8 @@ pub enum ViewerMsg {
     /// The viewer records the session (or stopped); the host shows it to the
     /// person there. Only to hosts with [`Features::RECORDING`].
     Recording(bool),
+    /// A port tunnel's traffic (viewer → host); only to hosts with [`Features::TUNNEL`].
+    Tunnel(TunnelMsg),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

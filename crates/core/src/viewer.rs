@@ -7,13 +7,14 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
-use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, Permissions, SystemInfo, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, Permissions, SystemInfo, TunnelMsg, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 use tracing::{debug, info};
 
+use crate::tunnel::TunnelClient;
 use crate::files::client::{FileClient, TransferEvent};
 use crate::net;
 use crate::punch::PunchViewer;
@@ -78,6 +79,7 @@ pub struct ViewerSession {
     pub features: Features,
     outbox: mpsc::UnboundedSender<ViewerMsg>,
     files: Arc<FileClient>,
+    tunnels: Arc<TunnelClient>,
 }
 
 impl ViewerSession {
@@ -145,6 +147,7 @@ impl ViewerSession {
                                 features.has(Features::FILE_PASTE)
                             }
                             ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => features.has(Features::FILES),
+                            ViewerMsg::Tunnel(_) => features.has(Features::TUNNEL),
                             ViewerMsg::Restart => features.has(Features::RESTART),
                             ViewerMsg::SetQuality(_) => features.has(Features::QUALITY),
                             ViewerMsg::Chat(_) => features.has(Features::CHAT),
@@ -176,6 +179,19 @@ impl ViewerSession {
         });
 
         let router = files.clone();
+        // Tunnel traffic joins the session's outgoing messages.
+        let (tunnel_out, mut tunnel_msgs) = mpsc::unbounded_channel::<TunnelMsg>();
+        let tunnels = TunnelClient::new(tunnel_out);
+        let tunnel_router = tunnels.clone();
+        let tunnel_outbox = outbox.downgrade();
+        tokio::spawn(async move {
+            while let Some(msg) = tunnel_msgs.recv().await {
+                let Some(outbox) = tunnel_outbox.upgrade() else { break };
+                if outbox.send(ViewerMsg::Tunnel(msg)).is_err() {
+                    break;
+                }
+            }
+        });
         // Weak, so this task does not keep the sending side alive.
         let (server, answers) = (server.to_string(), outbox.downgrade());
         tokio::spawn(async move {
@@ -250,6 +266,7 @@ impl ViewerSession {
                     Ok(Some(HostMsg::Rights(rights))) => on_event(ViewerEvent::Rights(rights)),
                     Ok(Some(HostMsg::ClipboardFiles(paths))) => on_event(ViewerEvent::ClipboardFiles(paths)),
                     Ok(Some(HostMsg::SystemInfo(info))) => on_event(ViewerEvent::SystemInfo(info)),
+                    Ok(Some(HostMsg::Tunnel(msg))) => tunnel_router.handle(msg),
                     Ok(Some(HostMsg::Privacy { on, error })) => on_event(ViewerEvent::Privacy { on, error }),
                     Ok(Some(HostMsg::Chat(text))) => {
                         if let Some(text) = crate::host::chat_text(&text) {
@@ -265,10 +282,11 @@ impl ViewerSession {
                 }
             };
             router.closed();
+            tunnel_router.closed();
             on_event(ViewerEvent::Closed(reason));
         });
 
-        Ok(Self { host, features, outbox, files })
+        Ok(Self { host, features, outbox, files, tunnels })
     }
 
     pub fn send(&self, msg: ViewerMsg) {
@@ -315,6 +333,11 @@ impl ViewerSession {
         }
         self.send(ViewerMsg::Privacy(on));
         true
+    }
+
+    /// Port tunnels through the host; empty for hosts without [`Features::TUNNEL`].
+    pub fn tunnels(&self) -> &Arc<TunnelClient> {
+        &self.tunnels
     }
 
     pub fn files(&self) -> &Arc<FileClient> {

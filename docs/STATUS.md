@@ -345,6 +345,13 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - Noch ohne Ton.
 - Getestet: Aufnahme aus dem echten Encoder, mit ffprobe/ffmpeg geprüft (Bildzahl, Größe, Dauer, vollständig dekodierbar, halbe Datei abspielbar) und `--test sessions` (`host_sees_that_the_viewer_records`). Unter Windows ungetestet: ob Windows' eigener Player die Dateien abspielt.
 
+### Port-Tunnel (5. Oktober, Cloud-Sitzung)
+
+- Tunnel-Knopf im Sitzungsfenster: Man gibt ein Ziel im Netz des Geräts an (z. B. `192.168.1.10:3389`). Die App lauscht dann auf `127.0.0.1:<Port>`, frei gewählt oder vorgegeben. Jede Verbindung dorthin öffnet das Gerät zum Ziel. Die Daten laufen in der Sitzung mit (`TunnelMsg`, Fähigkeit `TUNNEL`, `crates/core/src/tunnel.rs`).
+- Pro Verbindung und Richtung sind höchstens 256 KiB unbestätigt unterwegs, damit ein großer Transfer das Bild nicht verdrängt. Halb geschlossene Verbindungen werden korrekt behandelt.
+- Eigenes Recht `TUNNEL`. Standard: nur unbeaufsichtigt erlaubt. Wer die Rechte schon gespeichert hat, muss es in den Einstellungen einschalten. Entziehen schließt alle Tunnel sofort. In der Schnellhilfe gibt es das Recht nicht.
+- Getestet: Tunnel ohne Netz (Gegenrichtung, Flusskontrolle, unerreichbares Ziel) und `--test sessions` (`port_tunnel_needs_its_right_and_carries_data`, 1 MB über den echten Server und zurück, vorher Ablehnung ohne Recht).
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -450,6 +457,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 28. Systeminfo: In einer Sitzung den Infoknopf (i) drücken. Stimmen Windows-Version, Modell, Prozessor, Speicher, Laufwerke und Netzwerk? Was steht mit Dienst beim Benutzer?
 29. Wake-on-LAN: Einmal mit einem PC im selben Netz verbinden, damit die MAC gelernt wird. PC herunterfahren, Wake-on-LAN im BIOS aktiv. In der Geräteliste den Aufweck-Knopf drücken: Startet der PC? Erscheint der Knopf auch auf dem zweiten Gerät im Konto?
 30. Aufzeichnung: In einer Sitzung den Aufnahmeknopf drücken, etwas tun, den Bildschirm wechseln, beenden. Am Gerät muss „● Aufnahme“ im Banner gestanden haben. Spielen die Dateien in `Videos\CTXRemote` mit dem Windows-Player (Filme & TV / Medienwiedergabe) und VLC? Stimmt das Tempo?
+31. Port-Tunnel: Mit festem Passwort verbinden (oder „Port-Tunnel“ im Rechte-Menü erlauben). Tunnel-Knopf, Ziel z. B. ein anderer PC im Netz des Geräts mit `:3389`. Dann lokal `mstsc /v:localhost:<Port>`: Die RDP-Sitzung muss durch den Tunnel laufen. Recht entziehen: Die RDP-Verbindung bricht ab.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

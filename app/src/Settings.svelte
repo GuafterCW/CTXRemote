@@ -124,6 +124,7 @@
     [RIGHT.AUDIO, "Ton"],
     [RIGHT.RESTART, "Neu starten"],
     [RIGHT.PRIVACY, "Bildschirm schwarz schalten"],
+    [RIGHT.TUNNEL, "Port-Tunnel ins Netzwerk"],
   ];
 
   /** Returns false if the direct settings were rejected; the error shows in their section. */
@@ -345,7 +346,7 @@
       </div>
       <span class="note">
         „Unbeaufsichtigt“ gilt für das feste Passwort und für Geräte des Kontos. Bei Sitzungen mit Einmalpasswort sitzt
-        meist jemand am Gerät, deshalb ist das Schwarzschalten dort standardmäßig aus.
+        meist jemand am Gerät, deshalb sind Schwarzschalten und Port-Tunnel dort standardmäßig aus.
       </span>
     </section>
 
