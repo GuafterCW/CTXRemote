@@ -106,6 +106,8 @@ struct Link {
     host_files: Vec<String>,
     /// Set while the user records the session.
     recording: Option<Recording>,
+    /// When the host's sound last arrived, to record it as well.
+    last_audio: Option<std::time::Instant>,
 }
 
 /// A recording in progress: one file per screen size.
@@ -117,7 +119,8 @@ struct Recording {
 }
 
 impl Recording {
-    fn frame(&mut self, frame: &VideoFrame) {
+    /// `sound`: the host's sound is on, so the file gets a sound track.
+    fn frame(&mut self, frame: &VideoFrame, sound: bool) {
         // Another screen or size: this file ends, the next keyframe starts one.
         if self.current.as_ref().is_some_and(|r| !r.fits(frame)) {
             self.close();
@@ -134,12 +137,20 @@ impl Recording {
                     0 => format!("{}.mp4", self.base),
                     n => format!("{}-{}.mp4", self.base, n + 1),
                 };
-                match ctxremote_core::record::Recorder::start(&self.dir.join(name), frame) {
+                match ctxremote_core::record::Recorder::start_with(&self.dir.join(name), frame, sound) {
                     Ok(recorder) => self.current = Some(recorder),
                     Err(e) => tracing::warn!("Aufnahme nicht startbar: {e:#}"),
                 }
             }
             None => {}
+        }
+    }
+
+    fn audio(&mut self, packet: &[u8]) {
+        if let Some(recorder) = &mut self.current {
+            if let Err(e) = recorder.push_audio(packet) {
+                tracing::warn!("Ton der Aufnahme unterbrochen: {e:#}");
+            }
         }
     }
 
@@ -609,8 +620,9 @@ async fn connect(
                 if let Some(channel) = &link.channel {
                     let _ = channel.send(InvokeResponseBody::Raw(video_packet(&frame)));
                 }
+                let sound = link.last_audio.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(2));
                 if let Some(recording) = &mut link.recording {
-                    recording.frame(&frame);
+                    recording.frame(&frame, sound);
                 }
             }
             ViewerEvent::Cursor(shape) => {
@@ -622,8 +634,13 @@ async fn connect(
                 link.cursor = Some(packet);
             }
             ViewerEvent::Audio(data) => {
-                if let Some(channel) = &link.lock().unwrap().channel {
+                let mut link = link.lock().unwrap();
+                if let Some(channel) = &link.channel {
                     let _ = channel.send(InvokeResponseBody::Raw(packet(PACKET_AUDIO, false, 0, 0, &data)));
+                }
+                link.last_audio = Some(std::time::Instant::now());
+                if let Some(recording) = &mut link.recording {
+                    recording.audio(&data);
                 }
             }
             ViewerEvent::Chat(text) => {
