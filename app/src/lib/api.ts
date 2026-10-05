@@ -179,7 +179,27 @@ export type TransferUpdate =
   | { session: number; kind: "finished"; id: number; path: string | null }
   | { session: number; kind: "failed"; id: number; message: string };
 
+export type Outcome =
+  | "oneTimePassword"
+  | "permanentPassword"
+  | "account"
+  | "wrongPassword"
+  | "notMember"
+  | "declined";
+
+export interface Visit {
+  /** Unix seconds. */
+  started: number;
+  /** Unix seconds; null = still running or the machine went off. */
+  ended: number | null;
+  /** E.g. "anna (LAPTOP)"; empty if it failed before the introduction. */
+  peer: string;
+  profile: string | null;
+  outcome: Outcome;
+}
+
 export const api = {
+  history: () => invoke<Visit[]>("history"),
   overview: () => invoke<Overview>("overview"),
   refreshPassword: () => invoke<string>("refresh_password"),
   saveSettings: (server: string, permanentPassword: string | null) =>

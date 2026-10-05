@@ -72,4 +72,23 @@ async fn account_devices_connect_without_a_password() {
     account::leave(&addr, &laptop).await.unwrap();
     let refused = try_connect(&addr, id, &access, Some(&laptop)).await.err().expect("ehemaliges Gerät abgewiesen");
     assert!(refused.to_string().contains("nicht mehr zum Konto"), "{refused:#}");
+
+    // The host's connection log has all of it, newest first.
+    use ctxremote_core::history::Outcome;
+    let outcomes: Vec<Outcome> = host.history().iter().map(|v| v.outcome).collect();
+    assert_eq!(
+        outcomes,
+        [
+            Outcome::NotMember,
+            Outcome::OneTimePassword,
+            Outcome::WrongPassword,
+            // The account password without a proof of membership.
+            Outcome::NotMember,
+            Outcome::NotMember,
+            Outcome::Account,
+            Outcome::WrongPassword,
+        ]
+    );
+    let visit = &host.history()[5];
+    assert!(visit.peer.contains('('), "{visit:?}");
 }

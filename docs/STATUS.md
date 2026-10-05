@@ -223,6 +223,13 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - **Mails** tragen `MIME-Version` und `Content-Type` (vorher zeigten manche Programme Quoted-Printable roh).
 - Die App-Oberfläche hat ein Agent nach Vorgabe gebaut. Protokoll, Krypto, Host- und Viewer-Logik habe ich selbst geschrieben. Getestet: `--test access` mit echtem Server (Mitglied rein; Fremder mit Kontopasswort, ohne Nachweis, fremdes Host-Passwort und entferntes Gerät abgewiesen), `--test web` (Löschen), Browser-Durchläufe für Neuladen, Tabs und Löschen.
 
+### Verbindungsprotokoll (5. Oktober, Cloud-Sitzung)
+
+- Jeder Host führt einen **Verlauf** der eingehenden Verbindungen (`crates/core/src/history.rs`). Er hält fest: Start, Ende, Gegenstelle mit Profilnamen und den Weg (Einmalpasswort, festes Passwort, Konto). Abgewiesene Versuche stehen auch drin: falsches Passwort, kein Kontomitglied, am Gerät abgelehnt.
+- Datei neben der Config (`config.history.json`, beim Dienst also im geschützten Ordner des Dienstes), höchstens 200 Einträge, nichts geht an den Server.
+- App: Icon „Verlauf“ neben dem Konto-Knopf. Mit Dienst holt die App den Verlauf über die UI-Pipe (`UiRequest::History`). Die Oberfläche hat ein Agent gebaut.
+- Test: `--test access` prüft die Einträge.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -295,6 +302,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Auf A ausschalten: B fällt auf den Passwortdialog zurück, mit Hinweis.
     - PC B im Webinterface aus dem Konto entfernen: B kommt nicht mehr ohne Passwort hinein („Dieses Gerät gehört nicht mehr zum Konto“).
 21. Konto löschen im Webinterface: Danach muss die App auf beiden PCs beim nächsten Abgleich ohne Konto dastehen, ohne Fehlermeldung.
+22. Verlauf: Mit und ohne Dienst je eine Verbindung mit Einmalpasswort und eine mit falschem Passwort machen. Im Verlauf müssen beide stehen, die erfolgreiche mit Dauer. Nach einem Neustart der App bzw. des Dienstes muss der Verlauf noch da sein.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

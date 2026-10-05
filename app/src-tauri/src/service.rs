@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use ctxremote_core::account::AccessGrant;
 use ctxremote_core::config::DirectSettings;
+use ctxremote_core::history::Visit;
 use ctxremote_core::host::{HostEvent, Presence};
 use ctxremote_core::ui_link::{ServiceLink, ServiceState, UiEvent, UiRequest};
 use tauri::{AppHandle, Emitter};
@@ -21,6 +22,7 @@ pub struct Service {
     state: watch::Sender<ServiceState>,
     /// Waits for the service's answer to `SetPublicAlias`.
     alias_answer: Mutex<Option<oneshot::Sender<Result<Option<String>, String>>>>,
+    history_answer: Mutex<Option<oneshot::Sender<Vec<Visit>>>>,
 }
 
 impl Service {
@@ -39,7 +41,7 @@ impl Service {
             public_alias: None,
             account_access: false,
         });
-        let service = Arc::new(Service { link: Mutex::new(None), state, alias_answer: Mutex::new(None) });
+        let service = Arc::new(Service { link: Mutex::new(None), state, alias_answer: Mutex::new(None), history_answer: Mutex::new(None) });
         match tokio::time::timeout(Duration::from_secs(2), establish(service.clone(), app.clone()))
             .await
         {
@@ -66,6 +68,17 @@ impl Service {
     }
 
     /// Asks the service to set the public alias and waits for its answer.
+    /// The service's connection log, newest first.
+    pub async fn history(&self) -> Result<Vec<Visit>, String> {
+        let (tx, rx) = oneshot::channel();
+        *self.history_answer.lock().unwrap() = Some(tx);
+        self.send(UiRequest::History);
+        match tokio::time::timeout(Duration::from_secs(10), rx).await {
+            Ok(Ok(visits)) => Ok(visits),
+            _ => Err("Der Dienst hat den Verlauf nicht geschickt".into()),
+        }
+    }
+
     pub async fn set_public_alias(&self, alias: Option<String>) -> Result<Option<String>, String> {
         let (tx, rx) = oneshot::channel();
         *self.alias_answer.lock().unwrap() = Some(tx);
@@ -111,6 +124,11 @@ fn establish(
                     let _ = app.emit("host-event", event);
                 }
                 Some(UiEvent::Configured(_)) => {}
+                Some(UiEvent::History(visits)) => {
+                    if let Some(tx) = service.history_answer.lock().unwrap().take() {
+                        let _ = tx.send(visits);
+                    }
+                }
                 Some(UiEvent::AliasSet(answer)) => {
                     if let Some(tx) = service.alias_answer.lock().unwrap().take() {
                         let _ = tx.send(answer);

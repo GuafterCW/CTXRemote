@@ -14,6 +14,7 @@ pub mod profile;
 pub mod punch;
 pub mod encoder;
 pub mod files;
+pub mod history;
 pub mod host;
 pub mod input;
 pub mod keymap;

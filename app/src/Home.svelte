@@ -18,6 +18,7 @@
   import PeerList from "./PeerList.svelte";
   import Settings from "./Settings.svelte";
   import Account from "./Account.svelte";
+  import History from "./History.svelte";
 
   let overview = $state<Overview | null>(null);
   let presence = $state<Presence>({ state: "connecting" });
@@ -26,6 +27,7 @@
   let copied = $state<"id" | "password" | "alias" | null>(null);
   let settingsOpen = $state(false);
   let accountOpen = $state(false);
+  let historyOpen = $state(false);
   let chatOpen = $state<Record<number, boolean>>({});
 
   // Chat history per session number; it goes away with the session.
@@ -296,6 +298,9 @@
         <span class="dot" data-state={presence.state}></span>
         {statusText}
       </span>
+      <button class="icon-btn" title="Verlauf" aria-label="Verlauf" onclick={() => (historyOpen = true)}>
+        <Icon name="history" />
+      </button>
       {#if overview?.aliasSupported}
         <button class="icon-btn" title="Konto" onclick={() => (accountOpen = true)}>
           <Icon name="user" />
@@ -513,6 +518,10 @@
       refresh();
     }}
   />
+{/if}
+
+{#if historyOpen}
+  <History onclose={() => (historyOpen = false)} />
 {/if}
 
 {#if settingsOpen && overview}

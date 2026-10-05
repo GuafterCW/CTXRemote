@@ -52,6 +52,8 @@ pub enum UiRequest {
     /// Lets the account's devices in without a password (`None`: no longer);
     /// elevated administrators only, as it grants unattended access.
     ConfigureAccountAccess(Option<crate::account::AccessGrant>),
+    /// The connection log; any signed-in user, like the sessions in the state.
+    History,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +64,8 @@ pub enum UiEvent {
     Configured(Result<(), String>),
     /// The answer to `SetPublicAlias`: the alias as stored.
     AliasSet(Result<Option<String>, String>),
+    /// The answer to `History`, newest first.
+    History(Vec<crate::history::Visit>),
 }
 
 #[cfg(windows)]
@@ -243,6 +247,7 @@ mod imp {
                             }
                             UiEvent::Configured(answer)
                         }
+                        UiRequest::History => UiEvent::History(host.history()),
                         UiRequest::ConfigureAccountAccess(grant) => {
                             let answer = if is_elevated_admin(HANDLE(handle as _)) {
                                 configure_account_access(&config, grant)

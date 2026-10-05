@@ -20,6 +20,7 @@ use tokio::time::{sleep, timeout};
 use tracing::{debug, info, warn};
 
 use crate::agent;
+use crate::history::{History, Outcome, Visit};
 use crate::config::{generate_password, Config, DirectSettings};
 use crate::direct::{DirectListener, Offer};
 use crate::profile::Profile;
@@ -86,6 +87,8 @@ struct Shared {
     direct: Mutex<Option<Arc<DirectListener>>>,
     /// Serializes listener changes.
     direct_turn: tokio::sync::Mutex<()>,
+    /// Who connected when (see [`crate::history`]).
+    history: History,
 }
 
 #[derive(Clone)]
@@ -116,6 +119,7 @@ impl Host {
             approver: Mutex::new(None),
             direct: Mutex::new(None),
             direct_turn: tokio::sync::Mutex::new(()),
+            history: History::open(Config::path().ok().map(|p| History::path_for(&p))),
         });
         tokio::spawn(presence_loop(shared.clone()));
         let (enabled, port, extra, listen) = {
@@ -140,6 +144,11 @@ impl Host {
     /// Whether the listener for direct connections runs.
     pub fn direct_active(&self) -> bool {
         self.shared.direct.lock().unwrap().is_some()
+    }
+
+    /// The connection log, newest first.
+    pub fn history(&self) -> Vec<Visit> {
+        self.shared.history.visits()
     }
 
     pub fn presence(&self) -> watch::Receiver<Presence> {
@@ -371,6 +380,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
         Err(e) => {
             if e.downcast_ref::<Refusal>() == Some(&Refusal::WrongPassword) {
                 record_failure(&shared);
+                shared.history.add("", None, Outcome::WrongPassword);
             }
             return Err(e);
         }
@@ -383,6 +393,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     };
     let features = extras.features;
     let profile = extras.profile.and_then(Profile::from_wire);
+    let profile_name = profile.as_ref().map(|p| p.name.clone()).filter(|n| !n.is_empty());
 
     // The account password alone is not enough: the viewer's device must
     // still be in the account (a removed device keeps the account key).
@@ -400,6 +411,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
             let _ = tx.send(&HostMsg::Bye("Dieses Gerät gehört nicht mehr zum Konto".into())).await;
             tx.close().await;
             record_failure(&shared);
+            shared.history.add(&peer, profile_name.as_deref(), Outcome::NotMember);
             bail!("{peer}: Kontozugriff ohne gültige Mitgliedschaft");
         }
         info!(%peer, "Zugriff über das Konto");
@@ -412,9 +424,17 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
             let mut tx = tx;
             let _ = tx.send(&HostMsg::Bye("Der Zugriff wurde abgelehnt".into())).await;
             tx.close().await;
+            shared.history.add(&peer, profile_name.as_deref(), Outcome::Declined);
             bail!("Zugriff für {peer} abgelehnt");
         }
     }
+
+    let outcome = match slot {
+        0 => Outcome::OneTimePassword,
+        slot if Some(slot) == account_slot => Outcome::Account,
+        _ => Outcome::PermanentPassword,
+    };
+    let visit = shared.history.add(&peer, profile_name.as_deref(), outcome);
 
     let number = shared.next_session.fetch_add(1, Ordering::Relaxed);
     let stop = Arc::new(Notify::new());
@@ -439,6 +459,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     let result = run_session(tx, rx, stop, shared.screen.as_ref(), route).await;
 
     shared.sessions.lock().unwrap().remove(&number);
+    shared.history.end(visit, &peer);
     let _ = shared.events.send(HostEvent::SessionEnded { session: number });
     // A used one-time password is spent, as with any OTP.
     if slot == 0 {

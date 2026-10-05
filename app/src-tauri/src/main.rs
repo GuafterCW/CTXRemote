@@ -243,6 +243,16 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
     }
 }
 
+/// Who connected to this computer, newest first (see crates/core/src/history.rs).
+#[tauri::command]
+async fn history(state: State<'_, AppState>) -> CmdResult<Vec<ctxremote_core::history::Visit>> {
+    match &state.host {
+        Side::Local(host) => Ok(host.history()),
+        #[cfg(not(feature = "quick"))]
+        Side::Service(service) => service.history().await,
+    }
+}
+
 #[tauri::command]
 async fn refresh_password(state: State<'_, AppState>) -> CmdResult<String> {
     Ok(match &state.host {
@@ -830,6 +840,7 @@ macro_rules! handlers {
         tauri::generate_handler![
             overview,
             refresh_password,
+            history,
             save_settings,
             save_direct,
             forget_peer,
