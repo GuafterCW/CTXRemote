@@ -496,6 +496,20 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 
 ## Nächste Schritte
 
+**Stand 5. Oktober, abends (Cloud-Sitzung, selbstständig):** Seit dem Nachmittag sind dazugekommen, alles mit Tests ohne Windows:
+- Sitzungsrechte und Privatsphäre-Modus
+- Zwei-Faktor für das feste Passwort
+- Dateien per Kopieren und Einfügen
+- Systeminfo
+- Wake-on-LAN, auch über Geräte des Kontos
+- Aufzeichnung mit Ton
+- Port-Tunnel
+- Zeichnen
+- Gruppen und Online-Anzeige in der Geräteliste
+- Sprechen per Mikrofon
+
+Die Testliste oben hat dafür die Punkte 24 bis 35. Offen für Gleichstand mit AnyDesk/RustDesk bleiben vor allem Viewer für Android/iOS, der macOS-/Linux-Host und der Store-Vertrieb (MSIX).
+
 0. Die Pipeline einrichten (`docs/DEPLOY.md`, Abschnitt „Einrichtung Schritt für Schritt“), dann den Branch nach `master` mergen. Den ersten Installer von Hand installieren, danach zweimal pushen und prüfen, ob sich ein Gerät selbst aktualisiert.
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
 2. Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig).
