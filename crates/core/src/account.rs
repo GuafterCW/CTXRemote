@@ -556,6 +556,15 @@ pub async fn devices(server: &str, key: &SigningKey, link: &AccountLink) -> Resu
 }
 
 /// Takes another device out of the account (it keeps its local list).
+/// Asks the account's other online devices to wake a computer with these
+/// MACs in their networks; returns how many were asked.
+pub async fn wake(server: &str, key: &SigningKey, macs: Vec<String>) -> Result<u32> {
+    match request(server, key, AccountOp::Wake { macs }).await? {
+        AccountReply::Woken(asked) => Ok(asked),
+        other => bail!("unerwartete Antwort: {other:?}"),
+    }
+}
+
 pub async fn remove_device(server: &str, key: &SigningKey, public_key: &str) -> Result<()> {
     let public_key: [u8; 32] = hex::decode(public_key).ok().and_then(|k| k.try_into().ok()).context("ungültiges Gerät")?;
     match request(server, key, AccountOp::RemoveDevice { public_key }).await? {

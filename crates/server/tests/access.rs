@@ -92,3 +92,25 @@ async fn account_devices_connect_without_a_password() {
     let visit = &host.history()[5];
     assert!(visit.peer.contains('('), "{visit:?}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn wake_requests_reach_the_accounts_online_devices() {
+    let (_server, addr) = start_server().await;
+    let (office, laptop, stranger) =
+        (SigningKey::from_bytes(&[31; 32]), SigningKey::from_bytes(&[32; 32]), SigningKey::from_bytes(&[33; 32]));
+    let link = account::create(&addr, &office).await.unwrap();
+    let code = account::offer_pairing(&addr, &office, &link).await.unwrap();
+    account::join(&addr, &laptop, &code).await.unwrap();
+    let macs = vec!["01:23:45:67:89:ab".to_string()];
+
+    // Nobody of the account is online yet.
+    assert_eq!(account::wake(&addr, &laptop, macs.clone()).await.unwrap(), 0);
+
+    // The office computer runs a host under its account key; it can wake.
+    let office_key = hex::encode(office.to_bytes());
+    let (_host, _id) = start_host_with(&addr, |c| c.device_key = office_key).await;
+    assert_eq!(account::wake(&addr, &laptop, macs.clone()).await.unwrap(), 1);
+    // The asking device itself is not counted, and strangers have no account.
+    assert_eq!(account::wake(&addr, &office, macs.clone()).await.unwrap(), 0);
+    assert!(account::wake(&addr, &stranger, macs).await.is_err());
+}

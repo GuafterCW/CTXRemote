@@ -505,16 +505,27 @@ async fn set_public_alias(state: State<'_, AppState>, alias: Option<String>) -> 
     }
 }
 
-/// Sends the Wake-on-LAN packet for a known device into the local networks.
+/// Sends the Wake-on-LAN packet for a known device into the local networks
+/// and asks the account's online devices to do the same in theirs. Returns
+/// how many of those were asked.
 #[tauri::command]
-async fn wake_peer(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+async fn wake_peer(state: State<'_, AppState>, id: String) -> CmdResult<u32> {
     let id: DeviceId = id.parse().map_err(err)?;
-    let macs = state.config.read().unwrap().peer(id).map(|p| p.macs.clone()).unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || ctxremote_core::wol::wake(&macs))
-        .await
-        .map_err(err)?
-        .map_err(chain)?;
-    Ok(())
+    let (macs, account, server, key) = {
+        let config = state.config.read().unwrap();
+        let macs = config.peer(id).map(|p| p.macs.clone()).unwrap_or_default();
+        (macs, config.account.is_some(), config.server_addr(), config.signing_key().map_err(err)?)
+    };
+    let local = {
+        let macs = macs.clone();
+        tauri::async_runtime::spawn_blocking(move || ctxremote_core::wol::wake(&macs)).await.map_err(err)?
+    };
+    let asked = if account { ctxremote_core::account::wake(&server, &key, macs).await.unwrap_or(0) } else { 0 };
+    // Only an error if the packet went nowhere at all.
+    match (local, asked) {
+        (Err(e), 0) => Err(chain(e)),
+        _ => Ok(asked),
+    }
 }
 
 #[tauri::command]

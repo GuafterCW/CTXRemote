@@ -334,7 +334,10 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 
 - Bei jeder Sitzung fragt die App die Systeminfo des Geräts ab und merkt sich dessen MAC-Adressen im Geräteeintrag (`Peer::macs`). Über das Konto werden sie mit den anderen Geräten geteilt (`Entry::macs`, ältere Versionen ignorieren das Feld).
 - In der Geräteliste steht bei solchen Geräten ein Aufweck-Knopf. Er schickt das Magic Packet an 255.255.255.255 und an die Broadcast-Adresse jedes lokalen Netzes (Ports 9 und 7, `crates/core/src/wol.rs`).
-- Grenzen: Das funktioniert nur aus demselben Netz, und am Zielgerät muss Wake-on-LAN in BIOS/UEFI und Netzwerkkarte aktiv sein. Wecken über ein anderes, eingeschaltetes Gerät des Kontos fehlt noch.
+- Grenzen: Am Zielgerät muss Wake-on-LAN in BIOS/UEFI und Netzwerkkarte aktiv sein.
+- **Wecken über das Konto:** Der Knopf bittet zusätzlich alle eingeschalteten Geräte des Kontos, das Paket in ihre Netze zu senden (`AccountOp::Wake` → Server → `ServerMsg::Wake`). So geht es auch von unterwegs, wenn im Büro ein anderer PC des Kontos läuft.
+  - Der Server schickt `Wake` nur an Hosts, die es verstehen. Neue Hosts hängen dafür an `Register` einen Fähigkeiten-Anhang (`HostCaps`), den alte Server überlesen. Getestet in `rendezvous::trailer_tests`.
+  - Getestet: `--test access` (`wake_requests_reach_the_accounts_online_devices`). Braucht das Server-Update aus derselben Version.
 - Nebenbei behoben: `Config::remember` setzte das Alter des Alias auf 0. Beim Abgleich mit dem Konto konnte dadurch ein älterer Alias gewinnen.
 
 ### Sitzungsaufzeichnung (5. Oktober, Cloud-Sitzung)
@@ -461,7 +464,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Am Gerät Dateien kopieren: Im Sitzungsfenster erscheint „… am Gerät kopiert · Hierher holen“. Klicken, dann lokal im Explorer Strg+V.
     - Mit „Dateien“ oder „Zwischenablage“ im Rechte-Menü abgewählt: Es wird nichts angeboten, und Strg+V fügt keine Dateien ein.
 28. Systeminfo: In einer Sitzung den Infoknopf (i) drücken. Stimmen Windows-Version, Modell, Prozessor, Speicher, Laufwerke und Netzwerk? Was steht mit Dienst beim Benutzer?
-29. Wake-on-LAN: Einmal mit einem PC im selben Netz verbinden, damit die MAC gelernt wird. PC herunterfahren, Wake-on-LAN im BIOS aktiv. In der Geräteliste den Aufweck-Knopf drücken: Startet der PC? Erscheint der Knopf auch auf dem zweiten Gerät im Konto?
+29. Wake-on-LAN: Einmal mit einem PC im selben Netz verbinden, damit die MAC gelernt wird. PC herunterfahren, Wake-on-LAN im BIOS aktiv. In der Geräteliste den Aufweck-Knopf drücken: Startet der PC? Erscheint der Knopf auch auf dem zweiten Gerät im Konto? Dann von unterwegs (Handy-Hotspot) wecken, während ein anderer PC des Kontos im selben Netz läuft: Die Meldung nennt „über ein Gerät des Kontos“, und der PC startet.
 30. Aufzeichnung: In einer Sitzung den Aufnahmeknopf drücken, etwas tun, den Bildschirm wechseln, beenden. Am Gerät muss „● Aufnahme“ im Banner gestanden haben. Spielen die Dateien in `Videos\CTXRemote` mit dem Windows-Player (Filme & TV / Medienwiedergabe) und VLC? Stimmt das Tempo?
 31. Port-Tunnel: Mit festem Passwort verbinden (oder „Port-Tunnel“ im Rechte-Menü erlauben). Tunnel-Knopf, Ziel z. B. ein anderer PC im Netz des Geräts mit `:3389`. Dann lokal `mstsc /v:localhost:<Port>`: Die RDP-Sitzung muss durch den Tunnel laufen. Recht entziehen: Die RDP-Verbindung bricht ab.
 32. Zeichnen: In einer Sitzung den Stift-Knopf drücken und etwas einkreisen. Am Gerät und im Bild muss die Linie genau dort erscheinen, auch bei 150 % Skalierung und auf Monitor 2. Farbe wechseln, Papierkorb, Stift aus: Am Gerät ist alles weg. Kann die Person am Gerät durch die Linien hindurch klicken?

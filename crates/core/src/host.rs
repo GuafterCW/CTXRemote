@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing;
-use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, ServerMsg, SessionId};
+use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, HostCaps, ServerMsg, SessionId};
 use ctxremote_proto::framing::Transport;
 use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender, TransportStream};
 use ctxremote_proto::session::{Features, FileOp, HelloExtras, HostMsg, InputEvent, Permissions, Transfer, TunnelMsg, ViewerMsg, MAX_CHAT};
@@ -351,7 +351,8 @@ async fn stay_registered(shared: &Arc<Shared>) -> Result<()> {
         public_key: key.verifying_key().to_bytes(),
         signature: sign_challenge(&key, &nonce),
     };
-    framing::send(&mut t, &register).await?;
+    // The trailer tells newer servers what this host understands.
+    framing::send_with_trailer(&mut t, &register, &HostCaps::CURRENT).await?;
     let id = match framing::recv::<ServerMsg>(&mut t).await? {
         ServerMsg::Registered { id } => id,
         ServerMsg::Error(e) => return Err(e.into()),
@@ -394,6 +395,13 @@ async fn stay_registered(shared: &Arc<Shared>) -> Result<()> {
                     });
                 }
                 ServerMsg::Pong => {}
+                // Another device of the account wants a computer in this network awake.
+                ServerMsg::Wake { macs } => {
+                    tokio::task::spawn_blocking(move || match crate::wol::wake(&macs) {
+                        Ok(_) => info!("Weckpaket für ein Gerät des Kontos gesendet"),
+                        Err(e) => debug!("Wecken nicht möglich: {e:#}"),
+                    });
+                }
                 ServerMsg::Error(e) => return Err(e.into()),
                 other => bail!("unerwartete Serverantwort: {other:?}"),
             },

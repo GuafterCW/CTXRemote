@@ -223,6 +223,13 @@ impl Accounts {
     }
 
     /// Carries out a request whose signature the caller has checked.
+    /// The device keys of `public_key`'s account, if it has one.
+    pub fn member_keys(&self, public_key: [u8; 32]) -> Option<Vec<[u8; 32]>> {
+        let account = self.by_key.get(&hex::encode(public_key))?;
+        let keys = &self.stored.accounts.get(account)?.keys;
+        Some(keys.iter().filter_map(|k| hex::decode(k).ok()?.try_into().ok()).collect())
+    }
+
     pub fn handle(&mut self, public_key: [u8; 32], op: AccountOp) -> Result<AccountReply, AccountError> {
         let key = hex::encode(public_key);
         let member = self.by_key.get(&key).copied();
@@ -496,6 +503,8 @@ impl Accounts {
                 self.commit(before)?;
                 Ok(AccountReply::Done)
             }
+            // The server itself passes it on to the devices (`Server::wake_for`).
+            AccountOp::Wake { .. } => Ok(AccountReply::Woken(0)),
             AccountOp::Leave => {
                 let id = member.ok_or(AccountError::NotLinked)?;
                 let before = self.snapshot();

@@ -75,6 +75,9 @@ pub enum AccountOp {
     RemoveDevice { public_key: [u8; 32] },
     /// This device's name for the others, encrypted with the account key.
     SetLabel { label: Vec<u8> },
+    /// Asks the account's other online devices to send Wake-on-LAN packets
+    /// for these MACs into their networks. Answered with `Woken`.
+    Wake { macs: Vec<String> },
 }
 
 /// Everything the server keeps for a login. The password and the account key
@@ -148,6 +151,8 @@ pub enum AccountReply {
     LoginStatus(Option<LoginInfo>),
     Devices(Vec<Member>),
     Done,
+    /// How many devices of the account were asked to wake.
+    Woken(u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

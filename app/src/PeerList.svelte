@@ -21,8 +21,10 @@
   async function wake(peer: Peer) {
     error = "";
     try {
-      await api.wakePeer(peer.id);
-      notice = `Weckpaket an ${peerLabel(peer)} gesendet. Bis das Gerät online ist, kann es eine Minute dauern.`;
+      const via = await api.wakePeer(peer.id);
+      const where =
+        via === 0 ? "ins Netzwerk dieses Computers" : `hier und über ${via === 1 ? "ein Gerät" : `${via} Geräte`} des Kontos`;
+      notice = `Weckpaket für ${peerLabel(peer)} ${where} gesendet. Bis das Gerät online ist, kann es eine Minute dauern.`;
       clearTimeout(noticeTimer);
       noticeTimer = setTimeout(() => (notice = ""), 8000);
     } catch (e) {
@@ -160,7 +162,7 @@
             {#if peer.wake}
               <button
                 class="icon-btn small"
-                title="Aufwecken (Wake-on-LAN, nur im selben Netzwerk)"
+                title="Aufwecken (Wake-on-LAN, aus dem selben Netzwerk oder über ein eingeschaltetes Gerät des Kontos dort)"
                 onclick={() => wake(peer)}
               >
                 <Icon name="power" size={15} />

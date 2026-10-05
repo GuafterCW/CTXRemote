@@ -48,6 +48,25 @@ pub async fn recv<T: DeserializeOwned>(t: &mut Transport) -> Result<T> {
     decode(&frame)
 }
 
+/// Sends `msg` with `trailer` in the same frame; older readers decode `msg`
+/// and ignore the rest.
+pub async fn send_with_trailer<T: Serialize, U: Serialize>(t: &mut Transport, msg: &T, trailer: &U) -> Result<()> {
+    let mut bytes = postcard::to_stdvec(msg)?;
+    bytes.extend(postcard::to_stdvec(trailer)?);
+    t.send(Bytes::from(bytes)).await?;
+    Ok(())
+}
+
+/// Like [`recv`], plus whatever followed the message in its frame.
+pub async fn recv_with_rest<T: DeserializeOwned>(t: &mut Transport) -> Result<(T, Vec<u8>)> {
+    let frame = t
+        .next()
+        .await
+        .ok_or_else(|| anyhow!("Verbindung wurde geschlossen"))??;
+    let (msg, rest) = postcard::take_from_bytes::<T>(&frame).context("ungültige Nachricht")?;
+    Ok((msg, rest.to_vec()))
+}
+
 pub fn decode<T: DeserializeOwned>(frame: &[u8]) -> Result<T> {
     postcard::from_bytes(frame).context("ungültige Nachricht")
 }

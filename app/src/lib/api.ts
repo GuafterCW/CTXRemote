@@ -287,8 +287,8 @@ export const api = {
   /** An empty profile removes it; returns the profile as stored. */
   saveProfile: (profile: Profile) => invoke<Profile | null>("save_profile", { profile }),
   forgetPeer: (id: string) => invoke<void>("forget_peer", { id }),
-  /** Sends the Wake-on-LAN packet into the local networks. */
-  wakePeer: (id: string) => invoke<void>("wake_peer", { id }),
+  /** Sends the Wake-on-LAN packet here and via the account's online devices; returns how many of those. */
+  wakePeer: (id: string) => invoke<number>("wake_peer", { id }),
   setAlias: (id: string, alias: string | null) => invoke<void>("set_alias", { id, alias }),
   /** `target` is an ID or an alias. */
   /** `code`: from the host's authenticator app, once it asked (see `CODE_NEEDED`). */

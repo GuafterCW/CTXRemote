@@ -23,10 +23,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
-use ctxremote_proto::account::{AccountError, AccountReply};
+use ctxremote_proto::account::{AccountError, AccountOp, AccountReply};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::tunnel;
-use ctxremote_proto::rendezvous::{
+use ctxremote_proto::rendezvous::{HostCaps, 
     verify_alias_claim, verify_challenge, AliasError, ClientMsg, ServerError, ServerMsg, SessionId,
 };
 use ctxremote_proto::{DeviceId, DEFAULT_PORT, PROTOCOL_VERSION};
@@ -55,6 +55,8 @@ struct Server {
     registry: Mutex<Registry>,
     accounts: Mutex<Accounts>,
     online: Mutex<HashMap<DeviceId, mpsc::Sender<ServerMsg>>>,
+    /// Online hosts that understand `ServerMsg::Wake` (see `HostCaps`).
+    wakers: Mutex<std::collections::HashSet<DeviceId>>,
     pending: Mutex<HashMap<SessionId, oneshot::Sender<Transport>>>,
     rate: Mutex<HashMap<IpAddr, (Instant, u32)>>,
     updates: updates::Store,
@@ -106,6 +108,7 @@ async fn main() -> Result<()> {
         accounts: Mutex::new(Accounts::open(data.join("accounts.json"), pepper(&tunnel))?.with_mail(mail::start())),
         tunnel,
         online: Mutex::default(),
+        wakers: Mutex::default(),
         pending: Mutex::default(),
         rate: Mutex::default(),
         updates: updates::Store::new(data.join("updates")),
@@ -167,7 +170,7 @@ impl Server {
         rand::thread_rng().fill_bytes(&mut nonce);
         framing::send(&mut t, &ServerMsg::Challenge { version: PROTOCOL_VERSION, nonce }).await?;
 
-        let mut first = timeout(HELLO_TIMEOUT, framing::recv::<ClientMsg>(&mut t)).await??;
+        let (mut first, mut rest) = timeout(HELLO_TIMEOUT, framing::recv_with_rest::<ClientMsg>(&mut t)).await??;
         let encrypted = matches!(first, ClientMsg::Tunnel { .. });
         // Encrypted from here on; signatures then cover the new, encrypted nonce.
         // Clients without the server key still speak plaintext for now.
@@ -176,7 +179,7 @@ impl Server {
             rand::thread_rng().fill_bytes(&mut next);
             t = tunnel::server(t, &self.tunnel, &ephemeral, nonce, next).await?;
             nonce = next;
-            first = timeout(HELLO_TIMEOUT, framing::recv::<ClientMsg>(&mut t)).await??;
+            (first, rest) = timeout(HELLO_TIMEOUT, framing::recv_with_rest::<ClientMsg>(&mut t)).await??;
         }
 
         match first {
@@ -188,7 +191,9 @@ impl Server {
                 }
                 let id = self.registry.lock().unwrap().assign(id, public_key)?;
                 framing::send(&mut t, &ServerMsg::Registered { id }).await?;
-                self.control_channel(t, id, peer).await
+                // Older hosts send no trailer and get no newer messages.
+                let caps = framing::decode::<HostCaps>(&rest).unwrap_or_default();
+                self.control_channel(t, id, peer, caps).await
             }
             ClientMsg::Connect { target } => {
                 if !self.allow_connect(peer.ip()) {
@@ -247,6 +252,8 @@ impl Server {
                     Err(AccountError::BadSignature)
                 } else if op.carries_secrets() && !encrypted {
                     Err(AccountError::Unencrypted)
+                } else if let AccountOp::Wake { macs } = op {
+                    self.wake_for(auth.public_key, macs)
                 } else {
                     let result = self.accounts.lock().unwrap().handle(auth.public_key, op);
                     result.map(|reply| self.with_presence(reply))
@@ -275,10 +282,15 @@ impl Server {
     }
 
     /// Keeps a registered device reachable until it disconnects or goes silent.
-    async fn control_channel(&self, mut t: Transport, id: DeviceId, peer: SocketAddr) -> Result<()> {
+    async fn control_channel(&self, mut t: Transport, id: DeviceId, peer: SocketAddr, caps: HostCaps) -> Result<()> {
         let (tx, mut rx) = mpsc::channel(16);
         // A newer connection for the same ID replaces the old one, whose loop ends below.
         self.online.lock().unwrap().insert(id, tx.clone());
+        if caps.has(HostCaps::WAKE) {
+            self.wakers.lock().unwrap().insert(id);
+        } else {
+            self.wakers.lock().unwrap().remove(&id);
+        }
         info!(%id, %peer, "Gerät online");
 
         let result = async {
@@ -303,6 +315,7 @@ impl Server {
         let mut online = self.online.lock().unwrap();
         if online.get(&id).is_some_and(|current| current.same_channel(&tx)) {
             online.remove(&id);
+            self.wakers.lock().unwrap().remove(&id);
             info!(%id, "Gerät offline");
         }
         result
@@ -343,6 +356,28 @@ impl Server {
     }
 
     /// Fills in which member devices are registered and online.
+    /// Asks the other online devices of `key`'s account to send Wake-on-LAN
+    /// packets; each does so into its own networks.
+    fn wake_for(&self, key: [u8; 32], mut macs: Vec<String>) -> Result<AccountReply, AccountError> {
+        macs.truncate(8);
+        macs.retain(|m| m.len() <= 32);
+        let members = self.accounts.lock().unwrap().member_keys(key).ok_or(AccountError::NotLinked)?;
+        let registry = self.registry.lock().unwrap();
+        let online = self.online.lock().unwrap();
+        let wakers = self.wakers.lock().unwrap();
+        let mut asked = 0;
+        for member in members.iter().filter(|m| **m != key) {
+            let Some(id) = registry.id_for_key(member) else { continue };
+            if let (true, Some(host)) = (wakers.contains(&id), online.get(&id)) {
+                if host.try_send(ServerMsg::Wake { macs: macs.clone() }).is_ok() {
+                    asked += 1;
+                }
+            }
+        }
+        info!(asked, "Weckauftrag an Geräte des Kontos");
+        Ok(AccountReply::Woken(asked))
+    }
+
     pub(crate) fn with_presence(&self, reply: AccountReply) -> AccountReply {
         let AccountReply::Devices(mut members) = reply else { return reply };
         let registry = self.registry.lock().unwrap();

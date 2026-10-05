@@ -53,6 +53,26 @@ pub enum ServerMsg {
     Tunnel { ephemeral: [u8; 32] },
     /// Answer to `SameAccount`.
     SameAccount(bool),
+    /// To a registered host that can wake others ([`HostCaps::WAKE`]): send
+    /// the Wake-on-LAN packet for these MACs into its networks, for another
+    /// device of its account.
+    Wake { macs: Vec<String> },
+}
+
+/// What a registering host can do beyond the first version, sent as a
+/// trailer after `Register` (older servers ignore it). The server sends
+/// newer messages on the control connection only to hosts that have them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostCaps(pub u32);
+
+impl HostCaps {
+    /// Understands `ServerMsg::Wake`.
+    pub const WAKE: u32 = 1 << 0;
+    pub const CURRENT: Self = Self(Self::WAKE);
+
+    pub fn has(self, cap: u32) -> bool {
+        self.0 & cap == cap
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
@@ -190,5 +210,18 @@ mod tests {
         let register = sign_challenge(&key, &nonce);
         assert!(!verify_alias_claim(&public, &nonce, None, &register));
         assert!(!verify_challenge(&public, &nonce, &claim));
+    }
+
+    /// Older servers decode `Register` with `postcard::from_bytes`, which
+    /// must not mind the capability trailer newer hosts append.
+    #[test]
+    fn register_trailer_is_ignored_by_plain_decoding() {
+        let register = ClientMsg::Register { id: None, public_key: [7; 32], signature: vec![1, 2, 3] };
+        let mut bytes = postcard::to_stdvec(&register).unwrap();
+        bytes.extend(postcard::to_stdvec(&HostCaps::CURRENT).unwrap());
+        let plain: ClientMsg = postcard::from_bytes(&bytes).unwrap();
+        assert!(matches!(plain, ClientMsg::Register { public_key, .. } if public_key == [7; 32]));
+        let (_, rest) = postcard::take_from_bytes::<ClientMsg>(&bytes).unwrap();
+        assert_eq!(postcard::from_bytes::<HostCaps>(rest).unwrap(), HostCaps::CURRENT);
     }
 }
