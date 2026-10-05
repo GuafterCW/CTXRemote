@@ -41,19 +41,30 @@ struct Session {
     account: u64,
     created: Instant,
     seen: Instant,
+    /// Random bytes the browser XORs its account key with before keeping it
+    /// in sessionStorage, so the page survives a reload. What the browser
+    /// stores is worthless once this session ends (logout, expiry, password
+    /// change, server restart).
+    pad: [u8; 32],
 }
 
 impl Sessions {
-    fn start(&self, account: u64) -> String {
+    /// A new session: its cookie value and its pad.
+    fn start(&self, account: u64) -> (String, [u8; 32]) {
         let token: [u8; 32] = rand::random();
+        let pad: [u8; 32] = rand::random();
         let now = Instant::now();
         let mut sessions = self.0.lock().unwrap();
         sessions.retain(|_, s| now.duration_since(s.seen) < IDLE && now.duration_since(s.created) < ABSOLUTE);
-        sessions.insert(Sha256::digest(token).into(), Session { account, created: now, seen: now });
-        URL_SAFE_NO_PAD.encode(token)
+        sessions.insert(Sha256::digest(token).into(), Session { account, created: now, seen: now, pad });
+        (URL_SAFE_NO_PAD.encode(token), pad)
     }
 
     fn account(&self, headers: &HeaderMap) -> Option<u64> {
+        self.session(headers).map(|(account, _)| account)
+    }
+
+    fn session(&self, headers: &HeaderMap) -> Option<(u64, [u8; 32])> {
         let token = URL_SAFE_NO_PAD.decode(cookie(headers)?).ok()?;
         let hash: [u8; 32] = Sha256::digest(token).into();
         let now = Instant::now();
@@ -64,7 +75,7 @@ impl Sessions {
             return None;
         }
         session.seen = now;
-        Some(session.account)
+        Some((session.account, session.pad))
     }
 
     fn end(&self, headers: &HeaderMap) {
@@ -209,6 +220,7 @@ pub async fn serve(server: Arc<Server>, addr: SocketAddr, origin: Option<String>
         .route("/api/recover", post(recover))
         .route("/api/logout", post(logout))
         .route("/api/account", get(account))
+        .route("/api/session-pad", get(session_pad))
         .route("/api/book", get(get_book).put(put_book))
         .route("/api/devices", get(devices))
         .route("/api/devices/{key}", delete(remove_device))
@@ -260,8 +272,9 @@ impl Api {
         Ok(self.server.with_presence(reply))
     }
 
-    fn signed_in_response(&self, account: u64, body: serde_json::Value) -> Response {
-        let token = self.sessions.start(account);
+    fn signed_in_response(&self, account: u64, mut body: serde_json::Value) -> Response {
+        let (token, pad) = self.sessions.start(account);
+        body["pad"] = json!(enc(&pad));
         let mut response = Json(body).into_response();
         response.headers_mut().insert(header::SET_COOKIE, session_cookie(&token));
         response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -342,6 +355,18 @@ async fn logout(State(api): State<Api>, headers: HeaderMap) -> Response {
     let mut response = Json(json!({ "ok": true })).into_response();
     response.headers_mut().insert(header::SET_COOKIE, cleared_cookie());
     response
+}
+
+/// The pad of this session, for a page that was reloaded.
+async fn session_pad(State(api): State<Api>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap) -> ApiResult<Response> {
+    api.guard(&Method::GET, &headers, peer)?;
+    let (_, pad) = api
+        .sessions
+        .session(&headers)
+        .ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "Bitte erneut anmelden".into()))?;
+    let mut response = Json(json!({ "pad": enc(&pad) })).into_response();
+    response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 async fn account(State(api): State<Api>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap) -> ApiResult<Json<serde_json::Value>> {

@@ -90,6 +90,11 @@ async fn web_account_round_trip() {
     let (status, second, body) = call(&http, "POST", "/api/login", None, ORIGIN, Some(right)).await;
     assert_eq!((status, body["wrapped"].clone()), (200, json!(b64(&[1; 40]))));
     let second = second.unwrap();
+    // A reloaded page gets the same pad back with its cookie, and only then.
+    let pad = body["pad"].as_str().expect("pad").to_string();
+    let (status, _, body) = call(&http, "GET", "/api/session-pad", Some(&second), ORIGIN, None).await;
+    assert_eq!((status, body["pad"].as_str()), (200, Some(pad.as_str())));
+    assert_eq!(call(&http, "GET", "/api/session-pad", None, ORIGIN, None).await.0, 401);
 
     let (_, _, body) = call(&http, "GET", "/api/account", Some(&second), ORIGIN, None).await;
     assert_eq!(body["email"], json!("web@example.org"));
@@ -112,4 +117,5 @@ async fn web_account_round_trip() {
     assert_eq!(status, 200);
     assert_eq!(cleared.as_deref(), Some("ctx_session="));
     assert_eq!(call(&http, "GET", "/api/book", Some(&second), ORIGIN, None).await.0, 401);
+    assert_eq!(call(&http, "GET", "/api/session-pad", Some(&second), ORIGIN, None).await.0, 401);
 }

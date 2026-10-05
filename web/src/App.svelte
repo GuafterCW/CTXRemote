@@ -3,10 +3,15 @@
   import CodeView from "./CodeView.svelte";
   import Dashboard from "./Dashboard.svelte";
   import { onMount } from "svelte";
-  import { signedIn, verifyEmail } from "./lib/session";
+  import { mayRestore, restore, signedIn, verifyEmail } from "./lib/session";
 
-  // The key lives only in memory, so a fresh page always starts signed out.
-  let view = $state<"auth" | "code" | "dash">(signedIn() ? "dash" : "auth");
+  // After a reload the tab may still hold its key (see lib/session.ts):
+  // show nothing until that is settled, instead of a flash of the login form.
+  const restoring = !signedIn() && mayRestore();
+  let view = $state<"auth" | "code" | "dash" | "wait">(signedIn() ? "dash" : restoring ? "wait" : "auth");
+  onMount(() => {
+    if (restoring) restore().then((ok) => (view = ok ? "dash" : "auth"));
+  });
   let recoveryCode = $state("");
   let notice = $state("");
 
@@ -71,6 +76,8 @@
     {/if}
     {#if view === "auth"}
       <Auth {notice} onCode={showCode} onSignedIn={signedInNow} />
+    {:else if view === "wait"}
+      <p class="wait" aria-busy="true">Einen Moment …</p>
     {:else if view === "code"}
       <CodeView code={recoveryCode} onDone={codeDone} />
     {:else}
@@ -88,6 +95,12 @@
 </footer>
 
 <style>
+  .wait {
+    margin: 64px auto;
+    text-align: center;
+    color: var(--ink-3);
+  }
+
   .confirmation {
     max-width: 440px;
     margin: 24px auto 0;

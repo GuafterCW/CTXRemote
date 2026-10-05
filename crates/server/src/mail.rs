@@ -8,7 +8,7 @@
 //! Without them mails are only logged. Mails never contain anything secret
 //! besides the one-time confirmation link.
 
-use lettre::message::Mailbox;
+use lettre::message::{Mailbox, SinglePart};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -81,6 +81,13 @@ impl Mail {
     }
 }
 
+/// A plain-text UTF-8 mail. `singlepart` (not `body`) writes MIME-Version
+/// and Content-Type, without which some clients show the quoted-printable
+/// text undecoded.
+fn build(from: Mailbox, to: Mailbox, subject: String, body: String) -> Result<Message, lettre::error::Error> {
+    Message::builder().from(from).to(to).subject(subject).singlepart(SinglePart::plain(body))
+}
+
 /// Starts the mail sender and returns the queue the accounts post to.
 pub fn start() -> mpsc::UnboundedSender<Mail> {
     let (tx, mut rx) = mpsc::unbounded_channel::<Mail>();
@@ -111,7 +118,7 @@ pub fn start() -> mpsc::UnboundedSender<Mail> {
                 warn!(to = mail.to(), "ungültige Empfängeradresse");
                 continue;
             };
-            let message = Message::builder().from(from.clone()).to(to).subject(subject).body(body);
+            let message = build(from.clone(), to, subject, body);
             match message {
                 Ok(message) => {
                     if let Err(e) = transport.send(message).await {
@@ -136,5 +143,15 @@ mod tests {
         assert!(body.contains("https://site/konto/#bestaetigen=TOKEN"));
         let (_, body) = Mail::NewSignIn { to: "a@b.de".into(), how: "ein Gerät" }.render("https://site");
         assert!(body.contains("ein Gerät") && body.contains("Passwort"));
+    }
+
+    #[test]
+    fn mails_declare_their_encoding() {
+        let from = "CTXRemote <noreply@example.org>".parse().unwrap();
+        let to = "a@b.de".parse().unwrap();
+        let mail = build(from, to, "Grüße".into(), "bestätigen".into()).unwrap();
+        let text = String::from_utf8(mail.formatted()).unwrap();
+        assert!(text.contains("MIME-Version: 1.0"));
+        assert!(text.contains("Content-Type: text/plain; charset=utf-8"));
     }
 }

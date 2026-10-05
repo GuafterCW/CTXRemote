@@ -50,7 +50,7 @@ Konten mit Anmeldung in App **und** Website, Geräte im Webinterface verwalten, 
 
 **Webinterface** (`web/`, ausgeliefert unter `/konto/`):
 - Anmelden, Registrieren, Wiederherstellen, angemeldete Geräte (entfernen, per Code hinzufügen), Geräteliste (umbenennen, entfernen), E-Mail und Passwort ändern.
-- Der Kontoschlüssel liegt nur im Arbeitsspeicher des Tabs. Nach dem Neuladen ist das Passwort wieder nötig.
+- Der Kontoschlüssel liegt im Arbeitsspeicher des Tabs. Damit Neuladen nicht abmeldet, legt der Tab ihn zusätzlich in `sessionStorage` ab, aber nur XOR-verknüpft mit einem Zufallswert (`pad`) seiner Server-Sitzung. Den Wert gibt der Server bei der Anmeldung und danach nur mit gültigem Cookie heraus (`GET /api/session-pad`). Endet die Sitzung (Abmelden, Ablauf, Passwortwechsel, Server-Neustart), ist der gespeicherte Rest wertlos und wird gelöscht. `sessionStorage` gilt pro Tab: Ein neuer Tab oder ein geschlossener Browser verlangt das Passwort wieder.
 - Die Krypto (`web/src/lib/crypto.ts`) entspricht `crates/core/src/account.rs` bitgenau, geprüft mit `npm test`.
 - **Server:** `crates/server/src/web.rs` mit axum auf `--http` (Standard 127.0.0.1:21380), hinter Caddy unter `/api`. Sitzungen als HttpOnly-, Secure- und SameSite=Strict-Cookie, 12 h ohne Nutzung bzw. höchstens 7 Tage, nur im Speicher. Eine Passwortänderung beendet die anderen Browser-Sitzungen. Mit `--web-origin` lehnt der Server Änderungen von fremden Herkünften ab. Der Browser darf alles, was keinen Geräteschlüssel braucht (`Accounts::handle_web`).
 - Test: `cargo test -p ctxremote-server --test web`.

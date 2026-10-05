@@ -1,6 +1,8 @@
-// The signed-in account in this browser tab. The account key lives only in
-// memory: reloading the page or closing the tab forgets it, so the password
-// is needed again. Everything sent to the server is either a derived `auth`
+// The signed-in account in this browser tab. The account key lives in
+// memory; for a reload the tab keeps it XORed with a random pad of its server
+// session in sessionStorage (per tab, gone when the tab closes). Without that
+// session (logout, expiry, password change, server restart) what is stored
+// is worthless. Everything sent to the server is either a derived `auth`
 // value or sealed with the account key (see docs/ACCOUNTS.md).
 
 import {
@@ -21,6 +23,63 @@ import {
 
 let accountKey: Uint8Array | null = null;
 
+const STORED = "ctxremote.key";
+
+function xor(a: Uint8Array, b: Uint8Array): Uint8Array {
+  return a.map((x, i) => x ^ b[i]);
+}
+
+/** Keeps the key for a reload, masked with the session's pad. */
+function keep(key: Uint8Array, pad: string) {
+  accountKey = key;
+  try {
+    const p = fromBase64(pad);
+    if (p.length === key.length) sessionStorage.setItem(STORED, toBase64(xor(key, p)));
+  } catch {
+    // No storage (private mode, blocked): a reload then asks for the password.
+  }
+}
+
+function forget() {
+  accountKey = null;
+  try {
+    sessionStorage.removeItem(STORED);
+  } catch {
+    // Nothing stored.
+  }
+}
+
+function stored(): string | null {
+  try {
+    return sessionStorage.getItem(STORED);
+  } catch {
+    return null;
+  }
+}
+
+/** Whether this tab may still be signed in from before a reload. */
+export function mayRestore(): boolean {
+  return accountKey === null && stored() !== null;
+}
+
+/** After a reload: unmasks the kept key with the session's pad. */
+export async function restore(): Promise<boolean> {
+  if (accountKey) return true;
+  const masked = stored();
+  if (!masked) return false;
+  try {
+    const { pad } = await call<{ pad: string }>("GET", "/session-pad");
+    const m = fromBase64(masked);
+    const p = fromBase64(pad);
+    if (m.length !== 32 || p.length !== 32) throw new ApiError("Bitte erneut anmelden", 401);
+    accountKey = xor(m, p);
+    return true;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) forget();
+    return false;
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -39,7 +98,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (response.status === 401 && accountKey && path !== "/login") accountKey = null;
+    if (response.status === 401 && path !== "/login" && path !== "/recover") forget();
     throw new ApiError(data.error ?? `Fehler ${response.status}`, response.status);
   }
   return data as T;
@@ -72,8 +131,8 @@ function setupJson(s: Setup) {
 export async function register(email: string, password: string): Promise<string> {
   const fresh = random(32);
   const { setup, code } = await loginSetup(email, password, fresh);
-  await call("POST", "/register", setupJson(setup));
-  accountKey = fresh;
+  const { pad } = await call<{ pad: string }>("POST", "/register", setupJson(setup));
+  keep(fresh, pad);
   return code;
 }
 
@@ -82,8 +141,8 @@ export async function login(email: string, password: string): Promise<void> {
   if (!normalized) throw new ApiError("Bitte eine gültige E-Mail-Adresse angeben", 400);
   const pre = await call<{ salt: string; kdf: Kdf }>("POST", "/prelogin", { email: normalized });
   const { auth, wrap } = await passwordKeys(password, fromBase64(pre.salt), pre.kdf);
-  const { wrapped } = await call<{ wrapped: string }>("POST", "/login", { email: normalized, auth: toBase64(auth) });
-  accountKey = open(wrap, AAD.login, fromBase64(wrapped));
+  const { wrapped, pad } = await call<{ wrapped: string; pad: string }>("POST", "/login", { email: normalized, auth: toBase64(auth) });
+  keep(open(wrap, AAD.login, fromBase64(wrapped)), pad);
 }
 
 /** Password forgotten: signs in with the recovery code and sets a new
@@ -92,8 +151,8 @@ export async function recover(email: string, code: string, password: string): Pr
   const normalized = normalizeEmail(email);
   if (!normalized) throw new ApiError("Bitte eine gültige E-Mail-Adresse angeben", 400);
   const { auth, wrap } = recoveryKeys(code);
-  const { wrapped } = await call<{ wrapped: string }>("POST", "/recover", { email: normalized, recoveryAuth: toBase64(auth) });
-  accountKey = open(wrap, AAD.recovery, fromBase64(wrapped));
+  const { wrapped, pad } = await call<{ wrapped: string; pad: string }>("POST", "/recover", { email: normalized, recoveryAuth: toBase64(auth) });
+  keep(open(wrap, AAD.recovery, fromBase64(wrapped)), pad);
   return changeLogin(normalized, password);
 }
 
@@ -106,7 +165,7 @@ export async function changeLogin(email: string, password: string): Promise<stri
 }
 
 export async function logout(): Promise<void> {
-  accountKey = null;
+  forget();
   await call("POST", "/logout").catch(() => undefined);
 }
 
