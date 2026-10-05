@@ -115,7 +115,13 @@ fn establish(
             move |event: Option<UiEvent>| match event {
                 Some(UiEvent::State(state)) => {
                     let _ = app.emit("presence", state.presence.clone());
+                    // E.g. started at sign-in while a session runs: the person at
+                    // the computer must see it, as with a session that starts now.
+                    let unseen = !state.sessions.is_empty() && service.state.borrow().sessions.is_empty();
                     service.state.send_replace(state);
+                    if unseen {
+                        crate::show_main(&app);
+                    }
                 }
                 Some(UiEvent::Host(event)) => {
                     if matches!(event, HostEvent::SessionStarted { .. } | HostEvent::Chat { .. }) {

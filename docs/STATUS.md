@@ -266,6 +266,24 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
   - Nachtrag: Die ID-Änderung kam wahrscheinlich vom Herumprobieren des Nutzers am Vortag. Seitdem ist die ID stabil.
 - Ebenfalls bestätigt: Ton (mit einem weiteren Gerät) und Bildschirmwechsel.
 
+### Zweite Testrunde (5. Oktober, abends)
+
+- Bestätigt:
+  - Mit Dienst angelegte Dateien gehören dem angemeldeten Benutzer.
+  - Neu starten mit Dienst funktioniert.
+  - Direktverbindung über das Internet funktioniert (VM in anderem Netz, per WireGuard angebunden).
+  - Kopplungscode funktioniert.
+  - Ein schon vergebener Alias wird abgelehnt.
+  - Update funktioniert.
+  - Bildqualität umschalten funktioniert.
+  - Ton läuft mit Dienst auch nach Ab- und wieder Anmelden.
+- Behoben (ungetestet unter Windows):
+  - **Fremde Geräte in einem anderen Konto.** Ein Gerät behielt nach dem Verlassen eines Kontos (oder Entfernen, oder Kontolöschung) die gemeinsame Liste und lud sie ins nächste Konto hoch. Jetzt wird die Liste beim Verlassen gelöscht. Der Server trennt die Konten korrekt.
+  - **„Wird geladen…“ nach Entfernen oder Kontolöschung.** Das Konto-Panel erkennt jetzt „gehört zu keinem Konto“, löst die Verknüpfung und zeigt wieder die Anmeldung.
+  - **Verbinden per öffentlichem Alias.** Der Knopf blieb ausgegraut, weil nur IDs und Namen aus der eigenen Liste zugelassen waren.
+  - **Keine App nach Ab- und Anmelden (Dienst).** Die App startete bei der Anmeldung gar nicht. `--install` (läuft bei jeder Installation und jedem Update) trägt sie jetzt unter `HKLM\...\Run` mit `--tray` ein, `--uninstall` entfernt den Eintrag. Meldet der Dienst beim Verbinden schon laufende Sitzungen, öffnet sich das Hauptfenster.
+  - CI: Testports werden auch für UDP geprüft (Windows-Runner, os error 10013).
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -345,6 +363,10 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Einmal ohne Dienst und einmal **mit Dienst** testen, mit Dienst auch nach Ab- und wieder Anmelden.
     - Am Host das Ausgabegerät wechseln (z. B. Kopfhörer): Nach ein bis zwei Sekunden muss der Ton weiterlaufen.
     - Kommt kein Ton, im Log des Hosts bzw. Agenten nach „Tonaufnahme“ suchen (`RUST_LOG=debug`).
+24. Nach dieser Runde (beide PCs aktualisiert):
+    - Gerät aus dem Konto entfernen und Konto löschen: Das Panel zeigt wieder die Anmeldung, die Geräteliste ist leer. Danach in ein anderes Konto: Dort tauchen keine fremden Geräte auf.
+    - Mit einem öffentlichen Alias verbinden, der nicht in der eigenen Liste steht.
+    - Mit Dienst eine Sitzung laufen lassen, ab- und wieder anmelden: Die App startet, und das Fenster mit der laufenden Sitzung öffnet sich. Auch ohne Sitzung muss sie im Tray sein.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

@@ -17,8 +17,9 @@ use tracing_subscriber::fmt::writer::MakeWriterExt;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{LocalFree, HLOCAL};
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE,
-    KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_VALUE_TYPE,
+    RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegQueryValueExW, RegSetValueExW, HKEY,
+    HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ,
+    REG_VALUE_TYPE,
 };
 use windows::Win32::Storage::FileSystem::{CreateDirectoryW, FILE_ATTRIBUTE_REPARSE_POINT};
 use windows::Win32::Security::Authorization::{
@@ -420,6 +421,7 @@ fn install(server: Option<&str>) -> Result<()> {
     };
 
     enable_sas_policy()?;
+    start_app_at_sign_in(true);
     let config = Config::load()?;
     allow_direct_connections(config.direct, config.direct_port);
     service.set_description(SERVICE_DESCRIPTION)?;
@@ -494,8 +496,55 @@ fn uninstall() -> Result<()> {
     stop_and_wait(&service)?;
     service.delete().context("Dienst nicht löschbar")?;
     remove_firewall_rule();
+    start_app_at_sign_in(false);
     println!("Dienst entfernt. Die Daten in {} bleiben erhalten.", data_dir().display());
     Ok(())
+}
+
+const RUN_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+const RUN_VALUE: &str = "CTXRemote";
+
+/// With the service, the app starts in the tray at every user's sign-in, so
+/// whoever sits at the computer sees running sessions and chat. Without it,
+/// a session would go on unnoticed after signing out and in again.
+/// Failures are reported but not fatal.
+fn start_app_at_sign_in(enabled: bool) {
+    let result = (|| -> Result<()> {
+        let key_path = wide(std::ffi::OsStr::new(RUN_KEY));
+        let name = wide(std::ffi::OsStr::new(RUN_VALUE));
+        unsafe {
+            let mut key = HKEY::default();
+            RegCreateKeyExW(
+                HKEY_LOCAL_MACHINE,
+                PCWSTR(key_path.as_ptr()),
+                None,
+                PCWSTR::null(),
+                REG_OPTION_NON_VOLATILE,
+                KEY_SET_VALUE,
+                None,
+                &mut key,
+                None,
+            )
+            .ok()
+            .context("Autostart-Schlüssel nicht öffnbar")?;
+            let result = if enabled {
+                let exe = std::env::current_exe().context("Programmpfad unbekannt")?;
+                let app = exe.with_file_name("ctxremote.exe");
+                let command = wide(std::ffi::OsStr::new(&format!("\"{}\" --tray", app.display())));
+                let bytes = std::slice::from_raw_parts(command.as_ptr().cast::<u8>(), command.len() * 2);
+                RegSetValueExW(key, PCWSTR(name.as_ptr()), None, REG_SZ, Some(bytes)).ok()
+            } else {
+                // Already gone is fine.
+                let _ = RegDeleteValueW(key, PCWSTR(name.as_ptr()));
+                Ok(())
+            };
+            let _ = RegCloseKey(key);
+            result.context("Autostart nicht setzbar")
+        }
+    })();
+    if let Err(e) = result {
+        eprintln!("Warnung: {e:#}");
+    }
 }
 
 const FIREWALL_RULE: &str = "CTXRemote Direktverbindung";
