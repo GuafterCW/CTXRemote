@@ -32,9 +32,41 @@
     }
   }
 
+  // Groups: a filter over the list, and an editor per device.
+  let group = $state<string | null>(null);
+  let tagging = $state<string | null>(null);
+  let tagDraft = $state("");
+  const groups = $derived(
+    [...new Set(peers.flatMap((p) => p.tags))].sort((a, b) => a.localeCompare(b, "de")),
+  );
+  const shown = $derived(group && groups.includes(group) ? peers.filter((p) => p.tags.includes(group!)) : peers);
+
+  function startTags(peer: Peer) {
+    tagging = peer.id;
+    tagDraft = peer.tags.join(", ");
+    error = "";
+  }
+
+  async function saveTags(peer: Peer) {
+    if (tagging !== peer.id) return;
+    const tags = tagDraft.split(",").map((t) => t.trim()).filter(Boolean);
+    if (tags.join("\n") === peer.tags.join("\n")) {
+      tagging = null;
+      return;
+    }
+    try {
+      await api.setTags(peer.id, tags);
+      tagging = null;
+      error = "";
+      onchange();
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+
   // Named devices first (alphabetically), then the history by recency.
   const sorted = $derived(
-    [...peers].sort((a, b) =>
+    [...shown].sort((a, b) =>
       a.alias && b.alias
         ? a.alias.localeCompare(b.alias, "de")
         : a.alias
@@ -124,6 +156,15 @@
   <p class="notice">{notice}</p>
 {/if}
 
+{#if groups.length > 0}
+  <div class="groups" role="group" aria-label="Gruppen">
+    <button class="chip" class:on={group === null} onclick={() => (group = null)}>Alle</button>
+    {#each groups as g (g)}
+      <button class="chip" class:on={group === g} onclick={() => (group = group === g ? null : g)}>{g}</button>
+    {/each}
+  </div>
+{/if}
+
 {#if sorted.length > 0}
   <ul>
     {#each sorted as peer (peer.id)}
@@ -145,6 +186,22 @@
             />
             <span class="peer-id">{peer.id}</span>
           </div>
+        {:else if tagging === peer.id}
+          <div class="row">
+            <span class="peer-icon"><Icon name="tag" size={18} /></span>
+            <input
+              class="field rename"
+              bind:value={tagDraft}
+              placeholder="Gruppen, mit Komma getrennt"
+              use:focusOnMount
+              onblur={() => saveTags(peer)}
+              onkeydown={(e) => {
+                if (e.key === "Enter") saveTags(peer);
+                if (e.key === "Escape") tagging = null;
+              }}
+            />
+            <span class="peer-id">{peerLabel(peer)}</span>
+          </div>
         {:else}
           <button class="row peer" onclick={() => onpick(peer)}>
             <span class="peer-icon" class:named={peer.alias}><Icon name="monitor" size={18} /></span>
@@ -154,6 +211,7 @@
               </span>
               <span class="peer-id">
                 {peer.id}{#if peer.alias && peer.name}<span class="dim"> · {peer.name}</span>{/if}
+                {#each peer.tags as t (t)}<span class="tag">{t}</span>{/each}
               </span>
             </span>
             <span class="peer-when">{peer.lastSeen ? since(peer.lastSeen) : "noch nie verbunden"}</span>
@@ -168,6 +226,9 @@
                 <Icon name="power" size={15} />
               </button>
             {/if}
+            <button class="icon-btn small" title="Gruppen" onclick={() => startTags(peer)}>
+              <Icon name="tag" size={15} />
+            </button>
             <button class="icon-btn small" title="Alias ändern" onclick={() => startRename(peer)}>
               <Icon name="pencil" size={15} />
             </button>
@@ -352,5 +413,37 @@
     margin: 4px 0;
     color: var(--ink-2);
     font-size: 12.5px;
+  }
+
+  .groups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0 8px;
+  }
+
+  .chip {
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+
+  .chip.on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--ink);
+  }
+
+  .tag {
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--ink-2);
+    font-size: 11px;
   }
 </style>

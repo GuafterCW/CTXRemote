@@ -361,6 +361,12 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - Technik: `DrawMsg` (Fähigkeit `DRAW`, Recht Maus und Tastatur). Die Punkte sind auf 0..65535 normiert. Die Zeichenebene am Gerät ist ein durchsichtiges, klick-durchlässiges Fenster mit Farbschlüssel (`crates/core/src/annotate.rs`). Beim Bildschirmwechsel wird sie geleert. Während des Zeichnens wird die Linie stückweise alle 60 ms gesendet.
 - Getestet: Umrechnung der Punkte und die Windows-Typprüfung. **Unter Windows ungetestet**: Liegt die Ebene genau über dem Bildschirm, auch bei 150 % Skalierung und auf dem zweiten Monitor?
 
+### Gruppen in der Geräteliste (5. Oktober, Cloud-Sitzung)
+
+- Jedes Gerät der Liste kann in Gruppen sein (Etikett-Knopf, Namen mit Komma getrennt, höchstens 8 Gruppen mit je 24 Zeichen). Über der Liste filtern Chips nach Gruppe.
+- Die Gruppen gehen mit dem Konto auf alle Geräte (`Entry::tags`/`tags_at`). Die neuere Änderung gewinnt, unabhängig vom Alias. Ältere Versionen lassen das Feld unberührt.
+- Getestet: Unit-Test für den Abgleich (`tags_merge_by_their_own_time`).
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -468,6 +474,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 30. Aufzeichnung: In einer Sitzung den Aufnahmeknopf drücken, etwas tun, den Bildschirm wechseln, beenden. Am Gerät muss „● Aufnahme“ im Banner gestanden haben. Spielen die Dateien in `Videos\CTXRemote` mit dem Windows-Player (Filme & TV / Medienwiedergabe) und VLC? Stimmt das Tempo?
 31. Port-Tunnel: Mit festem Passwort verbinden (oder „Port-Tunnel“ im Rechte-Menü erlauben). Tunnel-Knopf, Ziel z. B. ein anderer PC im Netz des Geräts mit `:3389`. Dann lokal `mstsc /v:localhost:<Port>`: Die RDP-Sitzung muss durch den Tunnel laufen. Recht entziehen: Die RDP-Verbindung bricht ab.
 32. Zeichnen: In einer Sitzung den Stift-Knopf drücken und etwas einkreisen. Am Gerät und im Bild muss die Linie genau dort erscheinen, auch bei 150 % Skalierung und auf Monitor 2. Farbe wechseln, Papierkorb, Stift aus: Am Gerät ist alles weg. Kann die Person am Gerät durch die Linien hindurch klicken?
+33. Gruppen: Zwei Geräten in der Liste Gruppen geben (Etikett-Knopf), mit den Chips filtern. Erscheinen die Gruppen auf dem zweiten PC im Konto?
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

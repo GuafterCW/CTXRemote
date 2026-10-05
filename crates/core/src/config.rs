@@ -87,6 +87,12 @@ pub struct Peer {
     /// MAC addresses of its network cards, learned from its system info.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub macs: Vec<String>,
+    /// The user's groups for the device, e.g. a customer or a site.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// Unix milliseconds of the last change to `tags`; the newer wins.
+    #[serde(default)]
+    pub tags_at: u64,
 }
 
 impl Peer {
@@ -102,6 +108,8 @@ impl Peer {
 /// Peers without an alias are a history and only the newest few are kept.
 const MAX_UNNAMED_PEERS: usize = 12;
 const MAX_ALIAS_LEN: usize = 40;
+const MAX_TAG_LEN: usize = 24;
+const MAX_TAGS: usize = 8;
 
 impl Default for Config {
     fn default() -> Self {
@@ -271,8 +279,9 @@ impl Config {
         let alias = self.peer(id).and_then(|p| p.alias.clone());
         let alias_at = self.peer(id).map_or(0, |p| p.alias_at);
         let macs = self.peer(id).map(|p| p.macs.clone()).unwrap_or_default();
+        let (tags, tags_at) = self.peer(id).map(|p| (p.tags.clone(), p.tags_at)).unwrap_or_default();
         self.peers.retain(|p| p.id != id);
-        self.peers.insert(0, Peer { id, alias, name: name.to_string(), last_seen: now, alias_at, macs });
+        self.peers.insert(0, Peer { id, alias, name: name.to_string(), last_seen: now, alias_at, macs, tags, tags_at });
         self.prune();
     }
 
@@ -306,9 +315,31 @@ impl Config {
                 last_seen: 0,
                 alias_at,
                 macs: Vec::new(),
+                tags: Vec::new(),
+                tags_at: 0,
             }),
         }
         self.prune();
+        Ok(())
+    }
+
+    /// Sets the groups of a known device (trimmed, without doubles).
+    pub fn set_tags(&mut self, id: DeviceId, tags: &[String]) -> Result<()> {
+        let mut clean: Vec<String> = Vec::new();
+        for tag in tags.iter().map(|t| t.trim()).filter(|t| !t.is_empty()) {
+            if tag.chars().count() > MAX_TAG_LEN {
+                bail!("Ein Gruppenname darf höchstens {MAX_TAG_LEN} Zeichen haben");
+            }
+            if !clean.iter().any(|c| c.eq_ignore_ascii_case(tag)) {
+                clean.push(tag.to_string());
+            }
+        }
+        if clean.len() > MAX_TAGS {
+            bail!("Ein Gerät kann in höchstens {MAX_TAGS} Gruppen sein");
+        }
+        let peer = self.peers.iter_mut().find(|p| p.id == id).context("Gerät nicht in der Liste")?;
+        peer.tags = clean;
+        peer.tags_at = crate::account::now_ms();
         Ok(())
     }
 

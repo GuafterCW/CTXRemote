@@ -238,6 +238,8 @@ struct PeerView {
     access: bool,
     /// Its network cards are known, so it can be woken.
     wake: bool,
+    /// The user's groups for it.
+    tags: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -305,6 +307,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
                 last_seen: p.last_seen,
                 access: ctxremote_core::account::access_for(&config, p.id).is_some(),
                 wake: !p.macs.is_empty(),
+                tags: p.tags.clone(),
             })
             .collect(),
         hosted: sessions
@@ -526,6 +529,17 @@ async fn wake_peer(state: State<'_, AppState>, id: String) -> CmdResult<u32> {
         (Err(e), 0) => Err(chain(e)),
         _ => Ok(asked),
     }
+}
+
+/// Puts a known device into groups (shared through the account).
+#[tauri::command]
+fn set_tags(app: AppHandle, state: State<AppState>, id: String, tags: Vec<String>) -> CmdResult<()> {
+    let id: DeviceId = id.parse().map_err(err)?;
+    let mut config = state.config.write().unwrap();
+    config.set_tags(id, &tags).map_err(err)?;
+    config.save().map_err(err)?;
+    poke_sync(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1232,6 +1246,7 @@ macro_rules! handlers {
             code_enable,
             save_direct,
             forget_peer,
+            set_tags,
             wake_peer,
             set_alias,
             connect,

@@ -294,6 +294,15 @@ pub struct Entry {
     /// Its network cards, for waking it (newer versions only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub macs: Vec<String>,
+    /// The user's groups for it, and when they last changed (Unix ms).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tags_at: u64,
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
 }
 
 impl Book {
@@ -309,6 +318,8 @@ impl Book {
                         name: p.name.clone(),
                         last_seen: p.last_seen,
                         macs: p.macs.clone(),
+                        tags: p.tags.clone(),
+                        tags_at: p.tags_at,
                     };
                     (p.id.get(), entry)
                 })
@@ -331,6 +342,8 @@ impl Book {
                     last_seen: e.last_seen,
                     alias_at: e.alias_at,
                     macs: e.macs.clone(),
+                    tags: e.tags.clone(),
+                    tags_at: e.tags_at,
                 })
             })
             .collect();
@@ -362,12 +375,21 @@ impl Book {
                     // The newer connection knows the cards; else whichever side has them.
                     let macs = if seen_from.macs.is_empty() { alias_from.macs.clone() } else { seen_from.macs.clone() };
                     let macs = if macs.is_empty() { x.macs.iter().chain(&y.macs).cloned().collect() } else { macs };
-                    Entry { alias: alias_from.alias.clone(), alias_at: alias_from.alias_at, name, last_seen: seen_from.last_seen, macs }
+                    let tags_from = if y.tags_at > x.tags_at { y } else { x };
+                    Entry {
+                        alias: alias_from.alias.clone(),
+                        alias_at: alias_from.alias_at,
+                        name,
+                        last_seen: seen_from.last_seen,
+                        macs,
+                        tags: tags_from.tags.clone(),
+                        tags_at: tags_from.tags_at,
+                    }
                 }
                 (Some(x), None) | (None, Some(x)) => x.clone(),
                 (None, None) => continue,
             };
-            let changed = entry.alias_at.max(entry.last_seen.saturating_mul(1000));
+            let changed = entry.alias_at.max(entry.tags_at).max(entry.last_seen.saturating_mul(1000));
             if removed.get(id).is_some_and(|at| *at >= changed) {
                 continue;
             }
@@ -593,7 +615,7 @@ mod tests {
     use super::*;
 
     fn entry(alias: Option<&str>, alias_at: u64, name: &str, last_seen: u64) -> Entry {
-        Entry { alias: alias.map(Into::into), alias_at, name: name.into(), last_seen, macs: Vec::new() }
+        Entry { alias: alias.map(Into::into), alias_at, name: name.into(), last_seen, macs: Vec::new(), tags: Vec::new(), tags_at: 0 }
     }
 
     #[test]
@@ -719,5 +741,23 @@ mod tests {
         // Older books without the field still read.
         let old: Entry = serde_json::from_str(r#"{"alias":null,"alias_at":0,"name":"PC","last_seen":1}"#).unwrap();
         assert!(old.macs.is_empty());
+    }
+
+    #[test]
+    fn tags_merge_by_their_own_time() {
+        let mut a = Book::default();
+        let mut older = entry(Some("Büro"), 500, "PC", 100);
+        older.tags = vec!["Kunde A".into()];
+        older.tags_at = 1_000;
+        a.entries.insert(123_456_789, older);
+        let mut b = Book::default();
+        // Newer groups from a device whose alias is older.
+        let mut newer = entry(Some("Alt"), 100, "PC", 100);
+        newer.tags = vec!["Kunde B".into()];
+        newer.tags_at = 2_000;
+        b.entries.insert(123_456_789, newer);
+        let merged = &Book::merge(&a, &b).entries[&123_456_789];
+        assert_eq!(merged.alias.as_deref(), Some("Büro"));
+        assert_eq!(merged.tags, vec!["Kunde B".to_string()]);
     }
 }
