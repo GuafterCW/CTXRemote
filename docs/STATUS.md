@@ -263,6 +263,8 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
   - Seitdem gilt:
     - Eine unlesbare Datei bleibt als `*.json.broken-<Zeit>` erhalten, und das Log meldet das als Fehler.
     - Gerät und Server melden im Log, wenn eine gespeicherte ID abgelehnt wird.
+  - Nachtrag: Die ID-Änderung kam wahrscheinlich vom Herumprobieren des Nutzers am Vortag. Seitdem ist die ID stabil.
+- Ebenfalls bestätigt: Ton (mit einem weiteren Gerät) und Bildschirmwechsel.
 
 ### Testliste für den nächsten Windows-Termin
 
