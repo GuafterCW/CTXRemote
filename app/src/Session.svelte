@@ -52,6 +52,32 @@
     return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   });
 
+  /** The current picture as a PNG in the pictures folder. */
+  async function screenshot() {
+    if (!canvas) return;
+    try {
+      const blob = await new Promise<Blob | null>((done) => canvas!.toBlob(done, "image/png"));
+      if (!blob) throw new Error("Kein Bild");
+      const file = await api.saveScreenshot(session, await blob.arrayBuffer());
+      showNotice(`Bildschirmfoto gespeichert: ${file}`);
+    } catch (e) {
+      showNotice(`Bildschirmfoto fehlgeschlagen: ${errorText(e)}`);
+    }
+  }
+
+  /** Lock the host's screen when the session ends here; remembered per device. */
+  let lockOnEnd = $state(false);
+
+  async function toggleLockOnEnd() {
+    const next = !lockOnEnd;
+    try {
+      await api.setLockOnEnd(session, next);
+      lockOnEnd = next;
+    } catch (e) {
+      showNotice(errorText(e));
+    }
+  }
+
   async function toggleRecording() {
     try {
       if (recordingSince === null) {
@@ -279,6 +305,7 @@
         direct = route ?? direct;
         if (attached.rights !== null) applyRights(attached.rights);
         privacy = attached.privacy;
+        lockOnEnd = attached.lockOnEnd;
         if (supported.audio && SoundPlayer.supported()) {
           sound = new SoundPlayer();
           soundReady = true;
@@ -726,6 +753,10 @@
             <button role="menuitem" onclick={() => combo("AltLeft", "Tab")}>Alt + Tab</button>
             <button role="menuitem" onclick={() => combo("ControlLeft", "ShiftLeft", "Escape")}>Task-Manager</button>
             <button role="menuitem" onclick={lockScreen}>Sperren</button>
+            <button role="menuitemcheckbox" aria-checked={lockOnEnd} onclick={toggleLockOnEnd}>
+              <span class="mark">{#if lockOnEnd}<Icon name="check" size={14} />{/if}</span>
+              <span class="label">Beim Trennen sperren</span>
+            </button>
             {#if features.restart && can(RIGHT.RESTART)}
               <div class="menu-sep"></div>
               <button role="menuitem" class:danger={confirmRestart} onclick={restart}>
@@ -778,6 +809,9 @@
           <Icon name="folder" size={17} />
         </button>
       {/if}
+      <button class="tool" title="Bildschirmfoto speichern" disabled={!streaming} onclick={screenshot}>
+        <Icon name="camera" size={17} />
+      </button>
       <button
         class="tool"
         class:recording={recordingSince !== null}

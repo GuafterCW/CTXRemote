@@ -58,6 +58,9 @@ pub struct Config {
     /// Secret of the authenticator app (base32); with it, the permanent
     /// password also needs the current code (see [`crate::totp`]).
     pub code_secret: Option<String>,
+    /// Devices whose screen this viewer locks when it ends a session there.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub lock_on_end: Vec<DeviceId>,
 }
 
 /// The direct-connection part of the settings form.
@@ -133,6 +136,7 @@ impl Default for Config {
             rights_attended: Permissions::ATTENDED,
             rights_unattended: Permissions::ALL,
             code_secret: None,
+            lock_on_end: Vec::new(),
         }
     }
 }

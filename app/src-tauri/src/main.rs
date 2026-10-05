@@ -85,6 +85,17 @@ struct Viewer {
     session: ViewerSession,
     target: DeviceId,
     link: Arc<Mutex<Link>>,
+    /// Lock the host's screen when this session ends here.
+    lock_on_end: bool,
+}
+
+impl Drop for Viewer {
+    fn drop(&mut self) {
+        // Ahead of the `Bye` the session sends when it drops.
+        if self.lock_on_end {
+            self.session.send(ViewerMsg::LockScreen);
+        }
+    }
 }
 
 /// Where a session's video goes. Frames that arrive before the window has
@@ -759,7 +770,8 @@ async fn connect(
         config.peer(target).map_or(session.host.hostname.clone(), |p| p.label().to_string())
     };
     poke_sync(&app);
-    state.viewers.lock().unwrap().insert(number, Viewer { session, target, link });
+    let lock_on_end = state.config.read().unwrap().lock_on_end.contains(&target);
+    state.viewers.lock().unwrap().insert(number, Viewer { session, target, link, lock_on_end });
 
     WebviewWindowBuilder::new(
         &app,
@@ -787,6 +799,7 @@ struct Attached {
     /// `Permissions` bits the host allows; `None` from hosts that do not say.
     rights: Option<u32>,
     privacy: bool,
+    lock_on_end: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -864,7 +877,25 @@ fn attach(
         direct,
         rights: link.rights,
         privacy: link.privacy,
+        lock_on_end: viewer.lock_on_end,
     })
+}
+
+/// Lock the host's screen when this session ends, and next time for this device, too.
+#[tauri::command]
+fn set_lock_on_end(state: State<AppState>, session: u32, on: bool) -> CmdResult<()> {
+    let target = {
+        let mut viewers = state.viewers.lock().unwrap();
+        let viewer = viewers.get_mut(&session).ok_or("Die Sitzung ist bereits beendet")?;
+        viewer.lock_on_end = on;
+        viewer.target
+    };
+    let mut config = state.config.write().unwrap();
+    config.lock_on_end.retain(|id| *id != target);
+    if on {
+        config.lock_on_end.push(target);
+    }
+    config.save().map_err(err)
 }
 
 fn with_viewer(state: &AppState, session: u32, f: impl FnOnce(&ViewerSession)) {
@@ -950,6 +981,38 @@ fn list_tunnels(state: State<AppState>, session: u32) -> Vec<ctxremote_core::tun
     let mut list = Vec::new();
     with_viewer(&state, session, |s| list = s.tunnels().list());
     list
+}
+
+/// Saves a screenshot of the session (PNG, raw bytes; the session number in
+/// the `session` header) into the pictures folder; returns the file.
+#[tauri::command]
+fn save_screenshot(state: State<AppState>, request: tauri::ipc::Request<'_>) -> CmdResult<String> {
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err("Erwartet Rohdaten".into());
+    };
+    if !data.starts_with(b"\x89PNG") {
+        return Err("Kein PNG".into());
+    }
+    let session: u32 = request
+        .headers()
+        .get("session")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .ok_or("Sitzung fehlt")?;
+    let name = {
+        let viewers = state.viewers.lock().unwrap();
+        let viewer = viewers.get(&session).ok_or("Die Sitzung ist beendet")?;
+        state.config.read().unwrap().peer(viewer.target).map_or(viewer.session.host.hostname.clone(), |p| p.label().to_string())
+    };
+    let dir = ctxremote_core::record::pictures_dir();
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let file = dir.join(format!(
+        "{}_{}.png",
+        ctxremote_core::record::safe_name(&name),
+        chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")
+    ));
+    std::fs::write(&file, data).map_err(err)?;
+    Ok(file.to_string_lossy().into_owned())
 }
 
 /// One Opus packet from this computer's microphone for the host's speaker,
@@ -1327,6 +1390,8 @@ macro_rules! handlers {
             fetch_host_files,
             send_sas,
             lock_screen,
+            set_lock_on_end,
+            save_screenshot,
             restart_host,
             send_chat,
             host_chat,

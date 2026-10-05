@@ -311,6 +311,8 @@ export const api = {
       /** `RIGHT` bits; null from hosts that do not say (all allowed). */
       rights: number | null;
       privacy: boolean;
+      /** Lock the host's screen when this session ends here. */
+      lockOnEnd: boolean;
     }>(
       "attach",
       { session, channel },
@@ -320,6 +322,10 @@ export const api = {
   requestKeyframe: (session: number) => invoke<void>("request_keyframe", { session }),
   sendSas: (session: number) => invoke<void>("send_sas", { session }),
   lockScreen: (session: number) => invoke<void>("lock_screen", { session }),
+  setLockOnEnd: (session: number, on: boolean) => invoke<void>("set_lock_on_end", { session, on }),
+  /** Saves a PNG into the pictures folder; returns the file. */
+  saveScreenshot: (session: number, png: ArrayBuffer) =>
+    invoke<string>("save_screenshot", png, { headers: { session: String(session) } }),
   restartHost: (session: number) => invoke<void>("restart_host", { session }),
   setQuality: (session: number, quality: Quality) => invoke<void>("set_quality", { session, quality }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),

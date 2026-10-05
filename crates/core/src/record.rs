@@ -162,6 +162,14 @@ pub fn default_dir() -> PathBuf {
         .join("CTXRemote")
 }
 
+/// Where screenshots of sessions go.
+pub fn pictures_dir() -> PathBuf {
+    directories::UserDirs::new()
+        .and_then(|d| d.picture_dir().map(Path::to_path_buf).or_else(|| Some(d.home_dir().join("Pictures"))))
+        .unwrap_or_else(std::env::temp_dir)
+        .join("CTXRemote")
+}
+
 /// A file name part made from a device's name.
 pub fn safe_name(name: &str) -> String {
     let cleaned: String = name
