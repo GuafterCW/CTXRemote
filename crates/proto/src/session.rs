@@ -194,6 +194,8 @@ impl Features {
     pub const TUNNEL: u32 = 1 << 16;
     /// Shows `Draw` lines over its screen.
     pub const DRAW: u32 = 1 << 17;
+    /// Plays `Mic` packets.
+    pub const MIC: u32 = 1 << 18;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -214,7 +216,8 @@ impl Features {
             | Self::SYSINFO
             | Self::RECORDING
             | Self::TUNNEL
-            | Self::DRAW,
+            | Self::DRAW
+            | Self::MIC,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -388,6 +391,9 @@ pub enum ViewerMsg {
     Tunnel(TunnelMsg),
     /// Drawing over the host's screen; only to hosts with [`Features::DRAW`].
     Draw(DrawMsg),
+    /// The viewer's microphone, one Opus packet (20 ms, 48 kHz mono), played
+    /// at the host; only to hosts with [`Features::MIC`].
+    Mic(AudioPacket),
 }
 
 /// Lines the viewer draws over the shown display, visible to the person at

@@ -175,6 +175,8 @@ export interface HostFeatures {
   tunnel: boolean;
   /** Shows lines drawn over its screen. */
   draw: boolean;
+  /** Plays this computer's microphone. */
+  mic: boolean;
 }
 
 /** Mirrors `SystemInfo` in crates/proto/src/session.rs. */
@@ -330,6 +332,9 @@ export const api = {
     invoke<number>("open_tunnel", { session, target, port: port ?? null }),
   closeTunnel: (session: number, port: number) => invoke<void>("close_tunnel", { session, port }),
   listTunnels: (session: number) => invoke<{ port: number; target: string }[]>("list_tunnels", { session }),
+  /** One Opus packet from the microphone, as raw bytes. */
+  micPacket: (session: number, packet: Uint8Array) =>
+    invoke<void>("mic_packet", packet, { headers: { session: String(session) } }),
   /** A line over the host's screen (points 0..=65535 across the picture). */
   drawStroke: (session: number, color: number, width: number, points: [number, number][]) =>
     invoke<void>("draw", { session, color, width, points }),

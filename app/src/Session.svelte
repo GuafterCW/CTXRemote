@@ -9,6 +9,7 @@
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
   import { SoundPlayer } from "./lib/sound";
+  import { MicSender } from "./lib/mic";
 
   let { session }: { session: number } = $props();
 
@@ -28,7 +29,7 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false, draw: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false, draw: false, mic: false });
   /** What the host allows; null from older hosts, which allow everything. */
   let rights = $state<number | null>(null);
   const can = (right: number) => rights === null || (rights & right) !== 0;
@@ -66,6 +67,28 @@
       }
     } catch (e) {
       showNotice(errorText(e));
+    }
+  }
+
+  /** This computer's microphone, played at the host. */
+  let mic: MicSender | null = null;
+  let micOn = $state(false);
+
+  async function toggleMic() {
+    if (micOn) {
+      mic?.stop();
+      mic = null;
+      micOn = false;
+      return;
+    }
+    const sender = new MicSender();
+    try {
+      await sender.start((packet) => api.micPacket(session, packet).catch(() => {}));
+      mic = sender;
+      micOn = true;
+    } catch (e) {
+      sender.stop();
+      showNotice(`Mikrofon nicht verfügbar: ${errorText(e)}`);
     }
   }
 
@@ -199,6 +222,11 @@
     else if (!had(RIGHT.INPUT) && can(RIGHT.INPUT)) showNotice("Maus und Tastatur sind jetzt erlaubt.");
     // Taking sound away stops it at the host; giving it back starts it again if wanted.
     if (!had(RIGHT.AUDIO) && can(RIGHT.AUDIO) && soundOn && sound) api.setAudio(session, true).catch(() => {});
+    if (!can(RIGHT.AUDIO) && micOn) {
+      mic?.stop();
+      mic = null;
+      micOn = false;
+    }
   }
 
   async function togglePrivacy() {
@@ -293,6 +321,7 @@
     return () => {
       player.close();
       sound?.close();
+      mic?.stop();
       window.removeEventListener("pointerdown", wake);
       window.removeEventListener("keydown", wake);
       unlistenDrop.then((off) => off());
@@ -794,6 +823,11 @@
           onclick={togglePrivacy}
         >
           <Icon name={privacy ? "eyeOff" : "eye"} size={17} />
+        </button>
+      {/if}
+      {#if features.mic && can(RIGHT.AUDIO) && MicSender.supported()}
+        <button class="tool" class:active={micOn} title={micOn ? "Mikrofon aus" : "Mikrofon an: Ihre Stimme beim Gerät"} onclick={toggleMic}>
+          <Icon name={micOn ? "mic" : "micOff"} size={17} />
         </button>
       {/if}
       {#if features.audio && soundReady && can(RIGHT.AUDIO)}

@@ -715,7 +715,8 @@ fn needed_right(msg: &ViewerMsg) -> Option<u32> {
         ViewerMsg::File { op: FileOp::ClipboardFromDir { .. }, .. } => Some(Permissions::FILES | Permissions::CLIPBOARD),
         ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => Some(Permissions::FILES),
         ViewerMsg::Clipboard(_) => Some(Permissions::CLIPBOARD),
-        ViewerMsg::SetAudio(true) => Some(Permissions::AUDIO),
+        // Sound both ways goes with one right.
+        ViewerMsg::SetAudio(true) | ViewerMsg::Mic(_) => Some(Permissions::AUDIO),
         ViewerMsg::Restart => Some(Permissions::RESTART),
         ViewerMsg::Privacy(true) => Some(Permissions::PRIVACY),
         ViewerMsg::Tunnel(TunnelMsg::Open { .. }) => Some(Permissions::TUNNEL),

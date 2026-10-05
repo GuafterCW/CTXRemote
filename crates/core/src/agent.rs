@@ -87,6 +87,8 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     let mut privacy: Option<crate::privacy::PrivacyMode> = None;
     // The viewer's lines over the shown display (see `annotate`).
     let mut drawing: Option<crate::annotate::Overlay> = None;
+    // The viewer's voice on this computer's speaker (see `speaker`).
+    let mut speaker: Option<crate::speaker::MicPlayer> = None;
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -125,6 +127,17 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                         }
                     }
                     // Collected on the side, so the picture keeps flowing meanwhile.
+                    Some(ViewerMsg::Mic(packet)) => {
+                        if speaker.is_none() {
+                            match crate::speaker::MicPlayer::new() {
+                                Ok(player) => speaker = Some(player),
+                                Err(e) => warn!("Mikrofon der Gegenseite nicht abspielbar: {e:#}"),
+                            }
+                        }
+                        if let Some(player) = &mut speaker {
+                            player.push(&packet.data);
+                        }
+                    }
                     Some(ViewerMsg::Draw(DrawMsg::Clear)) => drawing = None,
                     Some(ViewerMsg::Draw(stroke)) => {
                         if let Some(line) = crate::annotate::to_line(&stroke, active.width, active.height) {
@@ -207,6 +220,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     // First, so the person at the computer gets screen and input back.
     drop(privacy);
     drop(drawing);
+    drop(speaker);
     injector.release_all();
     drop(audio);
     drop(files);

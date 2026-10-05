@@ -56,7 +56,12 @@ pub struct Resampler {
 
 impl Resampler {
     pub fn new(input_rate: u32) -> Self {
-        Self { step: input_rate as f64 / SAMPLE_RATE as f64, pos: 0.0, buf: Vec::new() }
+        Self::between(input_rate, SAMPLE_RATE)
+    }
+
+    /// From `from` Hz to `to` Hz, e.g. 48 kHz sound for a 44.1 kHz speaker.
+    pub fn between(from: u32, to: u32) -> Self {
+        Self { step: from as f64 / to.max(1) as f64, pos: 0.0, buf: Vec::new() }
     }
 
     /// Appends the resampled `input` to `out` as interleaved stereo.

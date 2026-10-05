@@ -371,6 +371,13 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 
 - Geräte des eigenen Kontos tragen in der Liste einen Punkt: grün online, grau offline. Die App fragt dafür jede Minute `AccountOp::Devices` ab, die gleiche Abfrage wie im Konto-Panel. Für Geräte außerhalb des Kontos weiß der Server nichts Verlässliches, dort gibt es keinen Punkt.
 
+### Sprechen über die Sitzung (5. Oktober, Cloud-Sitzung)
+
+- Mikrofon-Knopf im Sitzungsfenster: Die App nimmt das eigene Mikrofon auf und kodiert es mit WebCodecs als Opus, 20 ms, 48 kHz mono, mit Echo- und Rauschunterdrückung des Browsers (`app/src/lib/mic.ts`). Die Pakete gehen als Rohdaten an die App (`mic_packet`) und dann als `ViewerMsg::Mic` (Fähigkeit `MIC`) zum Gerät.
+- Am Gerät dekodiert der Agent sie (`opus-rs`) und spielt sie mit 60 ms Vorlauf auf dem Standard-Lautsprecher, umgerechnet auf dessen Format (`crates/core/src/speaker.rs`). Nach 4 s ohne Pakete wird der Lautsprecher wieder freigegeben.
+- Recht: dasselbe wie Ton („Ton“ gilt für beide Richtungen).
+- Getestet: `MicSender` in Chromium mit simuliertem Mikrofon: 75 Pakete in 1,5 s, alle vom Host-Decoder zu Ton dekodiert. Decoder-Unit-Test mit Tonhöhe. **Unter Windows ungetestet**: die Wiedergabe über WASAPI und ob WebView2 nach dem Mikrofon fragt.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -480,6 +487,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 32. Zeichnen: In einer Sitzung den Stift-Knopf drücken und etwas einkreisen. Am Gerät und im Bild muss die Linie genau dort erscheinen, auch bei 150 % Skalierung und auf Monitor 2. Farbe wechseln, Papierkorb, Stift aus: Am Gerät ist alles weg. Kann die Person am Gerät durch die Linien hindurch klicken?
 33. Gruppen: Zwei Geräten in der Liste Gruppen geben (Etikett-Knopf), mit den Chips filtern. Erscheinen die Gruppen auf dem zweiten PC im Konto?
 34. Online-Anzeige: In der Geräteliste haben Geräte des Kontos einen Punkt. Einen PC herunterfahren: Spätestens nach einer Minute wird sein Punkt grau.
+35. Sprechen: In einer Sitzung den Mikrofon-Knopf drücken. Kommt eine Abfrage für das Mikrofon? Sprechen: Ist man am Gerät zu hören? Wie groß ist die Verzögerung? Mit Dienst wiederholen. Ohne Lautsprecher am Gerät darf nichts abstürzen.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

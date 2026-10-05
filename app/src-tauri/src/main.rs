@@ -796,6 +796,7 @@ struct Features {
     recording: bool,
     tunnel: bool,
     draw: bool,
+    mic: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -813,6 +814,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             recording: f.has(F::RECORDING),
             tunnel: f.has(F::TUNNEL),
             draw: f.has(F::DRAW),
+            mic: f.has(F::MIC),
         }
     }
 }
@@ -935,6 +937,27 @@ fn list_tunnels(state: State<AppState>, session: u32) -> Vec<ctxremote_core::tun
     let mut list = Vec::new();
     with_viewer(&state, session, |s| list = s.tunnels().list());
     list
+}
+
+/// One Opus packet from this computer's microphone for the host's speaker,
+/// as raw bytes; the session number comes in the `session` header.
+#[tauri::command]
+fn mic_packet(state: State<AppState>, request: tauri::ipc::Request<'_>) -> CmdResult<()> {
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err("Erwartet Rohdaten".into());
+    };
+    let session: u32 = request
+        .headers()
+        .get("session")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .ok_or("Sitzung fehlt")?;
+    with_viewer(&state, session, |s| {
+        if s.features.has(ctxremote_core::proto::session::Features::MIC) {
+            s.send(ViewerMsg::Mic(ctxremote_core::proto::session::AudioPacket { data: data.clone() }));
+        }
+    });
+    Ok(())
 }
 
 /// A line drawn over the host's screen (points 0..=65535), or `None` to
@@ -1281,6 +1304,7 @@ macro_rules! handlers {
             set_privacy,
             request_system_info,
             draw,
+            mic_packet,
             open_tunnel,
             close_tunnel,
             list_tunnels,
