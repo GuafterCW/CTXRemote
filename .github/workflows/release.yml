@@ -2,6 +2,7 @@
 #   1. the server (static Linux binary) to the VPS, with rollback if it does not start
 #   2. the signed Windows installer to the server's update folder, from where
 #      installed clients update themselves
+#   3. the website (website/) with the newest installer and quick helper
 # One-time setup (secrets, variables, server): docs/DEPLOY.md. Without the
 # secrets the builds still run and the files are kept as workflow artifacts.
 name: Release
@@ -115,6 +116,14 @@ jobs:
           chmod +x artifacts/server/ctxremote-server
           mkdir -p incoming
           cp artifacts/server/ctxremote-server deploy/remote-deploy.sh incoming/
+          # The website with stable download names (published if setup-website.sh ran).
+          cp -r website incoming/website
+          printf '%s' "$VERSION" > incoming/VERSION
+          mkdir -p incoming/download
+          cp "artifacts/client/CTXRemote-$VERSION-setup.exe" incoming/download/CTXRemote-Setup.exe
+          if [ -f artifacts/client/CTXRemote-Hilfe.exe ]; then
+            cp artifacts/client/CTXRemote-Hilfe.exe incoming/download/CTXRemote-Hilfe.exe
+          fi
           if [ -n "$CTXREMOTE_UPDATE_SIGNING_KEY" ]; then
             artifacts/server/ctxremote-server update-sign \
               --platform windows-x86_64 --version "$VERSION" \

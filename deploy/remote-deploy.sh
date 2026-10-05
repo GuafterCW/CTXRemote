@@ -2,7 +2,8 @@
 # Runs on the server as user `ctxremote`, called by the release workflow after
 # it uploaded the files to ~/incoming. Swaps the server binary (keeping the
 # previous one for a rollback), restarts the service and checks it comes up;
-# then publishes the client update, installer before manifest.
+# then publishes the client update, installer before manifest, and finally the
+# website with the newest downloads.
 set -euo pipefail
 
 incoming="$HOME/incoming"
@@ -38,6 +39,28 @@ if [ -d "$incoming/updates" ]; then
   # Keep the three newest installers per platform.
   ls -1t "$updates"/CTXRemote-*-windows-x86_64.* 2>/dev/null | tail -n +4 | xargs -r rm -f
   echo "Client-Update veröffentlicht."
+fi
+
+# The website and the downloads, if setup-website.sh prepared the folder.
+web=/var/www/ctxremote
+if [ -d "$incoming/website" ] && [ -w "$web" ]; then
+  version="$(cat "$incoming/VERSION" 2>/dev/null || true)"
+  stamp="$(date +%Y%m%d%H%M%S)"
+  new="$web/site-$stamp"
+  cp -r "$incoming/website" "$new"
+  if [ -n "$version" ]; then
+    sed -i "s|<!--version-->[^<]*<!--/version-->|<!--version-->$version<!--/version-->|g" "$new"/*.html
+  fi
+  # Atomic switch: Caddy serves the old or the new site, never a half-copied one.
+  ln -sfn "$new" "$web/.site.tmp"
+  mv -Tf "$web/.site.tmp" "$web/site"
+  find "$web" -maxdepth 1 -name 'site-*' ! -name "site-$stamp" -exec rm -rf {} +
+  for file in "$incoming"/download/*; do
+    [ -e "$file" ] || continue
+    install -m 644 "$file" "$web/download/.$(basename "$file").tmp"
+    mv -f "$web/download/.$(basename "$file").tmp" "$web/download/$(basename "$file")"
+  done
+  echo "Website aktualisiert."
 fi
 
 rm -rf "$incoming"

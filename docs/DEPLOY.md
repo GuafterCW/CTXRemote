@@ -215,6 +215,33 @@ Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb je
 3. Nach etwa 3 Minuten muss die App-Version (unten in den Einstellungen) die neue Nummer zeigen.
 4. Das Protokoll steht in `C:\ProgramData\CTXRemote\logs\service.log` und enthält „Update verfügbar“ und „Update wird installiert“.
 
+## Website (https://remote.ctx.ink)
+
+Die Website liegt im Ordner `website/`: statische Seiten ohne JavaScript, im Design der App. Jeder Push nach `master` liefert sie zusammen mit dem Server aus:
+- Die Seiten gehen nach `/var/www/ctxremote/site`. Das ist ein Symlink auf die neueste Fassung und wird atomar umgeschaltet.
+- In `download.html` setzt die Pipeline die Versionsnummer ein, und zwar zwischen `<!--version-->` und `<!--/version-->`.
+- Der neueste Installer und die Schnellhilfe liegen unter festen Namen in `/var/www/ctxremote/download/` (`CTXRemote-Setup.exe`, `CTXRemote-Hilfe.exe`). Die Links auf der Website ändern sich also nie.
+
+Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werden nicht protokolliert, so steht es auch in der Datenschutzerklärung.
+
+### Einmalig einrichten
+
+1. **Firewall des Anbieters** (Hetzner Robot): TCP **80** und **443** eingehend freigeben. Port 80 braucht Caddy für das Zertifikat.
+2. **DNS:** `remote.ctx.ink` zeigt schon auf den Server. Bei Cloudflare muss der Eintrag auf „Nur DNS“ (graue Wolke) bleiben, sonst kommen weder die App (Port 21300) noch die Zertifikatsabfrage durch.
+3. **Auf dem Server** als root, aus dem Ordner mit den Einrichtungsdateien (Schritt 3 oben; `deploy/setup-website.sh` vorher mit hineinkopieren):
+
+   ```bash
+   # bash setup-website.sh remote.ctx.ink
+   ```
+
+   Erwartet: „Website eingerichtet für https://remote.ctx.ink“.
+4. **Einmal nach `master` pushen** (oder den Release-Workflow von Hand starten). Danach zeigt https://remote.ctx.ink die Seite.
+5. **Vor dem Veröffentlichen** in `website/impressum.html` und `website/datenschutz.html` die markierten Platzhalter ersetzen, also Name, Anschrift und E-Mail. Bei Hetzner im Robot den **Vertrag zur Auftragsverarbeitung** abschließen, die Datenschutzerklärung verweist darauf.
+
+Prüfen: `curl -I https://remote.ctx.ink` muss `HTTP/2 200` liefern, `ls -l /var/www/ctxremote` zeigt `site -> site-…` und `download/`.
+
+Ohne `setup-website.sh` lässt die Pipeline die Website einfach aus. Server und Updates laufen wie bisher.
+
 ## Wenn etwas nicht klappt
 
 | Symptom | Ursache und Lösung |
@@ -222,6 +249,7 @@ Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb je
 | Job „deploy“ wird übersprungen | Variable `DEPLOY_HOST` fehlt, oder der Lauf war nicht auf `master` |
 | `Permission denied (publickey)` | `DEPLOY_SSH_KEY` unvollständig (BEGIN/END-Zeilen fehlen) oder öffentlicher Schlüssel nicht auf dem Server (Schritt 5 wiederholen) |
 | `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` fehlt oder passt nicht zu `DEPLOY_HOST` (Schritt 7 mit genau dem Namen aus `DEPLOY_HOST` wiederholen) |
+| Website lädt nicht oder Zertifikatsfehler | TCP 80/443 in der Firewall freigegeben? `journalctl -u caddy -n 50` zeigt, warum das Zertifikat nicht kam. Bei Cloudflare muss „Nur DNS“ eingestellt sein |
 | „Neuer Server startet nicht, vorherige Version wird wiederhergestellt“ | Port 21300 ist noch belegt (Schritt 4) oder es gibt einen echten Fehler: `journalctl -u ctxremote-server -n 50` |
 | Warnung „Kein CTXREMOTE_UPDATE_SIGNING_KEY“ | Secret fehlt; der Server wurde trotzdem aktualisiert, nur kein Client-Update veröffentlicht |
 | Geräte aktualisieren sich nicht | Gerät noch nicht einmal von Hand aktualisiert (Schritt 12), oder `CTXREMOTE_UPDATE_KEY` passt nicht zum privaten Schlüssel. Im `service.log` steht dann „nicht gültig signiert“ |

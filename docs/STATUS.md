@@ -141,6 +141,19 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
 - **Dienstmodus:** `HostEvent::SessionStarted.profile` und `ServiceState.session_profiles`, beide mit `serde(default)`.
 - Test mit echtem Server: `helper_profile_reaches_the_host`.
 
+### Website (5. Oktober, Cloud-Sitzung)
+
+- **Inhalt:** Statische Seiten in `website/`, ohne JavaScript und ohne fremde Inhalte. Gestaltet wie die App, mit Dark Mode und für Handys geeignet.
+  - Start mit Funktionen und App-Screenshot (hell und dunkel)
+  - Download: Installer und Schnellhilfe, mit SmartScreen-Hinweis
+  - Preise: Free privat kostenlos, Pro und Ultra „bald verfügbar“, ohne Preise
+  - Impressum und Datenschutz als Vorlagen mit **markierten Platzhaltern** (`<span class="todo">`), die der Nutzer füllen muss
+- **Adresse und Server:** https://remote.ctx.ink auf dem Hetzner-Server, ausgeliefert von Caddy. Einrichtung einmalig mit `deploy/setup-website.sh`, siehe `docs/DEPLOY.md`, Abschnitt „Website“.
+  - **Offen beim Nutzer:** TCP 80/443 in der Hetzner-Firewall freigeben, `setup-website.sh` ausführen, Platzhalter füllen, AVV mit Hetzner abschließen.
+- **Pipeline:** `release.yml` packt `website/`, die Version und die Downloads unter festen Namen dazu. `remote-deploy.sh` schaltet die Seite per Symlink atomar um, aber nur, wenn `/var/www/ctxremote` existiert.
+- **Selbst-Hosting** bietet die Seite bewusst nicht an (Entscheidung des Nutzers).
+- Die App-Screenshots in `website/img/` stammen aus dem Frontend mit nachgebauter Tauri-API. Bei sichtbaren UI-Änderungen neu erzeugen.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -198,7 +211,7 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
 2. Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig). UDP-Weg auch für die Schnellhilfe als Host (braucht Token-Verwaltung ohne TCP-Listener).
 3. Adressbuch und Geräteverwaltung über den Server, Code-Signatur (braucht ein Konto bei Microsoft Trusted Signing).
-4. Bezahlte Pläne nach `docs/PLANS.md`. Erst bauen, wenn der Nutzer die offenen Entscheidungen dort beantwortet hat. Schritt 1 (Konten und Adressbuch) ginge auch vorher schon.
+4. Bezahlte Pläne nach `docs/PLANS.md`. Erst wenn es eine Firma gibt. Schritt 1 (Konten und Adressbuch) ginge auch vorher schon. Konten gehören auf die Website (remote.ctx.ink), später mit Stripe.
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 

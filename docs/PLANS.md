@@ -107,11 +107,16 @@ Jeder Schritt ist für sich nutzbar:
 5. Teams und geteiltes Adressbuch (Ultra).
 6. White-Label-Schnellhilfe nach Weg B (Ultra). Setzt eine Code-Signatur voraus, siehe STATUS.md.
 
+## Entscheidungen des Nutzers (5. Oktober 2026)
+
+- **Noch keine Firma.** Verkauft wird erst, wenn es eine gibt. Bis dahin baue ich nichts, was Geld annimmt.
+- **Später über die eigene Website mit Stripe**, noch nicht endgültig festgelegt. Die Website gibt es jetzt (`website/`, https://remote.ctx.ink). Konten und Kundenbereich gehören später dorthin.
+- **Free nur für private Nutzung**, gewerblich nicht. Das steht so auf der Preisseite. Durchsetzen lässt es sich erst mit Konten und AGB.
+- **Selbst-Hosting wird erst einmal nicht angeboten.** Die Website erwähnt es nicht. Der Code bleibt AGPL, die Frage nach einer kommerziellen Lizenz stellt sich damit vorerst nicht.
+
 ## Offene Entscheidungen (für den Nutzer)
 
-1. Preise und Grenzen aus der Tabelle oben: passen sie so ungefähr?
-2. Darf Free gewerblich genutzt werden? RustDesk und AnyDesk erlauben das nicht. Durchsetzbar ist es nur über die AGB.
-3. Merchant of Record (Paddle oder Lemon Squeezy) oder Stripe?
-4. Kundenbereich als Webseite oder nur in der App?
-5. Selbsthoster: alles frei lassen oder eine kommerzielle Lizenz anbieten?
-6. Gewerbe: Gibt es schon eines, und gilt die Kleinunternehmerregelung? Das bestimmt, wie Rechnungen aussehen müssen. Mit einem Merchant of Record ist es weniger wichtig.
+1. Preise und Grenzen aus der Tabelle oben: passen sie so ungefähr? Die Preisseite zeigt bisher „Preis folgt“.
+2. ~~Darf Free gewerblich genutzt werden?~~ Nein, nur privat (entschieden).
+3. Zahlungsanbieter: Tendenz Stripe über die Website, noch offen. Bei Stripe liegen USt (OSS), Rechnungen und Widerruf beim Verkäufer, Stripe Tax hilft dabei.
+4. Rechtsform, sobald es eine Firma gibt. Gilt die Kleinunternehmerregelung? Das bestimmt, wie Rechnungen aussehen müssen.
