@@ -8,7 +8,7 @@ pub use std::time::Duration;
 
 pub use ctxremote_core::config::Config;
 pub use ctxremote_core::host::{Host, Presence, ScreenChannels, ScreenSource};
-pub use ctxremote_core::proto::session::{Features, HostInfo, HostMsg, ViewerMsg};
+pub use ctxremote_core::proto::session::{Features, HelperProfile, HostInfo, HostMsg, ViewerMsg};
 pub use ctxremote_core::proto::DeviceId;
 pub use ctxremote_core::viewer::{ViewerEvent, ViewerSession};
 pub use futures::future::BoxFuture;
@@ -126,9 +126,18 @@ pub fn echo(session: &ViewerSession, events: &std_mpsc::Receiver<ViewerEvent>, t
 }
 
 pub async fn connect(server: &str, host: &Host, id: DeviceId) -> (ViewerSession, std_mpsc::Receiver<ViewerEvent>) {
+    connect_as(server, host, id, None).await
+}
+
+pub async fn connect_as(
+    server: &str,
+    host: &Host,
+    id: DeviceId,
+    profile: Option<HelperProfile>,
+) -> (ViewerSession, std_mpsc::Receiver<ViewerEvent>) {
     let (tx, rx) = std_mpsc::channel();
     let tx = std::sync::Mutex::new(tx);
-    let session = ViewerSession::connect(server, None, id, &host.password(), move |event| {
+    let session = ViewerSession::connect(server, None, id, &host.password(), profile, move |event| {
         let _ = tx.lock().unwrap().send(event);
     })
     .await

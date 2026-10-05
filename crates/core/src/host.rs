@@ -10,7 +10,7 @@ use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, ServerMsg, SessionId};
 use ctxremote_proto::framing::Transport;
 use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender, TransportStream};
-use ctxremote_proto::session::{Features, HostMsg, ViewerMsg, MAX_CHAT};
+use ctxremote_proto::session::{Features, HelloExtras, HostMsg, ViewerMsg, MAX_CHAT};
 use ctxremote_proto::DeviceId;
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -22,6 +22,7 @@ use tracing::{debug, info, warn};
 use crate::agent;
 use crate::config::{generate_password, Config, DirectSettings};
 use crate::direct::{DirectListener, Offer};
+use crate::profile::Profile;
 use crate::punch::PunchHost;
 use crate::net;
 
@@ -32,7 +33,8 @@ const LOCKOUT: Duration = Duration::from_secs(5 * 60);
 pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Decides whether the named viewer may connect, e.g. by asking the user.
-pub type Approver = Arc<dyn Fn(String) -> BoxFuture<'static, bool> + Send + Sync>;
+/// Also gets the profile the viewer sent, if any (self-declared).
+pub type Approver = Arc<dyn Fn(String, Option<Profile>) -> BoxFuture<'static, bool> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -45,8 +47,15 @@ pub enum Presence {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum HostEvent {
-    /// `chat`: the viewer can receive chat messages.
-    SessionStarted { session: u64, peer: String, chat: bool },
+    /// `chat`: the viewer can receive chat messages. `profile`: how the
+    /// viewer presents itself (self-declared).
+    SessionStarted {
+        session: u64,
+        peer: String,
+        chat: bool,
+        #[serde(default)]
+        profile: Option<Profile>,
+    },
     SessionEnded { session: u64 },
     PasswordChanged,
     /// A chat message from the viewer of `session`.
@@ -56,6 +65,7 @@ pub enum HostEvent {
 /// A running session as the rest of the host sees it.
 struct SessionHandle {
     peer: String,
+    profile: Option<Profile>,
     stop: Arc<Notify>,
     /// Chat messages to the viewer; `None` if the viewer has no chat.
     chat: Option<mpsc::UnboundedSender<String>>,
@@ -208,6 +218,14 @@ impl Host {
     }
 
     /// Sessions currently controlling this device, with the viewer's name.
+    /// The profiles of running sessions whose viewers sent one.
+    pub fn session_profiles(&self) -> Vec<(u64, Profile)> {
+        let sessions = self.shared.sessions.lock().unwrap();
+        let mut list: Vec<_> = sessions.iter().filter_map(|(n, h)| Some((*n, h.profile.clone()?))).collect();
+        list.sort_unstable_by_key(|(n, _)| *n);
+        list
+    }
+
     pub fn sessions(&self) -> Vec<(u64, String)> {
         let sessions = self.shared.sessions.lock().unwrap();
         let mut list: Vec<_> = sessions.iter().map(|(n, h)| (*n, h.peer.clone())).collect();
@@ -345,15 +363,17 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     };
     *shared.failures.lock().unwrap() = (0, None);
 
-    let (peer, features) = match timeout(Duration::from_secs(10), rx.recv_with_trailer::<ViewerMsg, Features>()).await?? {
-        Some((ViewerMsg::Hello { name, .. }, features)) => (name, features.unwrap_or(Features::NONE)),
+    let (peer, extras) = match timeout(Duration::from_secs(10), rx.recv_with_rest::<ViewerMsg>()).await?? {
+        Some((ViewerMsg::Hello { name, .. }, rest)) => (name, HelloExtras::decode(&rest)),
         _ => bail!("Gegenstelle hat sich nicht vorgestellt"),
     };
+    let features = extras.features;
+    let profile = extras.profile.and_then(Profile::from_wire);
 
     let approver = shared.approver.lock().unwrap().clone();
     if let Some(approve) = approver {
         // Viewer messages sent meanwhile (input) wait unread in the connection.
-        if !timeout(APPROVAL_TIMEOUT, approve(peer.clone())).await.unwrap_or(false) {
+        if !timeout(APPROVAL_TIMEOUT, approve(peer.clone(), profile.clone())).await.unwrap_or(false) {
             let mut tx = tx;
             let _ = tx.send(&HostMsg::Bye("Der Zugriff wurde abgelehnt".into())).await;
             tx.close().await;
@@ -366,8 +386,11 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     let (chat, chat_out) = mpsc::unbounded_channel::<String>();
     let chat = features.has(Features::CHAT).then_some(chat);
     let can_chat = chat.is_some();
-    shared.sessions.lock().unwrap().insert(number, SessionHandle { peer: peer.clone(), stop: stop.clone(), chat });
-    let _ = shared.events.send(HostEvent::SessionStarted { session: number, peer: peer.clone(), chat: can_chat });
+    shared.sessions.lock().unwrap().insert(
+        number,
+        SessionHandle { peer: peer.clone(), profile: profile.clone(), stop: stop.clone(), chat },
+    );
+    let _ = shared.events.send(HostEvent::SessionStarted { session: number, peer: peer.clone(), chat: can_chat, profile });
     info!(%peer, "Sitzung gestartet");
 
     let route = Route {

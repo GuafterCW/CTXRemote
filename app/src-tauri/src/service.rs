@@ -31,6 +31,7 @@ impl Service {
             server: String::new(),
             unattended: false,
             sessions: Vec::new(),
+            session_profiles: Vec::new(),
             direct: DirectSettings { enabled: false, port: 0, addresses: Vec::new() },
             direct_active: false,
             chat_sessions: Vec::new(),

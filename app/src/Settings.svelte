@@ -1,9 +1,11 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { api, errorText, type DirectSettings } from "./lib/api";
+  import { api, errorText, type DirectSettings, type Profile } from "./lib/api";
   import Icon from "./lib/Icon.svelte";
+  import ProfileCard from "./lib/ProfileCard.svelte";
 
   let {
+    profile: initialProfile,
     server: initialServer,
     unattended,
     direct: initialDirect,
@@ -12,6 +14,7 @@
     version,
     onclose,
   }: {
+    profile: Profile | null;
     server: string;
     unattended: boolean;
     direct: DirectSettings;
@@ -76,11 +79,62 @@
     }
   }
 
+  // The profile is this user's own and needs no administrator rights.
+  const emptyProfile: Profile = { name: "", company: "", message: "", logo: "" };
+  const savedProfile = untrack(() => initialProfile ?? emptyProfile);
+  let profile = $state<Profile>({ ...savedProfile });
+  let profileError = $state("");
+  let logoInput = $state<HTMLInputElement>();
+  const profileChanged = $derived(
+    (["name", "company", "message", "logo"] as const).some((k) => profile[k] !== savedProfile[k]),
+  );
+  const profileShown = $derived(profile.name.trim() !== "" || profile.company.trim() !== "");
+
+  const MAX_LOGO = 64 * 1024;
+
+  /** Scales the picked image down to a small PNG that fits the protocol limit. */
+  async function pickLogo(e: Event) {
+    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+    (e.currentTarget as HTMLInputElement).value = "";
+    if (!file) return;
+    profileError = "";
+    try {
+      const bitmap = await createImageBitmap(file);
+      for (const size of [128, 96, 64]) {
+        const scale = Math.min(1, size / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        const base64 = canvas.toDataURL("image/png").split(",")[1] ?? "";
+        if ((base64.length * 3) / 4 <= MAX_LOGO) {
+          profile.logo = base64;
+          return;
+        }
+      }
+      profileError = "Das Bild ist zu detailreich für ein Logo";
+    } catch {
+      profileError = "Das Bild konnte nicht gelesen werden";
+    }
+  }
+
+  async function saveProfile(): Promise<boolean> {
+    profileError = "";
+    try {
+      await api.saveProfile(profile);
+      return true;
+    } catch (err) {
+      profileError = errorText(err);
+      return false;
+    }
+  }
+
   async function save(e: SubmitEvent) {
     e.preventDefault();
     saving = true;
     error = "";
     try {
+      if (profileChanged && !(await saveProfile())) return;
       if (directChanged && !(await saveDirect())) return;
       if (settingsChanged) await api.saveSettings(server, passwordChange);
       onclose();
@@ -180,6 +234,57 @@
       <span class="note status">{directStatus}</span>
       {#if directError}
         <p class="error">{directError}</p>
+      {/if}
+    </section>
+
+    <section class="group section">
+      <h3>Ihr Profil</h3>
+      <span class="note">
+        Wenn Sie sich mit einem anderen Gerät verbinden, sieht die Person dort diese Angaben, z. B. in der
+        Zugriffsanfrage der Schnellhilfe. Gilt nur für Sie.
+      </span>
+
+      <label class="group">
+        <span class="name">Name</span>
+        <input class="field" bind:value={profile.name} maxlength="60" placeholder="Max Mustermann" />
+      </label>
+      <label class="group">
+        <span class="name">Firma</span>
+        <input class="field" bind:value={profile.company} maxlength="80" placeholder="Muster IT-Service" />
+      </label>
+      <label class="group">
+        <span class="name">Nachricht</span>
+        <textarea
+          class="field area"
+          rows="2"
+          bind:value={profile.message}
+          maxlength="300"
+          placeholder="Ich helfe Ihnen heute bei …"
+        ></textarea>
+      </label>
+
+      <div class="group">
+        <span class="name">Logo</span>
+        <div class="logo-row">
+          <input bind:this={logoInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onchange={pickLogo} />
+          <button type="button" class="btn btn-quiet" onclick={() => logoInput?.click()}>
+            {profile.logo ? "Anderes Logo" : "Logo wählen"}
+          </button>
+          {#if profile.logo}
+            <button type="button" class="btn btn-quiet" onclick={() => (profile.logo = "")}>Entfernen</button>
+          {/if}
+        </div>
+        <span class="note">PNG, JPG oder WebP. Wird auf höchstens 128 × 128 Pixel verkleinert.</span>
+      </div>
+
+      {#if profileShown}
+        <div class="group">
+          <span class="note">So sieht es die Gegenseite:</span>
+          <ProfileCard {profile} />
+        </div>
+      {/if}
+      {#if profileError}
+        <p class="error">{profileError}</p>
       {/if}
     </section>
   </div>
@@ -329,6 +434,11 @@
 
   .status {
     color: var(--ink-2);
+  }
+
+  .logo-row {
+    display: flex;
+    gap: 8px;
   }
 
   .error {

@@ -19,6 +19,9 @@ pub struct ServiceState {
     pub server: String,
     pub unattended: bool,
     pub sessions: Vec<(u64, String)>,
+    /// Profiles of the viewers in `sessions` that sent one.
+    #[serde(default)]
+    pub session_profiles: Vec<(u64, crate::profile::Profile)>,
     pub direct: DirectSettings,
     /// The listener for direct connections runs.
     pub direct_active: bool,
@@ -175,6 +178,7 @@ mod imp {
             server: config.server.clone(),
             unattended: config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
             sessions: host.sessions(),
+            session_profiles: host.session_profiles(),
             chat_sessions: host.chat_sessions(),
             public_alias: config.public_alias.clone(),
             direct: config.direct_settings(),

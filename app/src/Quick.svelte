@@ -3,6 +3,8 @@
   import { listen } from "@tauri-apps/api/event";
   import {
     api,
+    hostedLabel,
+    profileLabel,
     type ApprovalRequest,
     type HostEvent,
     type Hosted,
@@ -11,6 +13,7 @@
   } from "./lib/api";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
+  import ProfileCard from "./lib/ProfileCard.svelte";
 
   let overview = $state<Overview | null>(null);
   let presence = $state<Presence>({ state: "connecting" });
@@ -43,7 +46,10 @@
       listen<HostEvent>("host-event", (e) => {
         const event = e.payload;
         if (event.kind === "sessionStarted")
-          hosted = [...hosted, { session: event.session, peer: event.peer, chat: event.chat }];
+          hosted = [
+            ...hosted,
+            { session: event.session, peer: event.peer, chat: event.chat, profile: event.profile ?? null },
+          ];
         if (event.kind === "sessionEnded") {
           hosted = hosted.filter((h) => h.session !== event.session);
           delete chats[event.session];
@@ -109,8 +115,19 @@
   {#if request}
     <main class="ask" aria-labelledby="ask-title">
       <div class="label">Zugriffsanfrage</div>
-      <p id="ask-title" class="ask-title"><strong>{request.peer}</strong> möchte auf diesen PC zugreifen.</p>
-      <p class="hint">Lassen Sie nur Personen zu, denen Sie vertrauen.</p>
+      {#if request.profile}
+        <p id="ask-title" class="ask-title">
+          <strong>{profileLabel(request.profile)}</strong> möchte auf diesen PC zugreifen.
+        </p>
+        <ProfileCard profile={request.profile} peer={request.peer} />
+        <p class="hint">
+          Diese Angaben macht die Person selbst, CTXRemote prüft sie nicht. Lassen Sie nur Personen zu, die
+          Sie selbst um Hilfe gebeten haben.
+        </p>
+      {:else}
+        <p id="ask-title" class="ask-title"><strong>{request.peer}</strong> möchte auf diesen PC zugreifen.</p>
+        <p class="hint">Lassen Sie nur Personen zu, denen Sie vertrauen.</p>
+      {/if}
       {#if requests.length > 1}
         <p class="hint">Weitere Anfragen warten: {requests.length - 1}</p>
       {/if}
@@ -127,7 +144,7 @@
             <div class="live-item">
               <div class="live-row">
                 <span class="live"></span>
-                <span class="live-text">Verbunden mit <strong>{h.peer}</strong></span>
+                <span class="live-text">Verbunden mit <strong>{hostedLabel(h)}</strong></span>
                 <button class="btn btn-quiet end" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
               </div>
               {#if h.chat}

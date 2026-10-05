@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
-use ctxremote_proto::session::{CursorShape, Features, HostInfo, HostMsg, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, Features, HelloExtras, HelperProfile, HostInfo, HostMsg, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
@@ -73,6 +73,7 @@ impl ViewerSession {
         own_id: Option<DeviceId>,
         target: DeviceId,
         password: &str,
+        profile: Option<HelperProfile>,
         on_event: impl Fn(ViewerEvent) + Send + Sync + 'static,
     ) -> Result<Self> {
         let (mut t, _) = net::dial(server).await?;
@@ -81,8 +82,9 @@ impl ViewerSession {
 
         let (mut tx, mut rx) = viewer_handshake(t, target, password).await?;
         let name = format!("{} ({})", whoami::username(), whoami::devicename());
-        // Older hosts ignore the trailer; newer ones answer with theirs on `Welcome`.
-        tx.send_with_trailer(&ViewerMsg::Hello { name, device: own_id }, &Features::CURRENT).await?;
+        // Older hosts read only the features from the trailer, or nothing; newer ones answer with theirs on `Welcome`.
+        let extras = HelloExtras { features: Features::CURRENT, profile };
+        tx.send_with_trailer(&ViewerMsg::Hello { name, device: own_id }, &extras).await?;
         let (host, features) = match timeout(WELCOME_TIMEOUT, rx.recv_with_trailer::<HostMsg, Features>()).await?? {
             Some((HostMsg::Welcome(info), features)) => (info, features.unwrap_or(Features::NONE)),
             Some((HostMsg::Bye(reason), _)) => bail!(reason),

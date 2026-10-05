@@ -5,8 +5,23 @@ export type Presence =
   | { state: "online"; id: string }
   | { state: "offline"; reason: string };
 
+/** Mirrors `Profile` in crates/core/src/profile.rs: how a helper presents themselves. */
+export interface Profile {
+  name: string;
+  company: string;
+  message: string;
+  /** PNG as base64, "" for none. */
+  logo: string;
+}
+
+/** "Name (Firma)", or whichever is set. */
+export function profileLabel(profile: Profile): string {
+  if (profile.name && profile.company) return `${profile.name} (${profile.company})`;
+  return profile.name || profile.company;
+}
+
 export type HostEvent =
-  | { kind: "sessionStarted"; session: number; peer: string; chat: boolean }
+  | { kind: "sessionStarted"; session: number; peer: string; chat: boolean; profile?: Profile | null }
   | { kind: "sessionEnded"; session: number }
   | { kind: "chat"; session: number; text: string }
   | { kind: "passwordChanged" };
@@ -15,6 +30,8 @@ export type HostEvent =
 export interface ApprovalRequest {
   id: number;
   peer: string;
+  /** Self-declared by the viewer; older viewers send none. */
+  profile: Profile | null;
 }
 
 export interface Peer {
@@ -35,6 +52,13 @@ export interface Hosted {
   peer: string;
   /** The viewer's version understands chat messages. */
   chat: boolean;
+  /** How the viewer presents itself (self-declared). */
+  profile: Profile | null;
+}
+
+/** Who controls a hosted session, as shown on this device. */
+export function hostedLabel(hosted: Hosted): string {
+  return hosted.profile ? profileLabel(hosted.profile) : hosted.peer;
 }
 
 /** Mirrors `DirectSettings` in crates/core/src/config.rs. */
@@ -64,6 +88,8 @@ export interface Overview {
   publicAlias: string | null;
   /** False in the portable helper, which has no lasting identity. */
   aliasSupported: boolean;
+  /** How this user presents themselves when connecting to others. */
+  profile: Profile | null;
 }
 
 export interface DisplayInfo {
@@ -132,6 +158,8 @@ export const api = {
   saveSettings: (server: string, permanentPassword: string | null) =>
     invoke<void>("save_settings", { server, permanentPassword }),
   saveDirect: (settings: DirectSettings) => invoke<void>("save_direct", { settings }),
+  /** An empty profile removes it; returns the profile as stored. */
+  saveProfile: (profile: Profile) => invoke<Profile | null>("save_profile", { profile }),
   forgetPeer: (id: string) => invoke<void>("forget_peer", { id }),
   setAlias: (id: string, alias: string | null) => invoke<void>("set_alias", { id, alias }),
   /** `target` is an ID or an alias. */

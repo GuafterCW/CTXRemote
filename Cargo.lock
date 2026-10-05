@@ -774,6 +774,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arboard",
+ "base64 0.22.1",
  "bytes",
  "ctxremote-proto",
  "directories",

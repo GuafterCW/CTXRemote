@@ -7,6 +7,7 @@ Selbst gehosteter Fernzugriff für eigene Geräte, eine Alternative zu RustDesk,
 - **Einmal-Passwort** pro Sitzung, optional ein **festes Passwort** für unbeaufsichtigten Zugriff. Nach 5 Fehlversuchen sperrt der Host für 5 Minuten.
 - **H.264-Bildübertragung** (OpenH264) mit DXGI-Bildschirmaufnahme. Dekodiert wird im Viewer hardwarebeschleunigt per WebCodecs.
 - **Aliase:** Geräte lassen sich benennen („Büro-PC“) und im Verbindungsfeld per Alias statt ID finden.
+- **Helfer-Profil:** Name, Firma, Nachricht und Logo, die die Gegenseite beim Verbinden sieht, z. B. in der Zugriffsanfrage der Schnellhilfe.
 - **Öffentlicher Alias:** Wie bei AnyDesk legt jedes Gerät selbst einen Namen fest (z. B. `philipp-pc`), unter dem andere es über den Server erreichen.
 - **Physische Tastatur:** Übertragen werden Scancodes statt Zeichen, Tastaturlayouts funktionieren daher auf beiden Seiten korrekt.
 - **Dateiübertragung** in beide Richtungen mit Dateifenster (zwei Spalten), ganzen Ordnern und Drag & Drop. Bestehende Dateien werden nicht überschrieben.

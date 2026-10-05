@@ -4,6 +4,7 @@
   import {
     api,
     errorText,
+    hostedLabel,
     peerLabel,
     type HostEvent,
     type Hosted,
@@ -79,7 +80,10 @@
       listen<HostEvent>("host-event", (e) => {
         const event = e.payload;
         if (event.kind === "sessionStarted")
-          hosted = [...hosted, { session: event.session, peer: event.peer, chat: event.chat }];
+          hosted = [
+            ...hosted,
+            { session: event.session, peer: event.peer, chat: event.chat, profile: event.profile ?? null },
+          ];
         if (event.kind === "sessionEnded") {
           hosted = hosted.filter((h) => h.session !== event.session);
           delete chats[event.session];
@@ -225,7 +229,10 @@
       {#each hosted as h (h.session)}
         <div class="banner-row">
           <span class="live"></span>
-          <span><strong>{h.peer}</strong> steuert dieses Gerät</span>
+          {#if h.profile?.logo}
+            <img class="banner-logo" src={`data:image/png;base64,${h.profile.logo}`} alt="" />
+          {/if}
+          <span title={h.profile ? `Gerät: ${h.peer}` : undefined}><strong>{hostedLabel(h)}</strong> steuert dieses Gerät</span>
           {#if h.chat}
             <button class="banner-btn chat-btn" onclick={() => (chatOpen[h.session] = !chatOpen[h.session])}>
               <Icon name="chat" size={14} /> Chat
@@ -474,6 +481,7 @@
 
 {#if settingsOpen && overview}
   <Settings
+    profile={overview.profile}
     server={overview.server}
     unattended={overview.unattended}
     direct={overview.direct}
@@ -870,6 +878,13 @@
     height: 40px;
     padding: 0 16px 0 24px;
     font-size: 13px;
+  }
+
+  .banner-logo {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    object-fit: contain;
   }
 
   .banner-row + .banner-row {

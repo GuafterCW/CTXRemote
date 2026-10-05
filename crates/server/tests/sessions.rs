@@ -116,3 +116,33 @@ async fn public_alias_reaches_the_device() {
     assert_eq!(host.set_public_alias(None).await.unwrap(), None);
     assert_eq!(other.set_public_alias(Some("test-rechner".into())).await.unwrap().as_deref(), Some("test-rechner"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn helper_profile_reaches_the_host() {
+    use ctxremote_core::host::HostEvent;
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+    let mut events = host.events();
+    let profile = HelperProfile {
+        name: "Philipp".into(),
+        company: "Ecker IT".into(),
+        message: "Ich schaue mir den Drucker an".into(),
+        logo: vec![],
+    };
+    let (session, viewer_events) = connect_as(&addr, &host, id, Some(profile)).await;
+
+    let started = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(HostEvent::SessionStarted { profile, .. }) = events.recv().await {
+                return profile;
+            }
+        }
+    })
+    .await
+    .unwrap()
+    .expect("Profil kommt an");
+    assert_eq!(started.label(), "Philipp (Ecker IT)");
+    assert_eq!(started.message, "Ich schaue mir den Drucker an");
+    assert_eq!(host.session_profiles().len(), 1);
+    tokio::task::spawn_blocking(move || echo(&session, &viewer_events, "mit Profil")).await.unwrap();
+}

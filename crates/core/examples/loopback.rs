@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
     .await?;
     println!("Host online als {id}");
 
-    match ViewerSession::connect(&server, None, id, "falsch", |_| {}).await {
+    match ViewerSession::connect(&server, None, id, "falsch", None, |_| {}).await {
         Ok(_) => bail!("falsches Passwort wurde akzeptiert"),
         Err(e) => println!("Falsches Passwort abgewiesen: {e}"),
     }
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     let started = Instant::now();
     let session = {
         let (frames, bytes, first_key) = (frames.clone(), bytes.clone(), first_key.clone());
-        ViewerSession::connect(&server, None, id, &host.password(), move |event| {
+        ViewerSession::connect(&server, None, id, &host.password(), None, move |event| {
             if let ViewerEvent::Video(frame) = event {
                 frames.fetch_add(1, Ordering::Relaxed);
                 bytes.fetch_add(frame.data.len(), Ordering::Relaxed);
@@ -109,11 +109,11 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // With approval required, a refusal ends the session despite the right password.
-    host.require_approval(Arc::new(|peer| {
+    host.require_approval(Arc::new(|peer, _profile| {
         println!("Anfrage von {peer}, wird abgelehnt");
         Box::pin(async { false })
     }));
-    match ViewerSession::connect(&server, None, id, &host.password(), |_| {}).await {
+    match ViewerSession::connect(&server, None, id, &host.password(), None, |_| {}).await {
         Ok(_) => bail!("abgelehnte Sitzung wurde trotzdem eröffnet"),
         Err(e) => println!("Ohne Zustimmung abgewiesen: {e}"),
     }

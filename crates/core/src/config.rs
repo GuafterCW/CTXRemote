@@ -33,6 +33,8 @@ pub struct Config {
     pub direct_addresses: Vec<String>,
     /// Public alias others can connect with instead of the ID (kept on the server).
     pub public_alias: Option<String>,
+    /// How this user presents themselves when connecting to others.
+    pub profile: Option<crate::profile::Profile>,
 }
 
 /// The direct-connection part of the settings form.
@@ -84,6 +86,7 @@ impl Default for Config {
             direct_port: crate::direct::DEFAULT_PORT,
             direct_addresses: Vec::new(),
             public_alias: None,
+            profile: None,
         }
     }
 }

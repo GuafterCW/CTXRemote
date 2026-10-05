@@ -126,6 +126,21 @@ UDP-Hole-Punching mit QUIC, parallel zum bisherigen TCP-Weg. Details in `docs/DI
 - `CTXREMOTE_DIRECT=udp` beim Viewer lässt TCP weg, zum Ausprobieren im LAN.
 - Tests: `cargo test -p ctxremote-core punch` und `cargo test -p ctxremote-server --test punch`. Die gemeinsamen Testhelfer liegen jetzt in `crates/server/tests/common/mod.rs`.
 
+### Helfer-Profil (5. Oktober, Cloud-Sitzung)
+
+Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalisieren lassen, für jeden Kunden eigen. Umgesetzt ist das **Helfer-Profil**. Den eigenen gebrandeten Client und die Pläne beschreibt das Konzept `docs/PLANS.md`. Dort warten offene Entscheidungen auf den Nutzer.
+
+- **Festlegen:** Einstellungen → „Ihr Profil“. Felder: Name, Firma, Nachricht, Logo. Das Logo wird in der App auf höchstens 128 px verkleinert, als PNG mit höchstens 64 KB. Eine Vorschau zeigt, wie es die Gegenseite sieht. Gespeichert wird in der Benutzer-Konfiguration (`profile`), ohne UAC, auch im Dienstmodus.
+- **Anzeige beim Host:**
+  - In der Zugriffsanfrage der Schnellhilfe erscheint eine Profilkarte mit Logo, Name, Firma, Nachricht und dem technischen Gerätenamen. Dazu der Hinweis, dass die Angaben nicht geprüft sind.
+  - In „Verbunden mit …“ und im Banner „… steuert dieses Gerät“ des Hauptfensters steht der Profilname, mit Logo.
+- **Protokoll:**
+  - Das Profil reist im `Hello`-Anhang als `HelloExtras { features, profile }`. `features` steht vorne, deshalb lesen ältere Hosts weiter nur die Features (Test `hello_extras_are_compatible_both_ways`).
+  - Neues Bit `Features::PROFILE`, nur zur Information.
+  - Der Host säubert alles (`HelperProfile::sanitized`): Längen, Steuerzeichen, Logo nur als PNG bis 64 KB.
+- **Dienstmodus:** `HostEvent::SessionStarted.profile` und `ServiceState.session_profiles`, beide mit `serde(default)`.
+- Test mit echtem Server: `helper_profile_reaches_the_host`.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -171,6 +186,11 @@ UDP-Hole-Punching mit QUIC, parallel zum bisherigen TCP-Weg. Details in `docs/DI
     - Im LAN: Viewer mit `CTXREMOTE_DIRECT=udp` starten (PowerShell: `$env:CTXREMOTE_DIRECT="udp"; & "C:\Program Files\CTXRemote\ctxremote.exe"`). Das Sitzungsfenster muss nach wenigen Sekunden „Direkt“ zeigen. Kommt eine Firewall-Abfrage von Windows?
     - Echt: Viewer im Handy-Hotspot, Host zu Hause, ohne Portweiterleitung. Erwartet: „Direkt“ über die öffentliche Adresse des Routers.
     - Bild, Dateien und Chat laufen danach normal, auch nach 5 Minuten ohne Bildänderung (Keep-Alive).
+15. Helfer-Profil:
+    - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
+    - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.
+    - Mit einem Gerät mit Dienst verbinden: Das Banner im Hauptfenster zeigt Profilname und Logo.
+    - Profil leeren und speichern: Danach erscheint wieder nur „benutzer (PC)“.
 
 ## Nächste Schritte
 
@@ -178,6 +198,7 @@ UDP-Hole-Punching mit QUIC, parallel zum bisherigen TCP-Weg. Details in `docs/DI
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
 2. Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig). UDP-Weg auch für die Schnellhilfe als Host (braucht Token-Verwaltung ohne TCP-Listener).
 3. Adressbuch und Geräteverwaltung über den Server, Code-Signatur (braucht ein Konto bei Microsoft Trusted Signing).
+4. Bezahlte Pläne nach `docs/PLANS.md`. Erst bauen, wenn der Nutzer die offenen Entscheidungen dort beantwortet hat. Schritt 1 (Konten und Adressbuch) ginge auch vorher schon.
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 

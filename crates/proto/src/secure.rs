@@ -248,14 +248,21 @@ impl SecureReceiver {
 
     /// Like [`Self::recv`], plus the trailer if the peer sent one that decodes.
     pub async fn recv_with_trailer<T: DeserializeOwned, U: DeserializeOwned>(&mut self) -> Result<Option<(T, Option<U>)>> {
+        Ok(self.recv_with_rest::<T>().await?.map(|(msg, rest)| {
+            let trailer = if rest.is_empty() { None } else { postcard::from_bytes(&rest).ok() };
+            (msg, trailer)
+        }))
+    }
+
+    /// Like [`Self::recv`], plus the undecoded bytes after the message.
+    pub async fn recv_with_rest<T: DeserializeOwned>(&mut self) -> Result<Option<(T, Vec<u8>)>> {
         let plain = match self.recv_raw().await {
             Ok(plain) => plain,
             Err(e) if e.is::<Closed>() => return Ok(None),
             Err(e) => return Err(e),
         };
         let (msg, rest) = postcard::take_from_bytes::<T>(&plain)?;
-        let trailer = if rest.is_empty() { None } else { postcard::from_bytes(rest).ok() };
-        Ok(Some((msg, trailer)))
+        Ok(Some((msg, rest.to_vec())))
     }
 
     /// Continues reading from another transport and returns the old one's

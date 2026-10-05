@@ -13,6 +13,7 @@ use ctxremote_core::config::{Config, DirectSettings};
 use ctxremote_core::files::client::{FileClient, TransferEvent};
 use ctxremote_core::files::{self, UserContext};
 use ctxremote_core::host::{Host, Presence};
+use ctxremote_core::profile::Profile;
 use ctxremote_core::proto::session::{CursorShape, HostInfo, InputEvent, Listing, Quality, VideoFrame, ViewerMsg};
 use ctxremote_core::proto::DeviceId;
 #[cfg(not(feature = "quick"))]
@@ -144,6 +145,8 @@ struct Overview {
     public_alias: Option<String>,
     /// Whether a public alias can be set (not in the portable helper).
     alias_supported: bool,
+    /// How this user presents themselves when connecting to others.
+    profile: Option<Profile>,
 }
 
 #[derive(Serialize)]
@@ -161,12 +164,14 @@ struct Hosted {
     peer: String,
     /// The viewer can receive chat messages.
     chat: bool,
+    /// How the viewer presents itself, if it sent a profile (self-declared).
+    profile: Option<Profile>,
 }
 
 #[tauri::command]
 fn overview(state: State<AppState>) -> Overview {
     let config = state.config.read().unwrap();
-    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias) = match &state.host {
+    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles) = match &state.host {
         Side::Local(host) => (
             host.presence().borrow().clone(),
             host.password(),
@@ -178,11 +183,12 @@ fn overview(state: State<AppState>) -> Overview {
             host.direct_active(),
             host.chat_sessions(),
             host.public_alias(),
+            host.session_profiles(),
         ),
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => {
             let s = service.state();
-            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias)
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles)
         }
     };
     Overview {
@@ -206,12 +212,18 @@ fn overview(state: State<AppState>) -> Overview {
             .collect(),
         hosted: sessions
             .into_iter()
-            .map(|(session, peer)| Hosted { session, peer, chat: chat.contains(&session) })
+            .map(|(session, peer)| Hosted {
+                session,
+                peer,
+                chat: chat.contains(&session),
+                profile: profiles.iter().find(|(n, _)| *n == session).map(|(_, p)| p.clone()),
+            })
             .collect(),
         version: ctxremote_core::update::VERSION,
         update: state.update.lock().unwrap().as_ref().map(|u| u.version.clone()),
         public_alias,
         alias_supported: !cfg!(feature = "quick"),
+        profile: config.profile.clone(),
     }
 }
 
@@ -225,6 +237,17 @@ async fn refresh_password(state: State<'_, AppState>) -> CmdResult<String> {
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => service.refresh_password().await,
     })
+}
+
+/// Saves how this user presents themselves to others; an empty profile removes it.
+/// Returns the profile as stored (cleaned up).
+#[tauri::command]
+fn save_profile(state: State<AppState>, profile: Profile) -> CmdResult<Option<Profile>> {
+    let profile = profile.validate()?;
+    let mut config = state.config.write().unwrap();
+    config.profile = profile.clone();
+    config.save().map_err(err)?;
+    Ok(profile)
 }
 
 /// `permanent_password`: `None` keeps the current one, `Some("")` disables unattended access.
@@ -401,7 +424,8 @@ async fn connect(
         }
     };
 
-    let session = ViewerSession::connect(&server, own_id, target, &password, on_event)
+    let profile = state.config.read().unwrap().profile.as_ref().and_then(Profile::to_wire);
+    let session = ViewerSession::connect(&server, own_id, target, &password, profile, on_event)
         .await
         .map_err(|e| format!("{e:#}"))?;
     link.lock().unwrap().clipboard = {
@@ -785,6 +809,7 @@ macro_rules! handlers {
             set_quality,
             disconnect,
             end_hosted_session,
+            save_profile,
             install_update,
             set_public_alias,
             open_files,

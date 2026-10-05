@@ -8,6 +8,7 @@ use std::sync::Mutex;
 
 use ctxremote_core::config::Config;
 use ctxremote_core::host::Approver;
+use ctxremote_core::profile::Profile;
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager, State, UserAttentionType};
 use tokio::sync::oneshot;
@@ -65,7 +66,7 @@ impl Drop for Closer {
 }
 
 pub fn approver(app: AppHandle) -> Approver {
-    std::sync::Arc::new(move |peer: String| {
+    std::sync::Arc::new(move |peer: String, profile: Option<Profile>| {
         let app = app.clone();
         Box::pin(async move {
             let approvals = app.state::<Approvals>();
@@ -80,7 +81,7 @@ pub fn approver(app: AppHandle) -> Approver {
                 let _ = window.set_focus();
                 let _ = window.request_user_attention(Some(UserAttentionType::Critical));
             }
-            let _ = app.emit("approval-request", json!({ "id": id, "peer": peer }));
+            let _ = app.emit("approval-request", json!({ "id": id, "peer": peer, "profile": profile }));
             rx.await.unwrap_or(false)
         })
     })

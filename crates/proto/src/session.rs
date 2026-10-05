@@ -53,15 +53,81 @@ impl Features {
     pub const CHAT: u32 = 1 << 5;
     /// `PunchOffer` / `PunchAnswer`: direct connections through NAT.
     pub const PUNCH: u32 = 1 << 6;
+    /// Reads a [`HelperProfile`] in the `Hello` trailer. Informational only:
+    /// viewers send the profile either way, older hosts skip it.
+    pub const PROFILE: u32 = 1 << 7;
 
     /// Everything this build supports.
-    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT | Self::PUNCH);
+    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT | Self::PUNCH | Self::PROFILE);
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
 
     pub fn has(self, feature: u32) -> bool {
         self.0 & feature == feature
     }
+}
+
+/// What follows `Hello` in the same frame. `features` comes first, so hosts
+/// that only know the plain [`Features`] trailer still read it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HelloExtras {
+    pub features: Features,
+    pub profile: Option<HelperProfile>,
+}
+
+impl HelloExtras {
+    /// Reads whatever trailer the viewer sent: extras, plain features (older
+    /// viewers) or nothing (oldest viewers).
+    pub fn decode(trailer: &[u8]) -> Self {
+        if trailer.is_empty() {
+            return Self::default();
+        }
+        if let Ok(extras) = postcard::from_bytes::<Self>(trailer) {
+            return extras;
+        }
+        Self { features: postcard::from_bytes(trailer).unwrap_or_default(), profile: None }
+    }
+}
+
+/// How the person at the viewer presents themselves to the person at the
+/// host, e.g. in the quick helper's consent dialog. Self-declared, so the
+/// host shows it as such. Limits: see the `MAX_*` constants; hosts cut longer
+/// texts and drop a logo that is too big or not a PNG.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperProfile {
+    pub name: String,
+    pub company: String,
+    /// A short note, e.g. "Ich helfe Ihnen beim Drucker".
+    pub message: String,
+    /// PNG, at most [`HelperProfile::MAX_LOGO`] bytes; empty for none.
+    pub logo: Vec<u8>,
+}
+
+impl HelperProfile {
+    pub const MAX_NAME: usize = 60;
+    pub const MAX_COMPANY: usize = 80;
+    pub const MAX_MESSAGE: usize = 300;
+    pub const MAX_LOGO: usize = 64 * 1024;
+    const PNG: &'static [u8] = b"\x89PNG\r\n\x1a\n";
+
+    /// Trims and cuts every field to its limit and drops an invalid logo;
+    /// `None` if nothing is left.
+    pub fn sanitized(self) -> Option<Self> {
+        let logo = if self.logo.len() <= Self::MAX_LOGO && self.logo.starts_with(Self::PNG) { self.logo } else { Vec::new() };
+        let profile = Self {
+            name: clean(&self.name, Self::MAX_NAME),
+            company: clean(&self.company, Self::MAX_COMPANY),
+            message: clean(&self.message, Self::MAX_MESSAGE),
+            logo,
+        };
+        (!profile.name.is_empty() || !profile.company.is_empty()).then_some(profile)
+    }
+}
+
+/// Trimmed, without control characters (line breaks become spaces), at most `max` characters.
+fn clean(text: &str, max: usize) -> String {
+    let text: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect();
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// The only plaintext frame on a direct connection, sent by the viewer before
@@ -270,4 +336,59 @@ pub enum InputEvent {
     Key { code: String, down: bool },
     /// Releases every key and button the viewer may still hold, e.g. on focus loss.
     ReleaseAll,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hello_frame<U: Serialize>(trailer: Option<&U>) -> Vec<u8> {
+        let mut frame = postcard::to_stdvec(&ViewerMsg::Hello { name: "a".into(), device: None }).unwrap();
+        if let Some(trailer) = trailer {
+            frame.extend(postcard::to_stdvec(trailer).unwrap());
+        }
+        frame
+    }
+
+    #[test]
+    fn hello_extras_are_compatible_both_ways() {
+        let profile = HelperProfile { name: "Philipp".into(), company: "Ecker IT".into(), message: String::new(), logo: vec![] };
+        let extras = HelloExtras { features: Features::CURRENT, profile: Some(profile.clone()) };
+
+        // An older host reads only the features from the new trailer.
+        let frame = hello_frame(Some(&extras));
+        let (_, rest) = postcard::take_from_bytes::<ViewerMsg>(&frame).unwrap();
+        assert_eq!(postcard::from_bytes::<Features>(rest).unwrap(), Features::CURRENT);
+        let decoded = HelloExtras::decode(rest);
+        assert_eq!((decoded.features, decoded.profile), (Features::CURRENT, Some(profile)));
+
+        // A newer host reads older viewers' trailers.
+        let frame = hello_frame(Some(&Features(Features::FILES)));
+        let (_, rest) = postcard::take_from_bytes::<ViewerMsg>(&frame).unwrap();
+        let decoded = HelloExtras::decode(rest);
+        assert_eq!((decoded.features, decoded.profile), (Features(Features::FILES), None));
+        assert_eq!(HelloExtras::decode(&[]).features, Features::NONE);
+    }
+
+    #[test]
+    fn profiles_are_cut_to_size() {
+        let long = HelperProfile {
+            name: format!("  Max\n{}", "x".repeat(200)),
+            company: "Firma\u{7}".into(),
+            message: "Hallo".into(),
+            logo: vec![1, 2, 3],
+        };
+        let clean = long.sanitized().unwrap();
+        assert!(clean.name.starts_with("Max x") && clean.name.chars().count() <= HelperProfile::MAX_NAME);
+        assert_eq!(clean.company, "Firma");
+        assert!(clean.logo.is_empty(), "not a PNG");
+
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.resize(100, 0);
+        let with_logo = HelperProfile { name: "A".into(), logo: png.clone(), ..Default::default() };
+        assert_eq!(with_logo.sanitized().unwrap().logo, png);
+        png.resize(HelperProfile::MAX_LOGO + 1, 0);
+        assert!(HelperProfile { name: "A".into(), logo: png, ..Default::default() }.sanitized().unwrap().logo.is_empty());
+        assert!(HelperProfile { message: "nur Text".into(), ..Default::default() }.sanitized().is_none());
+    }
 }
