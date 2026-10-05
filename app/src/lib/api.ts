@@ -49,6 +49,8 @@ export interface Peer {
   wake: boolean;
   /** The user's groups for it. */
   tags: string[];
+  /** Online right now; null if not known (not a device of the account). */
+  online: boolean | null;
 }
 
 export function peerLabel(peer: Peer): string {

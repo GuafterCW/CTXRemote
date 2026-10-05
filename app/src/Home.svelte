@@ -219,13 +219,13 @@
     if (showSuggestions) return choose(suggestions[highlighted] ?? suggestions[0]);
     if (typingId && isCompleteId(query)) {
       const known = peers.find((p) => p.id === query);
-      return choose(known ?? { id: query, alias: null, name: "", lastSeen: 0, access: false, wake: false, tags: [] });
+      return choose(known ?? { id: query, alias: null, name: "", lastSeen: 0, access: false, wake: false, tags: [], online: null });
     }
     if (suggestions.length === 1) return choose(suggestions[0]);
     // Not in the own list: a public alias, which the server resolves.
     if (!typingId && isPublicAlias(query)) {
       const alias = query.trim().toLowerCase();
-      return choose({ id: alias, alias, name: "", lastSeen: 0, access: false, wake: false, tags: [] });
+      return choose({ id: alias, alias, name: "", lastSeen: 0, access: false, wake: false, tags: [], online: null });
     }
   }
 

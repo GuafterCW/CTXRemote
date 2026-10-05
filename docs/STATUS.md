@@ -367,6 +367,10 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - Die Gruppen gehen mit dem Konto auf alle Geräte (`Entry::tags`/`tags_at`). Die neuere Änderung gewinnt, unabhängig vom Alias. Ältere Versionen lassen das Feld unberührt.
 - Getestet: Unit-Test für den Abgleich (`tags_merge_by_their_own_time`).
 
+### Online-Anzeige in der Geräteliste (5. Oktober, Cloud-Sitzung)
+
+- Geräte des eigenen Kontos tragen in der Liste einen Punkt: grün online, grau offline. Die App fragt dafür jede Minute `AccountOp::Devices` ab, die gleiche Abfrage wie im Konto-Panel. Für Geräte außerhalb des Kontos weiß der Server nichts Verlässliches, dort gibt es keinen Punkt.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -475,6 +479,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 31. Port-Tunnel: Mit festem Passwort verbinden (oder „Port-Tunnel“ im Rechte-Menü erlauben). Tunnel-Knopf, Ziel z. B. ein anderer PC im Netz des Geräts mit `:3389`. Dann lokal `mstsc /v:localhost:<Port>`: Die RDP-Sitzung muss durch den Tunnel laufen. Recht entziehen: Die RDP-Verbindung bricht ab.
 32. Zeichnen: In einer Sitzung den Stift-Knopf drücken und etwas einkreisen. Am Gerät und im Bild muss die Linie genau dort erscheinen, auch bei 150 % Skalierung und auf Monitor 2. Farbe wechseln, Papierkorb, Stift aus: Am Gerät ist alles weg. Kann die Person am Gerät durch die Linien hindurch klicken?
 33. Gruppen: Zwei Geräten in der Liste Gruppen geben (Etikett-Knopf), mit den Chips filtern. Erscheinen die Gruppen auf dem zweiten PC im Konto?
+34. Online-Anzeige: In der Geräteliste haben Geräte des Kontos einen Punkt. Einen PC herunterfahren: Spätestens nach einer Minute wird sein Punkt grau.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

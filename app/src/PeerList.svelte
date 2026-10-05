@@ -204,7 +204,12 @@
           </div>
         {:else}
           <button class="row peer" onclick={() => onpick(peer)}>
-            <span class="peer-icon" class:named={peer.alias}><Icon name="monitor" size={18} /></span>
+            <span class="peer-icon" class:named={peer.alias}>
+              <Icon name="monitor" size={18} />
+              {#if peer.online !== null}
+                <span class="dot" class:up={peer.online} title={peer.online ? "Online" : "Offline"}></span>
+              {/if}
+            </span>
             <span class="peer-text">
               <span class="peer-name">
                 {peerLabel(peer)}{#if peer.access}<span class="access">ohne Passwort</span>{/if}
@@ -445,5 +450,24 @@
     background: var(--accent-soft);
     color: var(--ink-2);
     font-size: 11px;
+  }
+
+  .peer-icon {
+    position: relative;
+  }
+
+  .dot {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 8px;
+    height: 8px;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--line-strong);
+  }
+
+  .dot.up {
+    background: var(--ok);
   }
 </style>

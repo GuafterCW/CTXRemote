@@ -251,6 +251,8 @@ struct PeerView {
     wake: bool,
     /// The user's groups for it.
     tags: Vec<String>,
+    /// Online right now; `None` if not known (not a device of the account).
+    online: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -319,6 +321,10 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
                 access: ctxremote_core::account::access_for(&config, p.id).is_some(),
                 wake: !p.macs.is_empty(),
                 tags: p.tags.clone(),
+                #[cfg(not(feature = "quick"))]
+                online: account::presence(&app, &p.id.to_string()),
+                #[cfg(feature = "quick")]
+                online: None,
             })
             .collect(),
         hosted: sessions

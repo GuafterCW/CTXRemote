@@ -25,6 +25,63 @@ pub struct Sync {
     error: Mutex<Option<String>>,
     /// Serialises account changes with the background sync.
     turn: tokio::sync::Mutex<()>,
+    /// IDs of the account's devices that are online, from the server.
+    online: Mutex<std::collections::HashSet<String>>,
+    /// IDs of the account's devices at all (online or not).
+    members: Mutex<std::collections::HashSet<String>>,
+}
+
+/// Whether a device of the account is online; `None` for devices outside it.
+pub fn presence(app: &AppHandle, id: &str) -> Option<bool> {
+    let sync = app.state::<Sync>();
+    let known = sync.members.lock().unwrap().contains(id);
+    known.then(|| sync.online.lock().unwrap().contains(id))
+}
+
+/// How often the account's devices are asked whether they are online.
+const PRESENCE_EVERY: Duration = Duration::from_secs(60);
+
+/// Keeps the online state of the account's devices fresh for the list.
+fn watch_presence(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            refresh_presence(&app).await;
+            tokio::time::sleep(PRESENCE_EVERY).await;
+        }
+    });
+}
+
+async fn refresh_presence(app: &AppHandle) {
+    let (server, key, link) = {
+        let state = app.state::<AppState>();
+        let config = state.config.read().unwrap();
+        let Some(link) = config.account.clone() else {
+            drop(config);
+            let sync = app.state::<Sync>();
+            sync.online.lock().unwrap().clear();
+            sync.members.lock().unwrap().clear();
+            return;
+        };
+        let Ok(key) = config.signing_key() else { return };
+        (config.server_addr(), key, link)
+    };
+    let Ok(devices) = account::devices(&server, &key, &link).await else { return };
+    let members: std::collections::HashSet<String> = devices.iter().filter_map(|d| d.id.clone()).collect();
+    let online: std::collections::HashSet<String> =
+        devices.iter().filter(|d| d.online).filter_map(|d| d.id.clone()).collect();
+    let sync = app.state::<Sync>();
+    let changed = {
+        let mut current = sync.online.lock().unwrap();
+        let mut known = sync.members.lock().unwrap();
+        let changed = *current != online || *known != members;
+        *current = online;
+        *known = members;
+        changed
+    };
+    if changed {
+        let _ = app.emit("peers-changed", ());
+    }
 }
 
 impl Sync {
@@ -50,6 +107,7 @@ pub fn view(app: &AppHandle) -> Option<AccountView> {
 
 /// Starts the background sync.
 pub fn start(app: &AppHandle) {
+    watch_presence(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         loop {
@@ -156,7 +214,10 @@ fn unlinked(app: &AppHandle) {
         config.removed.clear();
     }
     let _ = save_link(&state, None);
-    *app.state::<Sync>().error.lock().unwrap() = None;
+    let sync = app.state::<Sync>();
+    *sync.error.lock().unwrap() = None;
+    sync.online.lock().unwrap().clear();
+    sync.members.lock().unwrap().clear();
     let _ = app.emit("peers-changed", ());
 }
 
@@ -256,6 +317,7 @@ async fn linked(
         let _ = account::set_label(&server, &key, &link, &account::default_label()).await;
     }
     sync_now(app).await;
+    refresh_presence(app).await;
     let _ = app.emit("peers-changed", ());
     Ok(())
 }
