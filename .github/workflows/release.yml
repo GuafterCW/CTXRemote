@@ -7,8 +7,7 @@
 # secrets the builds still run and the files are kept as workflow artifacts.
 name: Release
 
-# Every run costs Actions minutes (the Windows build counts twice), so pure
-# documentation changes do not trigger one. Push several changes together.
+# Pure documentation changes need no new release.
 on:
   push:
     branches: [master]
@@ -16,6 +15,7 @@ on:
       - "docs/**"
       - "**/*.md"
       - ".claude/**"
+      - "LICENSE"
   workflow_dispatch:
 
 concurrency:

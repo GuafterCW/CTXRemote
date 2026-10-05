@@ -100,3 +100,7 @@ Als Nächstes:
 3. Adressbuch und Geräteverwaltung über den Server (die „Pro“-Funktionen)
 4. Linux-Host (X11), dann macOS-Host, dann Wayland
 5. Code-Signatur der Windows-Builds
+
+## Lizenz
+
+GNU Affero General Public License v3.0 oder neuer, siehe [`LICENSE`](LICENSE).

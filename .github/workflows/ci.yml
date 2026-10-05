@@ -1,11 +1,11 @@
-# Checks without a release. GitHub Actions minutes are limited (Windows runners
-# count twice, macOS ten times), so this runs only for pull requests or by hand
-# (Actions → CI → Run workflow), on Linux only. Pushes to master are tested and
-# built by release.yml anyway. Before pushing, run the checks from CLAUDE.md
-# locally; scripts/check-windows.sh type-checks the Windows code from Linux.
+# Checks for every push and pull request. The repository is public, so the
+# standard runners cost nothing. Pushes to master are also tested and built by
+# release.yml.
 name: CI
 
 on:
+  push:
+    branches-ignore: [master]
   pull_request:
   workflow_dispatch:
 
@@ -14,24 +14,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  linux:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Linux-Abhängigkeiten für Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Tests
-        run: cargo test --locked -p ctxremote-proto -p ctxremote-core -p ctxremote-server
-      - name: App-Oberfläche
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Frontend
         working-directory: app
         run: |
           npm ci
           npm run check
           npm run build
-      # The web interface: types, build, and that the browser derives the same keys as the app.
+
+      - name: Tests
+        run: cargo test --locked -p ctxremote-proto -p ctxremote-core -p ctxremote-server
+
+      - name: Dienst für den Installer (nur Windows)
+        if: runner.os == 'Windows'
+        working-directory: app
+        run: node scripts/prepare-service.mjs
+
+      - name: App
+        run: cargo build --locked -p ctxremote
+
+  # The web interface (website/konto): types, build, and the check that the
+  # browser derives the same keys as the app.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - name: Webinterface
         working-directory: web
         run: |
@@ -39,5 +73,3 @@ jobs:
           npm run check
           npm test
           npm run build
-      - name: Windows-Code (Typprüfung von Linux aus)
-        run: ./scripts/check-windows.sh
