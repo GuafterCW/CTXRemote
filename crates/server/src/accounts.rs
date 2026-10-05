@@ -126,9 +126,53 @@ impl Accounts {
     /// Carries out a request whose signature the caller has checked.
     pub fn handle(&mut self, public_key: [u8; 32], op: AccountOp) -> Result<AccountReply, AccountError> {
         let key = hex::encode(public_key);
+        let member = self.by_key.get(&key).copied();
+        self.run(key, member, op)
+    }
+
+    /// A request from a signed-in browser (the web interface): it acts for
+    /// `account` without a device key, so only what needs no key is allowed.
+    pub fn handle_web(&mut self, account: u64, op: AccountOp) -> Result<AccountReply, AccountError> {
+        if !self.stored.accounts.contains_key(&account) {
+            return Err(AccountError::NotLinked);
+        }
+        match op {
+            AccountOp::Status
+            | AccountOp::GetBook
+            | AccountOp::PutBook { .. }
+            | AccountOp::Devices
+            | AccountOp::RemoveDevice { .. }
+            | AccountOp::SetLogin { .. }
+            | AccountOp::LoginStatus
+            | AccountOp::OfferPairing { .. } => self.run(String::new(), Some(account), op),
+            _ => Err(AccountError::NotLinked),
+        }
+    }
+
+    /// Web sign-up: an account with a login and no devices yet.
+    pub fn register_web(&mut self, login: LoginSetup) -> Result<u64, AccountError> {
+        let login = StoredLogin::from_setup(login, false)?;
+        if self.by_email.contains_key(&login.email) {
+            return Err(AccountError::EmailTaken);
+        }
+        let id = self.stored.next.max(1);
+        let before = self.snapshot();
+        self.stored.next = id + 1;
+        self.by_email.insert(login.email.clone(), id);
+        self.stored.accounts.insert(id, Account { login: Some(login), ..Default::default() });
+        self.commit(before)?;
+        Ok(id)
+    }
+
+    /// Web sign-in: checks the value derived from the password (or the
+    /// recovery code) and returns the account with the matching sealed key.
+    pub fn login_web(&mut self, email: &str, value: &[u8; 32], recovery: bool) -> Result<(u64, Vec<u8>), AccountError> {
+        self.check_login(email, value, recovery)
+    }
+
+    fn run(&mut self, key: String, member: Option<u64>, op: AccountOp) -> Result<AccountReply, AccountError> {
         let now = Instant::now();
         self.pairings.retain(|_, p| p.expires > now);
-        let member = self.by_key.get(&key).copied();
 
         match op {
             AccountOp::Status => Ok(AccountReply::Status(member.map(|id| self.info(id)))),
@@ -330,11 +374,27 @@ impl Accounts {
         value: &[u8; 32],
         recovery: bool,
     ) -> Result<AccountReply, AccountError> {
-        let email = normalize_email(email).ok_or(AccountError::WrongPassword)?;
-        let id = *self.by_email.get(&email).ok_or(AccountError::WrongPassword)?;
+        let (id, wrapped) = self.check_login(email, value, recovery)?;
         if member.is_some_and(|m| m != id) {
             return Err(AccountError::AlreadyLinked);
         }
+        if member.is_none() {
+            if self.stored.accounts[&id].keys.len() >= MAX_DEVICES {
+                return Err(AccountError::TooManyDevices);
+            }
+            let before = self.snapshot();
+            self.stored.accounts.get_mut(&id).expect("exists").keys.push(key.clone());
+            self.by_key.insert(key, id);
+            self.commit(before)?;
+        }
+        Ok(AccountReply::LoggedIn { info: self.info(id), wrapped })
+    }
+
+    /// Checks a password-derived (or recovery) value; counts failures and
+    /// locks the account after too many. Returns the account and its sealed key.
+    fn check_login(&mut self, email: &str, value: &[u8; 32], recovery: bool) -> Result<(u64, Vec<u8>), AccountError> {
+        let email = normalize_email(email).ok_or(AccountError::WrongPassword)?;
+        let id = *self.by_email.get(&email).ok_or(AccountError::WrongPassword)?;
         let now = Instant::now();
         let failures = self.failures.entry(id).or_insert((0, now));
         if now.duration_since(failures.1) > LOCKOUT {
@@ -356,16 +416,7 @@ impl Accounts {
             return Err(AccountError::WrongPassword);
         }
         self.failures.remove(&id);
-        if member.is_none() {
-            if self.stored.accounts[&id].keys.len() >= MAX_DEVICES {
-                return Err(AccountError::TooManyDevices);
-            }
-            let before = self.snapshot();
-            self.stored.accounts.get_mut(&id).expect("exists").keys.push(key.clone());
-            self.by_key.insert(key, id);
-            self.commit(before)?;
-        }
-        Ok(AccountReply::LoggedIn { info: self.info(id), wrapped: hex::decode(wrapped).unwrap_or_default() })
+        Ok((id, hex::decode(wrapped).unwrap_or_default()))
     }
 
     /// Stable per address, so asking twice cannot tell a made-up salt apart.
@@ -550,6 +601,25 @@ mod tests {
         let back = AccountOp::Login { email: "philipp@example.org".into(), auth: [5; 32] };
         assert!(matches!(reopened.handle(a, back), Ok(AccountReply::LoggedIn { info: AccountInfo { devices: 1 }, .. })));
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn web_sessions_act_without_a_key() {
+        let mut accounts = Accounts::open(temp(), [0; 32]).unwrap();
+        let id = accounts.register_web(setup("web@b.de", 1)).unwrap();
+        assert_eq!(accounts.register_web(setup("WEB@b.de", 2)), Err(AccountError::EmailTaken));
+        assert_eq!(accounts.login_web("web@b.de", &[1; 32], false), Ok((id, vec![1; 40])));
+        assert_eq!(accounts.login_web("web@b.de", &[2; 32], false), Err(AccountError::WrongPassword));
+        assert_eq!(accounts.login_web("web@b.de", &[101; 32], true), Ok((id, vec![101; 40])));
+        assert_eq!(accounts.handle_web(id, AccountOp::PutBook { base: 0, blob: vec![5] }), Ok(AccountReply::Stored { revision: 1 }));
+        assert_eq!(accounts.handle_web(id, AccountOp::Devices), Ok(AccountReply::Devices(vec![])));
+        // Things that need a device key are not for browsers.
+        assert_eq!(accounts.handle_web(id, AccountOp::Leave), Err(AccountError::NotLinked));
+        assert_eq!(accounts.handle_web(id, AccountOp::SetLabel { label: vec![1] }), Err(AccountError::NotLinked));
+        // A device logs in to the account made on the web and sees the same book.
+        let login = AccountOp::Login { email: "web@b.de".into(), auth: [1; 32] };
+        assert!(accounts.handle([1; 32], login).is_ok());
+        assert_eq!(accounts.handle([1; 32], AccountOp::GetBook), Ok(AccountReply::Book { revision: 1, blob: vec![5] }));
     }
 
     #[test]

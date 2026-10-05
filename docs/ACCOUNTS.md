@@ -46,7 +46,14 @@ Konten mit Anmeldung in App **und** Website, Geräte im Webinterface verwalten, 
 - **Passwort vergessen:** Wiederherstellungscode, der bei der Registrierung einmal angezeigt wird. Ohne Code und ohne Passwort bleibt nur ein neues Konto. Jedes angemeldete Gerät kann ein neues Passwort setzen.
 - **Mails:** gleich mit einbauen, der Nutzer hat SMTP-Zugangsdaten. Gemeint sind die Bestätigung der Adresse und ein Hinweis bei einer neuen Anmeldung.
 
-**Stand:** Schritt 1 (verschlüsselte Verbindung) und Schritt 2 (Anmeldung) sind gebaut. Offen sind Schritt 3 (Webinterface) und Schritt 4 (Mails).
+**Stand:** Schritt 1 (verschlüsselte Verbindung), Schritt 2 (Anmeldung) und Schritt 3 (Webinterface) sind gebaut. Offen ist Schritt 4 (Mails).
+
+**Webinterface** (`web/`, ausgeliefert unter `/konto/`):
+- Anmelden, Registrieren, Wiederherstellen, angemeldete Geräte (entfernen, per Code hinzufügen), Geräteliste (umbenennen, entfernen), E-Mail und Passwort ändern.
+- Der Kontoschlüssel liegt nur im Arbeitsspeicher des Tabs. Nach dem Neuladen ist das Passwort wieder nötig.
+- Die Krypto (`web/src/lib/crypto.ts`) entspricht `crates/core/src/account.rs` bitgenau, geprüft mit `npm test`.
+- **Server:** `crates/server/src/web.rs` mit axum auf `--http` (Standard 127.0.0.1:21380), hinter Caddy unter `/api`. Sitzungen als HttpOnly-, Secure- und SameSite=Strict-Cookie, 12 h ohne Nutzung bzw. höchstens 7 Tage, nur im Speicher. Eine Passwortänderung beendet die anderen Browser-Sitzungen. Mit `--web-origin` lehnt der Server Änderungen von fremden Herkünften ab. Der Browser darf alles, was keinen Geräteschlüssel braucht (`Accounts::handle_web`).
+- Test: `cargo test -p ctxremote-server --test web`.
 
 Schlüsselschema, umgesetzt in `crates/core/src/account.rs` (`password_keys`, `recovery_keys`, `login_setup`):
 - **Hauptschlüssel:** `Argon2id(Passwort, Salz des Kontos)` mit 64 MiB und 3 Durchläufen (`Kdf::CURRENT`). Die Werte stehen am Konto, damit sie sich später erhöhen lassen. Clients akzeptieren nur Werte in `Kdf::acceptable`.

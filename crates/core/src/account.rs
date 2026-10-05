@@ -549,6 +549,24 @@ mod tests {
         assert!(recovery_keys("ABC").is_err());
     }
 
+    /// The browser (`web/scripts/vectors.mjs`) checks itself against the same
+    /// values, so both always derive identical keys.
+    #[test]
+    fn vectors_stay_stable() {
+        let kdf = Kdf { memory_kib: 19 * 1024, iterations: 2, parallelism: 1 };
+        let (auth, wrap) = password_keys("correct horse battery", &[1; 16], &kdf).unwrap();
+        assert_eq!(hex::encode(auth), "bfeaa4346470058b73858a7f1a22b7c14bc7333469cbc3669b3190ffe86cbe61");
+        assert_eq!(hex::encode(wrap), "43c99233e76be19472996ce0fb75cf6c3f3482c3dd7031a2bd04cfc4dc83a933");
+        let (auth, wrap) = recovery_keys("ABCDE-FGHJK-MNPQR-STVWX-YZ012").unwrap();
+        assert_eq!(hex::encode(auth), "94ef0956acd1674365fdc35d6c457da4d2e3a93b672ad04c3b6f3200c4ddaa62");
+        assert_eq!(hex::encode(wrap), "04f1a5a986fa44b667cf0b7a9b7f46e308b54f5298b52b2c03b26651dd359428");
+        let (seal_key, proof) = derive("EFGHJKMN", &[2; 16]).unwrap();
+        assert_eq!(hex::encode(seal_key), "68c882c12cf480262a38328764a02873a37745a1787bf8b439eae5c7566943d4");
+        assert_eq!(hex::encode(proof), "38149ca52fcf37b53161554d801b005e73525581ceebef0495687178b77fa16e");
+        let sealed = hex::decode("0407bad1d051ff1bcfd6380aded890e7ea4e8e4e9e6e067c700dd820394995354249f07f449eb17a66a556387009ea44f1b1c014e3785b").unwrap();
+        assert_eq!(open(&[5; 32], BOOK_AAD, &sealed).unwrap(), br#"{"entries":{},"removed":{}}"#);
+    }
+
     #[test]
     fn sealing() {
         let (key, proof) = derive("EFGHJKMN", &[1; 16]).unwrap();

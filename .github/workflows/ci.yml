@@ -45,3 +45,22 @@ jobs:
 
       - name: App
         run: cargo build --locked -p ctxremote
+
+  # The web interface (website/konto): types, build, and the check that the
+  # browser derives the same keys as the app.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Webinterface
+        working-directory: web
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm run build

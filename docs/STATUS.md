@@ -173,7 +173,10 @@ Ohne E-Mail und Passwort: Ein Konto ist eine Menge von Geräteschlüsseln, neue 
 Wunsch des Nutzers: Konten in App und Website, Geräteverwaltung im Web, alles Ende-zu-Ende verschlüsselt. Plan in 4 Schritten (Details in `docs/ACCOUNTS.md`, Abschnitt „Ausbau“):
 1. Verschlüsselte Verbindung App ↔ Server: **erledigt**
 2. Anmeldung mit E-Mail und Passwort, mit Wiederherstellungscode: **erledigt** (App: Personen-Symbol oben rechts → Konto-Panel; der Kontobereich ist aus den Einstellungen dorthin umgezogen)
-3. Webinterface
+3. Webinterface: **erledigt**, https://ctxremote.ctx.ink/konto/ (`web/`, Svelte; Server-API `crates/server/src/web.rs`). Die Oberfläche hat ein Sonnet-Agent nach Vorgabe gebaut, Krypto und Sitzungslogik (`web/src/lib/crypto.ts`, `session.ts`) sind selbst geschrieben.
+   - Interop im echten Browser gegen echten Server getestet: Registrieren im Browser, App koppelt sich mit dem Browser-Code und meldet sich mit dem Browser-Passwort an. Gerätenamen und Geräteliste aus der App erscheinen im Browser, Umbenennen im Browser kommt in der App an.
+   - `npm test` in `web/` prüft die Browser-Krypto gegen feste Werte aus Rust (`vectors_stay_stable`).
+   - **Offen beim Nutzer:** Web-API für Caddy in Docker freischalten (`docs/DEPLOY.md`, „Webinterface Konto“): `systemctl edit` mit `--http 172.17.0.1:21380`, `extra_hosts`, neuer Caddy-Block mit `/api` und erweiterter CSP.
 4. Mails per SMTP (der Nutzer hat einen SMTP-Zugang)
 
 Zu Schritt 1:

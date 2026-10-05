@@ -11,6 +11,7 @@
 //! out to clients that ask; see `docs/DEPLOY.md`.
 
 mod accounts;
+mod web;
 mod registry;
 mod updates;
 
@@ -76,12 +77,17 @@ async fn main() -> Result<()> {
     }
     let mut listen: SocketAddr = ([0, 0, 0, 0], DEFAULT_PORT).into();
     let mut data = PathBuf::from("data");
+    let mut http: Option<SocketAddr> = Some(([127, 0, 0, 1], 21380).into());
+    let mut web_origin: Option<String> = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--listen" => listen = args.next().context("--listen braucht eine Adresse")?.parse()?,
             "--data" => data = args.next().context("--data braucht einen Pfad")?.into(),
+            "--http" => http = Some(args.next().context("--http braucht eine Adresse")?.parse()?),
+            "--no-http" => http = None,
+            "--web-origin" => web_origin = Some(args.next().context("--web-origin braucht eine Adresse")?),
             "-h" | "--help" => {
-                println!("ctxremote-server [--listen 0.0.0.0:{DEFAULT_PORT}] [--data ./data]");
+                println!("ctxremote-server [--listen 0.0.0.0:{DEFAULT_PORT}] [--data ./data] [--http 127.0.0.1:21380 | --no-http] [--web-origin https://…]");
                 println!("ctxremote-server update-keygen");
                 println!("ctxremote-server tunnel-key [--data ./data]");
                 println!("ctxremote-server update-sign --platform P --version V --file F --out DIR [--notes TEXT]");
@@ -105,6 +111,19 @@ async fn main() -> Result<()> {
         downloads: tokio::sync::Semaphore::new(PARALLEL_DOWNLOADS),
     });
 
+    // The web interface's API, behind Caddy; only reachable on a private address.
+    if let Some(addr) = http {
+        let (server, origin) = (server.clone(), web_origin.clone());
+        tokio::spawn(async move {
+            // The address may come up later (e.g. Docker's bridge after a reboot).
+            loop {
+                if let Err(e) = web::serve(server.clone(), addr, origin.clone()).await {
+                    warn!("Web-API auf {addr} nicht verfügbar, neuer Versuch in 10 s: {e:#}");
+                }
+                tokio::time::sleep(Duration::from_secs(10)).await;
+            }
+        });
+    }
     let listener = TcpListener::bind(listen).await?;
     info!("CTXRemote-Server lauscht auf {listen}");
     // Without UDP, sessions still work; direct paths through NAT do not.
@@ -315,7 +334,7 @@ impl Server {
     }
 
     /// Fills in which member devices are registered and online.
-    fn with_presence(&self, reply: AccountReply) -> AccountReply {
+    pub(crate) fn with_presence(&self, reply: AccountReply) -> AccountReply {
         let AccountReply::Devices(mut members) = reply else { return reply };
         let registry = self.registry.lock().unwrap();
         let online = self.online.lock().unwrap();
@@ -326,7 +345,7 @@ impl Server {
         AccountReply::Devices(members)
     }
 
-    fn allow_connect(&self, ip: IpAddr) -> bool {
+    pub(crate) fn allow_connect(&self, ip: IpAddr) -> bool {
         let mut rate = self.rate.lock().unwrap();
         let now = Instant::now();
         let entry = rate.entry(ip).or_insert((now, 0));

@@ -59,17 +59,27 @@ pub fn free_port() -> u16 {
 const TUNNEL_KEY: [u8; 32] = [7; 32];
 
 pub async fn start_server() -> (Server, String) {
+    let (server, addr, _) = start_server_with_web(None).await;
+    (server, addr)
+}
+
+/// Like [`start_server`]; with `origin`, also serves the web API on a free
+/// port (returned) and accepts that origin.
+pub async fn start_server_with_web(origin: Option<&str>) -> (Server, String, Option<String>) {
     let port = free_port();
     let data = std::env::temp_dir().join(format!("ctxremote-test-server-{port}"));
     std::fs::create_dir_all(&data).unwrap();
     std::fs::write(data.join("tunnel.key"), hex::encode(TUNNEL_KEY)).unwrap();
     let public = ctxremote_core::proto::tunnel::public_key(&x25519_dalek::StaticSecret::from(TUNNEL_KEY));
     std::env::set_var("CTXREMOTE_SERVER_KEY", hex::encode(public));
-    let child = Command::new(env!("CARGO_BIN_EXE_ctxremote-server"))
-        .args(["--listen", &format!("127.0.0.1:{port}"), "--data"])
-        .arg(&data)
-        .spawn()
-        .unwrap();
+    let http = origin.map(|_| format!("127.0.0.1:{}", free_port()));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_ctxremote-server"));
+    command.args(["--listen", &format!("127.0.0.1:{port}"), "--data"]).arg(&data);
+    match (&http, origin) {
+        (Some(http), Some(origin)) => command.args(["--http", http, "--web-origin", origin]),
+        _ => command.arg("--no-http"),
+    };
+    let child = command.spawn().unwrap();
     let addr = format!("127.0.0.1:{port}");
     for _ in 0..50 {
         if tokio::net::TcpStream::connect(&addr).await.is_ok() {
@@ -77,7 +87,15 @@ pub async fn start_server() -> (Server, String) {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    (Server(child), addr)
+    if let Some(http) = &http {
+        for _ in 0..50 {
+            if tokio::net::TcpStream::connect(http).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    (Server(child), addr, http)
 }
 
 pub async fn start_host(server: &str, direct: bool) -> (Host, DeviceId) {

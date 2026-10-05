@@ -110,6 +110,17 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Webinterface bauen
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+          npm run build
       - name: Update signieren
         env:
           CTXREMOTE_UPDATE_SIGNING_KEY: ${{ secrets.CTXREMOTE_UPDATE_SIGNING_KEY }}

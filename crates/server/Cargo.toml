@@ -20,6 +20,8 @@ ed25519-dalek.workspace = true
 sha2.workspace = true
 x25519-dalek.workspace = true
 hkdf.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
+base64 = "0.22"
 
 [dev-dependencies]
 ctxremote-core.workspace = true

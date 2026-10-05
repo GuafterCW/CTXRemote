@@ -1,8 +1,11 @@
 /target
 /data
 app/node_modules
+web/node_modules
 app/dist
 app/src-tauri/gen
 *.json.tmp
 app/src-tauri/binaries
 app/src-tauri/tauri.version.json
+# Built by the release workflow from web/.
+/website/konto/

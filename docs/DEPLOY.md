@@ -274,6 +274,42 @@ Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werd
    - den Block für die Caddyfile des Containers, mit den Pfaden `/srv/ctxremote`
 
    Danach den Container mit dem neuen Volume neu erstellen (`docker compose up -d caddy`). Der Symlink `site` ist relativ, funktioniert also auch unter dem anderen Pfad im Container.
+
+### Webinterface „Konto“ (https://ctxremote.ctx.ink/konto/)
+
+Das Webinterface ist eine Svelte-App aus `web/`. Die Pipeline baut sie nach `website/konto/`, sie wird also mit der Website ausgeliefert. Seine Anfragen gehen an `/api/…`. Caddy reicht sie an die Web-API des CTXRemote-Servers weiter (`--http`, Standard `127.0.0.1:21380`). Alles Kryptografische passiert im Browser, der Server sieht nur abgeleitete Werte und verschlüsselte Daten (`docs/ACCOUNTS.md`).
+
+**Einmalig, mit Caddy in Docker (so beim Nutzer):**
+
+1. Den Server die API auf der Docker-Brücke anbieten lassen. Diese Adresse ist von außen nicht erreichbar:
+
+   ```bash
+   # systemctl edit ctxremote-server
+   ```
+
+   Diese Zeilen in den Editor einfügen, speichern, schließen:
+
+   ```ini
+   [Service]
+   ExecStart=
+   ExecStart=/opt/ctxremote/ctxremote-server --listen 0.0.0.0:21300 --data /var/lib/ctxremote --http 172.17.0.1:21380 --web-origin https://ctxremote.ctx.ink
+   ```
+
+   Dann `systemctl restart ctxremote-server`. Im Log (`journalctl -u ctxremote-server -n 20`) muss „Web-API lauscht auf 172.17.0.1:21380“ stehen.
+2. Im `docker-compose.yml` von Caddy ergänzen, neben dem Volume von oben:
+
+   ```yaml
+   extra_hosts:
+     - "host.docker.internal:host-gateway"
+   ```
+
+3. Den Block für `ctxremote.ctx.ink` in der Caddyfile durch den neuen ersetzen. `bash setup-website.sh --docker ctxremote.ctx.ink` gibt ihn aus. Neu sind darin `handle /api/*` mit `reverse_proxy host.docker.internal:21380` und `script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'` in der CSP; die Schlüsselableitung braucht WebAssembly.
+4. `docker compose up -d caddy`.
+5. Ist `ufw` aktiv, den Zugriff aus den Docker-Netzen erlauben: `ufw allow from 172.16.0.0/12 to any port 21380 proto tcp`.
+
+Prüfen: `curl -s https://ctxremote.ctx.ink/api/account` muss `{"error":"Bitte erneut anmelden"}` liefern. Die Antwort kommt also vom Server, nicht von Caddy.
+
+Ohne Docker trägt `setup-website.sh` den Block mit `reverse_proxy 127.0.0.1:21380` ein. Die Systemd-Unit hat `--http 127.0.0.1:21380` schon.
 4. **Einmal nach `master` pushen** (oder den Release-Workflow von Hand starten). Danach zeigt https://ctxremote.ctx.ink die Seite.
 5. **Vor dem Veröffentlichen** in `website/impressum.html` und `website/datenschutz.html` die markierten Platzhalter ersetzen, also Name, Anschrift und E-Mail. Bei Hetzner im Robot den **Vertrag zur Auftragsverarbeitung** abschließen, die Datenschutzerklärung verweist darauf.
 
@@ -289,6 +325,7 @@ Ohne `setup-website.sh` lässt die Pipeline die Website einfach aus. Server und 
 | `Permission denied (publickey)` | `DEPLOY_SSH_KEY` unvollständig (BEGIN/END-Zeilen fehlen) oder öffentlicher Schlüssel nicht auf dem Server (Schritt 5 wiederholen) |
 | `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` fehlt oder passt nicht zu `DEPLOY_HOST` (Schritt 7 mit genau dem Namen aus `DEPLOY_HOST` wiederholen) |
 | App meldet „Der Server hat sich nicht als der erwartete ausgewiesen“ | `CTXREMOTE_SERVER_KEY` in GitHub passt nicht zu `tunnel.key` auf dem Server (Schlüssel neu erzeugt oder Datenordner gewechselt). Schlüssel neu ausgeben, Variable korrigieren, neu bauen |
+| Konto-Seite meldet „Fehler 502“ | Caddy erreicht die Web-API nicht: Läuft der Server mit `--http 172.17.0.1:21380` (Log)? Steht `extra_hosts` im `docker-compose.yml`? Blockiert `ufw` Port 21380? |
 | Website lädt nicht oder Zertifikatsfehler | TCP 80/443 in der Firewall freigegeben? `journalctl -u caddy -n 50` zeigt, warum das Zertifikat nicht kam. Bei Cloudflare muss „Nur DNS“ eingestellt sein |
 | „Neuer Server startet nicht, vorherige Version wird wiederhergestellt“ | Port 21300 ist noch belegt (Schritt 4) oder es gibt einen echten Fehler: `journalctl -u ctxremote-server -n 50` |
 | Warnung „Kein CTXREMOTE_UPDATE_SIGNING_KEY“ | Secret fehlt; der Server wurde trotzdem aktualisiert, nur kein Client-Update veröffentlicht |

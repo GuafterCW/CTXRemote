@@ -29,9 +29,16 @@ if $docker; then
   cat <<HINT
 Ordner /var/www/ctxremote angelegt; die Pipeline füllt ihn ab dem nächsten Push.
 
-1. Im docker-compose.yml des Caddy-Containers unter volumes ergänzen:
+1. Im docker-compose.yml des Caddy-Containers ergänzen:
 
-      - /var/www/ctxremote:/srv/ctxremote:ro
+      volumes:
+        - /var/www/ctxremote:/srv/ctxremote:ro
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+
+   Und den CTXRemote-Server die Web-API auf der Docker-Brücke anbieten lassen
+   (systemctl edit ctxremote-server, siehe docs/DEPLOY.md):
+      --http 172.17.0.1:21380
 
 2. In die Caddyfile des Containers diesen Block einfügen:
 
@@ -41,8 +48,12 @@ $domain {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"
-		Content-Security-Policy "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 		-Server
+	}
+	# The web interface's API on the host (ctxremote-server --http, see docs/DEPLOY.md).
+	handle /api/* {
+		reverse_proxy host.docker.internal:21380
 	}
 	handle /download/* {
 		root * /srv/ctxremote
@@ -106,8 +117,12 @@ $domain {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"
-		Content-Security-Policy "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 		-Server
+	}
+	# The web interface's API (ctxremote-server --http 127.0.0.1:21380).
+	handle /api/* {
+		reverse_proxy 127.0.0.1:21380
 	}
 	handle /download/* {
 		root * $web
