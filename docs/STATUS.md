@@ -352,6 +352,12 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - Eigenes Recht `TUNNEL`. Standard: nur unbeaufsichtigt erlaubt. Wer die Rechte schon gespeichert hat, muss es in den Einstellungen einschalten. Entziehen schließt alle Tunnel sofort. In der Schnellhilfe gibt es das Recht nicht.
 - Getestet: Tunnel ohne Netz (Gegenrichtung, Flusskontrolle, unerreichbares Ziel) und `--test sessions` (`port_tunnel_needs_its_right_and_carries_data`, 1 MB über den echten Server und zurück, vorher Ablehnung ohne Recht).
 
+### Zeichnen auf dem fernen Bildschirm (5. Oktober, Cloud-Sitzung)
+
+- Stift-Knopf im Sitzungsfenster: Statt die Maus zu steuern, zeichnet man Linien in vier Farben, mit Papierkorb zum Löschen. Die Linien erscheinen beim Gerät über dem gezeigten Bildschirm, für die Person dort und im übertragenen Bild. Beim Verlassen des Modus verschwinden sie.
+- Technik: `DrawMsg` (Fähigkeit `DRAW`, Recht Maus und Tastatur). Die Punkte sind auf 0..65535 normiert. Die Zeichenebene am Gerät ist ein durchsichtiges, klick-durchlässiges Fenster mit Farbschlüssel (`crates/core/src/annotate.rs`). Beim Bildschirmwechsel wird sie geleert. Während des Zeichnens wird die Linie stückweise alle 60 ms gesendet.
+- Getestet: Umrechnung der Punkte und die Windows-Typprüfung. **Unter Windows ungetestet**: Liegt die Ebene genau über dem Bildschirm, auch bei 150 % Skalierung und auf dem zweiten Monitor?
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -458,6 +464,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 29. Wake-on-LAN: Einmal mit einem PC im selben Netz verbinden, damit die MAC gelernt wird. PC herunterfahren, Wake-on-LAN im BIOS aktiv. In der Geräteliste den Aufweck-Knopf drücken: Startet der PC? Erscheint der Knopf auch auf dem zweiten Gerät im Konto?
 30. Aufzeichnung: In einer Sitzung den Aufnahmeknopf drücken, etwas tun, den Bildschirm wechseln, beenden. Am Gerät muss „● Aufnahme“ im Banner gestanden haben. Spielen die Dateien in `Videos\CTXRemote` mit dem Windows-Player (Filme & TV / Medienwiedergabe) und VLC? Stimmt das Tempo?
 31. Port-Tunnel: Mit festem Passwort verbinden (oder „Port-Tunnel“ im Rechte-Menü erlauben). Tunnel-Knopf, Ziel z. B. ein anderer PC im Netz des Geräts mit `:3389`. Dann lokal `mstsc /v:localhost:<Port>`: Die RDP-Sitzung muss durch den Tunnel laufen. Recht entziehen: Die RDP-Verbindung bricht ab.
+32. Zeichnen: In einer Sitzung den Stift-Knopf drücken und etwas einkreisen. Am Gerät und im Bild muss die Linie genau dort erscheinen, auch bei 150 % Skalierung und auf Monitor 2. Farbe wechseln, Papierkorb, Stift aus: Am Gerät ist alles weg. Kann die Person am Gerät durch die Linien hindurch klicken?
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

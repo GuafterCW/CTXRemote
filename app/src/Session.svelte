@@ -28,7 +28,7 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false, draw: false });
   /** What the host allows; null from older hosts, which allow everything. */
   let rights = $state<number | null>(null);
   const can = (right: number) => rights === null || (rights & right) !== 0;
@@ -67,6 +67,55 @@
     } catch (e) {
       showNotice(errorText(e));
     }
+  }
+
+  /** Drawing over the host's screen instead of controlling it. */
+  let drawing = $state(false);
+  let drawColor = $state(0xe5484d);
+  const DRAW_COLORS = [0xe5484d, 0xf5b300, 0x2f8bff, 0x30a46c];
+  let stroke: [number, number][] = [];
+  let strokeTimer: ReturnType<typeof setInterval> | undefined;
+
+  function toggleDrawing() {
+    drawing = !drawing;
+    if (!drawing) {
+      flushStroke();
+      api.drawClear(session).catch(() => {});
+    }
+    canvas?.focus();
+  }
+
+  function drawPoint(e: MouseEvent): [number, number] {
+    const p = toRemote(e);
+    const c = canvas!;
+    return [Math.round((p.x / Math.max(c.width - 1, 1)) * 65535), Math.round((p.y / Math.max(c.height - 1, 1)) * 65535)];
+  }
+
+  // Sent in pieces while drawing, so the person at the host sees the line grow.
+  function flushStroke() {
+    if (stroke.length > 0) api.drawStroke(session, drawColor, 4, stroke).catch(() => {});
+    // The next piece starts where this one ended.
+    stroke = stroke.length > 0 ? [stroke[stroke.length - 1]] : [];
+  }
+
+  function drawDown(e: MouseEvent) {
+    e.preventDefault();
+    stroke = [drawPoint(e)];
+    clearInterval(strokeTimer);
+    strokeTimer = setInterval(flushStroke, 60);
+  }
+
+  function drawMove(e: PointerEvent) {
+    if (strokeTimer === undefined) return;
+    stroke.push(drawPoint(e));
+  }
+
+  function drawUp() {
+    if (strokeTimer === undefined) return;
+    clearInterval(strokeTimer);
+    strokeTimer = undefined;
+    flushStroke();
+    stroke = [];
   }
 
   /** Port tunnels: local ports leading into the host's network. */
@@ -322,12 +371,14 @@
 
   function onMove(e: PointerEvent) {
     if (!streaming) return;
+    if (drawing) return drawMove(e);
     if (pendingMove === null) requestAnimationFrame(flushMove);
     pendingMove = toRemote(e);
   }
 
   function onButton(e: MouseEvent, down: boolean) {
     if (!streaming) return;
+    if (drawing) return down ? drawDown(e) : drawUp();
     e.preventDefault();
     canvas?.focus();
     flushMove();
@@ -552,7 +603,7 @@
   <canvas
     bind:this={canvas}
     class:live={streaming}
-    style:cursor={streaming ? cursor : "default"}
+    style:cursor={drawing ? "crosshair" : streaming ? cursor : "default"}
     style:max-width={scaleMode === "fit" && video.width ? `${video.width / devicePixelRatio}px` : null}
     style:max-height={scaleMode === "fit" && video.height ? `${video.height / devicePixelRatio}px` : null}
     tabindex="-1"
@@ -703,6 +754,28 @@
         <Icon name="record" size={17} />
         {#if recordingSince !== null}<span class="rec-time">{recordingFor}</span>{/if}
       </button>
+      {#if features.draw && can(RIGHT.INPUT)}
+        <button class="tool" class:active={drawing} title={drawing ? "Zeichnen beenden" : "Auf dem Bildschirm zeichnen"} onclick={toggleDrawing}>
+          <Icon name="pencil" size={17} />
+        </button>
+        {#if drawing}
+          <div class="draw-colors">
+            {#each DRAW_COLORS as color (color)}
+              <button
+                class="swatch"
+                class:chosen={drawColor === color}
+                style:background={`#${color.toString(16).padStart(6, "0")}`}
+                title="Farbe"
+                aria-label="Farbe"
+                onclick={() => (drawColor = color)}
+              ></button>
+            {/each}
+            <button class="tool" title="Alles löschen" onclick={() => api.drawClear(session)}>
+              <Icon name="trash" size={15} />
+            </button>
+          </div>
+        {/if}
+      {/if}
       {#if features.tunnel && can(RIGHT.TUNNEL)}
         <button class="tool" class:active={tunnelOpen} title="Port-Tunnel ins Netzwerk des Geräts" onclick={toggleTunnels}>
           <Icon name="tunnel" size={17} />
@@ -1084,6 +1157,25 @@
     height: 100%;
     border-radius: 2px;
     background: #4fb495;
+  }
+
+  .draw-colors {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px;
+  }
+
+  .swatch {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 50%;
+  }
+
+  .swatch.chosen {
+    border-color: #d8d6d0;
   }
 
   .tunnel-row {

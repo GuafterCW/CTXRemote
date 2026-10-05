@@ -747,6 +747,7 @@ struct Features {
     sysinfo: bool,
     recording: bool,
     tunnel: bool,
+    draw: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -763,6 +764,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             sysinfo: f.has(F::SYSINFO),
             recording: f.has(F::RECORDING),
             tunnel: f.has(F::TUNNEL),
+            draw: f.has(F::DRAW),
         }
     }
 }
@@ -885,6 +887,22 @@ fn list_tunnels(state: State<AppState>, session: u32) -> Vec<ctxremote_core::tun
     let mut list = Vec::new();
     with_viewer(&state, session, |s| list = s.tunnels().list());
     list
+}
+
+/// A line drawn over the host's screen (points 0..=65535), or `None` to
+/// clear all lines.
+#[tauri::command]
+fn draw(state: State<AppState>, session: u32, color: Option<u32>, width: Option<u8>, points: Option<Vec<(u16, u16)>>) {
+    use ctxremote_core::proto::session::DrawMsg;
+    let msg = match (color, width, points) {
+        (Some(color), Some(width), Some(points)) => DrawMsg::Stroke { color, width, points },
+        _ => DrawMsg::Clear,
+    };
+    with_viewer(&state, session, |s| {
+        if s.features.has(ctxremote_core::proto::session::Features::DRAW) {
+            s.send(ViewerMsg::Draw(msg));
+        }
+    });
 }
 
 /// Asks the host about its computer; the answer arrives as `system-info`.
@@ -1213,6 +1231,7 @@ macro_rules! handlers {
             set_audio,
             set_privacy,
             request_system_info,
+            draw,
             open_tunnel,
             close_tunnel,
             list_tunnels,

@@ -169,6 +169,8 @@ export interface HostFeatures {
   recording: boolean;
   /** Carries port tunnels into its network. */
   tunnel: boolean;
+  /** Shows lines drawn over its screen. */
+  draw: boolean;
 }
 
 /** Mirrors `SystemInfo` in crates/proto/src/session.rs. */
@@ -323,6 +325,11 @@ export const api = {
     invoke<number>("open_tunnel", { session, target, port: port ?? null }),
   closeTunnel: (session: number, port: number) => invoke<void>("close_tunnel", { session, port }),
   listTunnels: (session: number) => invoke<{ port: number; target: string }[]>("list_tunnels", { session }),
+  /** A line over the host's screen (points 0..=65535 across the picture). */
+  drawStroke: (session: number, color: number, width: number, points: [number, number][]) =>
+    invoke<void>("draw", { session, color, width, points }),
+  /** Removes all lines from the host's screen. */
+  drawClear: (session: number) => invoke<void>("draw", { session, color: null, width: null, points: null }),
   /** Records the session as MP4 into the video folder; returns the folder. */
   startRecording: (session: number) => invoke<string>("start_recording", { session }),
   /** Ends the recording; returns the files written. */

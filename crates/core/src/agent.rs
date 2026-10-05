@@ -8,7 +8,7 @@ use std::sync::mpsc as std_mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use ctxremote_proto::session::{AudioPacket, CursorShape, FileOp, FileReply, HostInfo, HostMsg, Quality, VideoCodec, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{AudioPacket, CursorShape, DrawMsg, FileOp, FileReply, HostInfo, HostMsg, Quality, VideoCodec, VideoFrame, ViewerMsg};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -85,6 +85,8 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     let mut audio: Option<crate::audio::AudioCapture> = None;
     // Blanks this computer's screen while it runs (see `privacy`).
     let mut privacy: Option<crate::privacy::PrivacyMode> = None;
+    // The viewer's lines over the shown display (see `annotate`).
+    let mut drawing: Option<crate::annotate::Overlay> = None;
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -106,6 +108,8 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                         if let Some(display) = displays.iter().find(|d| d.index == index) {
                             active = display.clone();
                             injector.set_display(&active);
+                            // Lines belong to the display they were drawn on.
+                            drawing = None;
                             let _ = commands.send(VideoCommand::Display(index));
                         }
                     }
@@ -121,6 +125,20 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                         }
                     }
                     // Collected on the side, so the picture keeps flowing meanwhile.
+                    Some(ViewerMsg::Draw(DrawMsg::Clear)) => drawing = None,
+                    Some(ViewerMsg::Draw(stroke)) => {
+                        if let Some(line) = crate::annotate::to_line(&stroke, active.width, active.height) {
+                            if drawing.is_none() {
+                                match crate::annotate::Overlay::start(&active) {
+                                    Ok(overlay) => drawing = Some(overlay),
+                                    Err(e) => warn!("Zeichnen nicht möglich: {e:#}"),
+                                }
+                            }
+                            if let Some(overlay) = &drawing {
+                                overlay.add(line);
+                            }
+                        }
+                    }
                     Some(ViewerMsg::GetSystemInfo) => {
                         let outbox = outbox.clone();
                         tokio::spawn(async move {
@@ -188,6 +206,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
 
     // First, so the person at the computer gets screen and input back.
     drop(privacy);
+    drop(drawing);
     injector.release_all();
     drop(audio);
     drop(files);

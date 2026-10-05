@@ -192,6 +192,8 @@ impl Features {
     pub const RECORDING: u32 = 1 << 15;
     /// Carries port tunnels (`Tunnel`).
     pub const TUNNEL: u32 = 1 << 16;
+    /// Shows `Draw` lines over its screen.
+    pub const DRAW: u32 = 1 << 17;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -211,7 +213,8 @@ impl Features {
             | Self::FILE_PASTE
             | Self::SYSINFO
             | Self::RECORDING
-            | Self::TUNNEL,
+            | Self::TUNNEL
+            | Self::DRAW,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -383,6 +386,19 @@ pub enum ViewerMsg {
     Recording(bool),
     /// A port tunnel's traffic (viewer → host); only to hosts with [`Features::TUNNEL`].
     Tunnel(TunnelMsg),
+    /// Drawing over the host's screen; only to hosts with [`Features::DRAW`].
+    Draw(DrawMsg),
+}
+
+/// Lines the viewer draws over the shown display, visible to the person at
+/// the host and in the picture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DrawMsg {
+    /// A line through `points`, each 0..=65535 across the display's width
+    /// and height; `color` as 0xRRGGBB.
+    Stroke { color: u32, width: u8, points: Vec<(u16, u16)> },
+    /// Removes all lines (also when the viewer leaves drawing).
+    Clear,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

@@ -148,6 +148,7 @@ impl ViewerSession {
                             }
                             ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => features.has(Features::FILES),
                             ViewerMsg::Tunnel(_) => features.has(Features::TUNNEL),
+                            ViewerMsg::Draw(_) => features.has(Features::DRAW),
                             ViewerMsg::Restart => features.has(Features::RESTART),
                             ViewerMsg::SetQuality(_) => features.has(Features::QUALITY),
                             ViewerMsg::Chat(_) => features.has(Features::CHAT),

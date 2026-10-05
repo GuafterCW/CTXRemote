@@ -699,7 +699,10 @@ impl Route {
 /// The right a viewer message needs, if any.
 fn needed_right(msg: &ViewerMsg) -> Option<u32> {
     match msg {
-        ViewerMsg::Input(_) | ViewerMsg::SecureAttention | ViewerMsg::LockScreen => Some(Permissions::INPUT),
+        // Drawing is a way of pointing, so it goes with mouse and keyboard.
+        ViewerMsg::Input(_) | ViewerMsg::SecureAttention | ViewerMsg::LockScreen | ViewerMsg::Draw(_) => {
+            Some(Permissions::INPUT)
+        }
         // Puts files on the host's clipboard, so it needs both.
         ViewerMsg::File { op: FileOp::ClipboardFromDir { .. }, .. } => Some(Permissions::FILES | Permissions::CLIPBOARD),
         ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => Some(Permissions::FILES),
