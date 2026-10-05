@@ -232,8 +232,45 @@
   const BUTTONS: MouseButton[] = ["Left", "Middle", "Right", "Back", "Forward"];
   const send = (event: InputEvent) => {
     // View only: the host would drop it anyway.
-    if (closed === null && can(RIGHT.INPUT)) api.sendInput(session, event);
+    if (closed !== null || !can(RIGHT.INPUT)) return;
+    // Only watching by choice: nothing but letting go of held keys.
+    if (watchOnly && event !== "ReleaseAll") return;
+    api.sendInput(session, event);
   };
+
+  /** The user chose to only watch: no mouse or keyboard reaches the host. */
+  let watchOnly = $state(false);
+
+  function toggleWatchOnly() {
+    if (!watchOnly) send("ReleaseAll");
+    watchOnly = !watchOnly;
+    qualityOpen = false;
+    showNotice(watchOnly ? "Nur ansehen: Maus und Tastatur gehen nicht an das Gerät." : "Maus und Tastatur wieder an.");
+  }
+
+  /** Frames and bytes of the last second, shown on request. */
+  let showStats = $state(loadFlag("ctxremote.stats"));
+  let stats = $state({ fps: 0, kbps: 0 });
+  let frameCount = 0;
+  let byteCount = 0;
+
+  function toggleStats() {
+    showStats = !showStats;
+    try {
+      localStorage.setItem("ctxremote.stats", showStats ? "on" : "off");
+    } catch {
+      // Not remembered, but still applied.
+    }
+    qualityOpen = false;
+  }
+
+  function loadFlag(key: string): boolean {
+    try {
+      return localStorage.getItem(key) === "on";
+    } catch {
+      return false;
+    }
+  }
 
   function showNotice(text: string) {
     notice = text;
@@ -278,6 +315,8 @@
       const view = new DataView(buffer);
       const kind = view.getUint8(0);
       if (kind === 1) {
+        frameCount++;
+        byteCount += buffer.byteLength;
         const width = view.getUint32(4, true);
         const height = view.getUint32(8, true);
         if (width !== video.width || height !== video.height) video = { width, height };
@@ -347,7 +386,14 @@
     window.addEventListener("pointerdown", wake);
     window.addEventListener("keydown", wake);
 
+    const statsTimer = setInterval(() => {
+      stats = { fps: frameCount, kbps: Math.round((byteCount * 8) / 1000) };
+      frameCount = 0;
+      byteCount = 0;
+    }, 1000);
+
     return () => {
+      clearInterval(statsTimer);
       player.close();
       sound?.close();
       mic?.stop();
@@ -755,7 +801,7 @@
             <button role="menuitem" onclick={lockScreen}>Sperren</button>
             <button role="menuitemcheckbox" aria-checked={lockOnEnd} onclick={toggleLockOnEnd}>
               <span class="mark">{#if lockOnEnd}<Icon name="check" size={14} />{/if}</span>
-              <span class="label">Beim Trennen sperren</span>
+              <span class="item-label">Beim Trennen sperren</span>
             </button>
             {#if features.restart && can(RIGHT.RESTART)}
               <div class="menu-sep"></div>
@@ -784,7 +830,7 @@
               {#each QUALITIES as [value, title, hint] (value)}
                 <button role="menuitemradio" aria-checked={quality === value} onclick={() => chooseQuality(value)}>
                   <span class="mark">{#if quality === value}<Icon name="check" size={14} />{/if}</span>
-                  <span class="label">{title}<small>{hint}</small></span>
+                  <span class="item-label">{title}<small>{hint}</small></span>
                 </button>
               {/each}
               <div class="menu-sep"></div>
@@ -792,9 +838,20 @@
             {#each SCALES as [value, title, hint] (value)}
               <button role="menuitemradio" aria-checked={scaleMode === value} onclick={() => chooseScale(value)}>
                 <span class="mark">{#if scaleMode === value}<Icon name="check" size={14} />{/if}</span>
-                <span class="label">{title}<small>{hint}</small></span>
+                <span class="item-label">{title}<small>{hint}</small></span>
               </button>
             {/each}
+            <div class="menu-sep"></div>
+            <button role="menuitemcheckbox" aria-checked={showStats} onclick={toggleStats}>
+              <span class="mark">{#if showStats}<Icon name="check" size={14} />{/if}</span>
+              <span class="item-label">Verbindungsdaten<small>Bilder pro Sekunde, Datenrate, Weg</small></span>
+            </button>
+            {#if can(RIGHT.INPUT)}
+              <button role="menuitemcheckbox" aria-checked={watchOnly} onclick={toggleWatchOnly}>
+                <span class="mark">{#if watchOnly}<Icon name="check" size={14} />{/if}</span>
+                <span class="item-label">Nur ansehen<small>keine Maus und Tastatur senden</small></span>
+              </button>
+            {/if}
           </div>
         {/if}
       </div>
@@ -895,6 +952,13 @@
       <button class="offer-close" title="Ausblenden" onclick={() => (hostFiles = [])}>
         <Icon name="close" size={14} />
       </button>
+    </div>
+  {/if}
+
+  {#if showStats && streaming && closed === null}
+    <div class="stats" aria-label="Verbindungsdaten">
+      {stats.fps} fps · {stats.kbps >= 1000 ? `${(stats.kbps / 1000).toFixed(1).replace(".", ",")} Mbit/s` : `${stats.kbps} kbit/s`}
+      · {video.width}×{video.height} · {direct ? "direkt" : "über Server"}{watchOnly ? " · nur ansehen" : ""}
     </div>
   {/if}
 
@@ -1316,7 +1380,7 @@
     left: 50%;
     display: flex;
     flex-direction: column;
-    min-width: 180px;
+    min-width: 230px;
     padding: 4px;
     border: 1px solid #2f2e2b;
     border-radius: 9px;
@@ -1396,6 +1460,19 @@
     color: #e0c98a;
   }
 
+  .stats {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgb(0 0 0 / 0.6);
+    color: #e8e6e0;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+
   .notice {
     position: absolute;
     top: 60px;
@@ -1416,7 +1493,8 @@
     background: #2f2e2b;
   }
 
-  .menu button[role="menuitemradio"] {
+  .menu button[role="menuitemradio"],
+  .menu button[role="menuitemcheckbox"] {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1428,15 +1506,16 @@
     display: grid;
     place-items: center;
     width: 16px;
+    flex: none;
     color: #4fb495;
   }
 
-  .label {
+  .item-label {
     display: flex;
     flex-direction: column;
   }
 
-  .label small {
+  .item-label small {
     color: #85837c;
     font-size: 11.5px;
   }
