@@ -45,6 +45,10 @@ pub enum HostMsg {
     /// Whether privacy mode is on, after [`ViewerMsg::Privacy`] or when the
     /// host ended it; `error` says why it could not be turned on.
     Privacy { on: bool, error: Option<String> },
+    /// Before `Welcome`: the host wants the code from its authenticator app
+    /// (two-factor for the permanent password). Answered with
+    /// [`ViewerMsg::Code`]; only to viewers with [`Features::CODE`].
+    CodeRequired,
 }
 
 /// What a viewer may do in a session, as bits. The host enforces them;
@@ -111,6 +115,8 @@ impl Features {
     pub const RIGHTS: u32 = 1 << 10;
     /// Understands `ViewerMsg::Privacy` and `HostMsg::Privacy`.
     pub const PRIVACY: u32 = 1 << 11;
+    /// Answers `CodeRequired` with `Code` (two-factor).
+    pub const CODE: u32 = 1 << 12;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -125,7 +131,8 @@ impl Features {
             | Self::ACCOUNT
             | Self::AUDIO
             | Self::RIGHTS
-            | Self::PRIVACY,
+            | Self::PRIVACY
+            | Self::CODE,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -288,6 +295,8 @@ pub enum ViewerMsg {
     SetAudio(bool),
     /// Turns privacy mode on or off; only to hosts with [`Features::PRIVACY`].
     Privacy(bool),
+    /// The answer to [`HostMsg::CodeRequired`].
+    Code(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

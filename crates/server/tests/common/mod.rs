@@ -188,7 +188,7 @@ pub async fn connect_as(
 ) -> (ViewerSession, std_mpsc::Receiver<ViewerEvent>) {
     let (tx, rx) = std_mpsc::channel();
     let tx = std::sync::Mutex::new(tx);
-    let session = ViewerSession::connect(server, None, id, &host.password(), None, profile, move |event| {
+    let session = ViewerSession::connect(server, None, id, &host.password(), None, profile, None, move |event| {
         let _ = tx.lock().unwrap().send(event);
     })
     .await

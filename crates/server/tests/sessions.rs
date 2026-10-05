@@ -268,3 +268,39 @@ async fn host_rights_are_enforced_and_can_change() {
     .await
     .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn permanent_password_needs_the_authenticator_code() {
+    use ctxremote_core::{totp, viewer::CodeNeeded};
+    let (_server, addr) = start_server().await;
+    let secret = totp::new_secret();
+    let (host, id) = start_host_with(&addr, |config| {
+        config.permanent_password = Some("dauerhaft-123".into());
+        config.code_secret = Some(secret.clone());
+    })
+    .await;
+    let attempt = |code: Option<String>| {
+        let addr = addr.clone();
+        async move { ViewerSession::connect(&addr, None, id, "dauerhaft-123", None, None, code.as_deref(), |_| {}).await }
+    };
+
+    let Err(e) = attempt(None).await else { panic!("ohne Code darf es nicht gehen") };
+    assert!(e.downcast_ref::<CodeNeeded>().is_some(), "{e:#}");
+
+    // A wrong code (one that is not valid now or a step around).
+    let valid: Vec<String> = [-30i64, 0, 30].iter().filter_map(|d| totp::code_at(&secret, (totp::now() as i64 + d) as u64)).collect();
+    let wrong = (0..1_000_000).map(|n| format!("{n:06}")).find(|c| !valid.contains(c)).unwrap();
+    let Err(e) = attempt(Some(wrong)).await else { panic!("falscher Code darf nicht gehen") };
+    assert!(format!("{e:#}").contains("falsch"), "{e:#}");
+
+    let code = totp::code_at(&secret, totp::now()).unwrap();
+    let session = attempt(Some(code.clone())).await.expect("richtiger Code");
+    session.close();
+    // The same code a second time could be someone who saw it.
+    let Err(e) = attempt(Some(code)).await else { panic!("derselbe Code zweimal") };
+    assert!(format!("{e:#}").contains("schon benutzt"), "{e:#}");
+
+    // The one-time password needs no code: someone at the computer handed it out.
+    let session = ViewerSession::connect(&addr, None, id, &host.password(), None, None, None, |_| {}).await;
+    assert!(session.is_ok(), "Einmalpasswort ohne Code");
+}

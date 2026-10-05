@@ -35,6 +35,8 @@ quinn = { version = "0.11", default-features = false, features = ["runtime-tokio
 base64 = "0.22"
 argon2 = "0.5"
 opus-rs = "0.1.34"
+sha1 = "0.10"
+hmac = "0.12"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.62"

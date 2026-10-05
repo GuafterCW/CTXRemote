@@ -297,6 +297,20 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
   - Endet mit der Sitzung, mit dem Agentenprozess und wenn das Recht entzogen wird. Nach einem Sitzungswechsel (Ab- und Anmelden) schaltet der Host ihn im neuen Agenten wieder ein.
 - Getestet: `--test sessions` (`host_rights_are_enforced_and_can_change`) und die Windows-Typprüfung. **Unter Windows ungetestet**: der Privatsphäre-Modus selbst und die Oberfläche.
 
+### Zwei-Faktor für das feste Passwort (5. Oktober, Cloud-Sitzung)
+
+- Einstellungen → Unbeaufsichtigter Zugriff → „Bestätigungscode (Zwei-Faktor)“:
+  - QR-Code scannen oder den Schlüssel abtippen, dann einen angezeigten Code eingeben. Erst wenn der Code passt, wird der Schlüssel gespeichert. Mit Dienst kommt dabei eine UAC-Abfrage (`UiRequest::ConfigureCode`).
+  - Standard-TOTP (RFC 6238, SHA-1, 30 s, 6 Stellen) in `crates/core/src/totp.rs`, geprüft gegen die RFC-Testvektoren. Funktioniert mit Microsoft, Google und anderen Authenticator-Apps.
+- Ablauf:
+  - Nach dem festen Passwort schickt der Host `CodeRequired` (Fähigkeit `CODE`). Der Viewer antwortet mit `Code`.
+  - Hat der Viewer keinen Code, meldet die App „Bitte den Bestätigungscode …“, und im Passwortschritt erscheint ein Codefeld.
+  - Ein Schritt Abweichung der Uhr ist erlaubt. Jeder Code gilt nur einmal (Schutz gegen Wiederverwendung).
+  - Falsche Codes zählen zu den Fehlversuchen (Sperre nach 5) und stehen im Verlauf.
+  - Ältere Viewer werden mit der Bitte um ein Update abgewiesen.
+  - Einmalpasswort und Kontozugriff brauchen keinen Code.
+- Getestet: Unit-Tests und `--test sessions` (`permanent_password_needs_the_authenticator_code`). Unter Windows ungetestet.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -389,6 +403,11 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Am Host Strg+Alt+Entf drücken: Der Sicherheitsbildschirm erscheint. Was passiert danach?
     - Augen-Knopf erneut, Sitzung trennen, Recht im Banner entziehen: Der Bildschirm am Host muss jedes Mal sofort zurückkommen.
     - Einstellungen → „Rechte der Gegenseite“ ändern, mit Dienst kommt UAC. Neue Sitzungen bekommen die neuen Rechte.
+26. Zwei-Faktor (beide PCs aktualisiert):
+    - Am Host festes Passwort setzen, dann „Bestätigungscode → Einrichten“. Den QR-Code mit dem Handy scannen und den Code eingeben. Mit Dienst kommt UAC.
+    - Vom Viewer mit dem festen Passwort verbinden: Ein Codefeld erscheint. Mit dem aktuellen Code klappt es, mit einem falschen kommt „falsch“.
+    - Mit dem Einmalpasswort verbinden: Es wird kein Code verlangt.
+    - Ausschalten: Danach reicht wieder das Passwort.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

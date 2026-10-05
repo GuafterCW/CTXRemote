@@ -161,6 +161,8 @@ struct Overview {
     rights_attended: u32,
     /// The same for the permanent password and the account's devices.
     rights_unattended: u32,
+    /// The permanent password also needs the authenticator code.
+    code_enabled: bool,
     /// Version of an available update the app can install, if any.
     update: Option<String>,
     /// This device's public alias, `None` if it has none.
@@ -206,7 +208,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
     #[cfg(feature = "quick")]
     let _ = &app;
     let config = state.config.read().unwrap();
-    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles, account_access, rights, defaults) = match &state.host {
+    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles, account_access, rights, defaults, code_enabled) = match &state.host {
         Side::Local(host) => (
             host.presence().borrow().clone(),
             host.password(),
@@ -222,11 +224,12 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
             config.account_access.as_ref().is_some_and(|g| Some(g.host) == config.device_id),
             host.session_rights(),
             (config.rights_attended, config.rights_unattended),
+            config.code_secret.is_some(),
         ),
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => {
             let s = service.state();
-            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles, s.account_access, s.session_rights, (s.rights_attended, s.rights_unattended))
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles, s.account_access, s.session_rights, (s.rights_attended, s.rights_unattended), s.code_enabled)
         }
     };
     Overview {
@@ -270,6 +273,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
         account_access,
         rights_attended: defaults.0 .0,
         rights_unattended: defaults.1 .0,
+        code_enabled,
     }
 }
 
@@ -350,6 +354,49 @@ async fn save_rights(state: State<'_, AppState>, attended: u32, unattended: u32)
     let mut config = state.config.write().unwrap();
     config.rights_attended = attended;
     config.rights_unattended = unattended;
+    config.save().map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CodeSetup {
+    secret: String,
+    /// The `otpauth://` link, also in the QR code.
+    uri: String,
+    /// The QR code as an SVG document.
+    qr: String,
+}
+
+/// A new authenticator secret to show; nothing is stored until `code_enable`.
+#[tauri::command]
+fn code_setup() -> CmdResult<CodeSetup> {
+    let secret = ctxremote_core::totp::new_secret();
+    let uri = ctxremote_core::totp::uri(&secret, &ctxremote_core::account::default_label());
+    let qr = qrcode::QrCode::new(uri.as_bytes())
+        .map_err(err)?
+        .render::<qrcode::render::svg::Color>()
+        .min_dimensions(180, 180)
+        .quiet_zone(true)
+        .build();
+    Ok(CodeSetup { secret, uri, qr })
+}
+
+/// Turns the code on once the app shows the right one, or off (`secret: None`).
+/// With the service this needs administrator rights (UAC).
+#[tauri::command]
+async fn code_enable(state: State<'_, AppState>, secret: Option<String>, code: Option<String>) -> CmdResult<()> {
+    if let Some(secret) = &secret {
+        let code = code.unwrap_or_default();
+        if ctxremote_core::totp::check(secret, &code, ctxremote_core::totp::now()).is_none() {
+            return Err("Der Code passt nicht. Stimmt die Uhrzeit auf beiden Geräten?".into());
+        }
+    }
+    #[cfg(not(feature = "quick"))]
+    if let Side::Service(_) = &state.host {
+        return service::configure_code(secret).await;
+    }
+    let mut config = state.config.write().unwrap();
+    config.code_secret = secret;
     config.save().map_err(err)
 }
 
@@ -435,6 +482,7 @@ async fn connect(
     state: State<'_, AppState>,
     target: String,
     password: String,
+    code: Option<String>,
 ) -> CmdResult<u32> {
     let (server, own_id, local) = {
         let config = state.config.read().unwrap();
@@ -531,7 +579,8 @@ async fn connect(
             (password, None, profile)
         }
     };
-    let session = ViewerSession::connect(&server, own_id, target, &password, member.as_ref(), profile, on_event)
+    let code = code.filter(|c| !c.trim().is_empty());
+    let session = ViewerSession::connect(&server, own_id, target, &password, member.as_ref(), profile, code.as_deref(), on_event)
         .await
         .map_err(|e| format!("{e:#}"))?;
     link.lock().unwrap().clipboard = {
@@ -939,6 +988,8 @@ macro_rules! handlers {
             history,
             save_settings,
             save_rights,
+            code_setup,
+            code_enable,
             save_direct,
             forget_peer,
             set_alias,

@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import {
     api,
+    CODE_NEEDED,
     errorText,
     hostedLabel,
     peerLabel,
@@ -46,6 +47,10 @@
   let target = $state<{ id: string; label: string | null }>({ id: "", label: null });
   let step = $state<"id" | "password">("id");
   let password = $state("");
+  /** Shown once the host asked for its authenticator code (two-factor). */
+  let codeAsked = $state(false);
+  let code = $state("");
+  let codeInput = $state<HTMLInputElement>();
   let connecting = $state(false);
   let error = $state("");
   let passwordInput = $state<HTMLInputElement>();
@@ -231,16 +236,25 @@
   }
 
   async function connect() {
-    if (!password || connecting) return;
+    if (!password || connecting || (codeAsked && code.trim().length < 6)) return;
     connecting = true;
     error = "";
     try {
-      await api.connect(target.id, password);
+      await api.connect(target.id, password, codeAsked ? code : undefined);
       step = "id";
       password = "";
+      code = "";
+      codeAsked = false;
       refresh();
     } catch (e) {
-      error = errorText(e);
+      const text = errorText(e);
+      if (text === CODE_NEEDED) {
+        codeAsked = true;
+        queueMicrotask(() => codeInput?.focus());
+      } else {
+        error = text;
+        code = "";
+      }
     } finally {
       connecting = false;
     }
@@ -249,6 +263,8 @@
   function back() {
     step = "id";
     error = "";
+    codeAsked = false;
+    code = "";
   }
 
   const statusText = $derived(
@@ -508,7 +524,20 @@
             disabled={connecting}
             onkeydown={(e) => e.key === "Escape" && back()}
           />
-          <button class="btn btn-primary" disabled={!password || connecting}>
+          {#if codeAsked}
+            <input
+              bind:this={codeInput}
+              bind:value={code}
+              class="field"
+              inputmode="numeric"
+              maxlength="7"
+              placeholder="Code aus der Authenticator-App"
+              autocomplete="one-time-code"
+              disabled={connecting}
+              onkeydown={(e) => e.key === "Escape" && back()}
+            />
+          {/if}
+          <button class="btn btn-primary" disabled={!password || connecting || (codeAsked && code.trim().length < 6)}>
             {#if connecting}
               <span class="spinner"></span> Verbinde …
             {:else}
@@ -552,6 +581,7 @@
     directActive={overview.directActive}
     rightsAttended={overview.rightsAttended}
     rightsUnattended={overview.rightsUnattended}
+    codeEnabled={overview.codeEnabled}
     service={overview.service}
     version={overview.version}
     onclose={() => {

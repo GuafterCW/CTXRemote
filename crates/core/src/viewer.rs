@@ -63,6 +63,11 @@ pub enum ViewerEvent {
     Closed(Option<String>),
 }
 
+/// The host wants the code from its authenticator app; connect again with it.
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[error("Bitte den Bestätigungscode aus der Authenticator-App eingeben")]
+pub struct CodeNeeded;
+
 pub struct ViewerSession {
     pub host: HostInfo,
     /// What the host understands; older hosts report none.
@@ -75,7 +80,8 @@ impl ViewerSession {
     /// Connects through `server` and authenticates with `password`.
     /// With `member` (this device's key), `password` is the account's access
     /// password for `target` (see [`crate::account::access_for`]) and the
-    /// viewer proves its membership to the host.
+    /// viewer proves its membership to the host. `code`: the authenticator
+    /// code, for hosts that ask; without one such hosts end in [`CodeNeeded`].
     /// `on_event` runs on the network task and must not block.
     pub async fn connect(
         server: &str,
@@ -84,6 +90,7 @@ impl ViewerSession {
         password: &str,
         member: Option<&ed25519_dalek::SigningKey>,
         profile: Option<HelperProfile>,
+        code: Option<&str>,
         on_event: impl Fn(ViewerEvent) + Send + Sync + 'static,
     ) -> Result<Self> {
         let (mut t, _) = net::dial(server).await?;
@@ -96,10 +103,22 @@ impl ViewerSession {
         let member = member.map(|key| MemberProof::sign(key, target, &rx.binding()));
         let extras = HelloExtras { features: Features::CURRENT, profile, member };
         tx.send_with_trailer(&ViewerMsg::Hello { name, device: own_id }, &extras).await?;
-        let (host, features) = match timeout(WELCOME_TIMEOUT, rx.recv_with_trailer::<HostMsg, Features>()).await?? {
-            Some((HostMsg::Welcome(info), features)) => (info, features.unwrap_or(Features::NONE)),
-            Some((HostMsg::Bye(reason), _)) => bail!(reason),
-            _ => bail!("Gegenstelle hat die Sitzung nicht eröffnet"),
+        let mut code = code.map(str::to_string);
+        let (host, features) = loop {
+            match timeout(WELCOME_TIMEOUT, rx.recv_with_trailer::<HostMsg, Features>()).await?? {
+                Some((HostMsg::Welcome(info), features)) => break (info, features.unwrap_or(Features::NONE)),
+                Some((HostMsg::Bye(reason), _)) => bail!(reason),
+                // Two-factor: the code goes once; without one the user is asked.
+                Some((HostMsg::CodeRequired, _)) => match code.take() {
+                    Some(code) => tx.send(&ViewerMsg::Code(code)).await?,
+                    None => {
+                        let _ = tx.send(&ViewerMsg::Bye).await;
+                        tx.close().await;
+                        return Err(CodeNeeded.into());
+                    }
+                },
+                _ => bail!("Gegenstelle hat die Sitzung nicht eröffnet"),
+            }
         };
 
         let on_event = Arc::new(on_event);
@@ -231,7 +250,7 @@ impl ViewerSession {
                     Ok(Some(HostMsg::FileReply { req, result })) => router.reply(req, result),
                     Ok(Some(HostMsg::Transfer { id, msg })) => router.transfer(id, msg),
                     Ok(Some(HostMsg::TransferAck { id, bytes })) => router.ack(id, bytes),
-                    Ok(Some(HostMsg::Welcome(_))) => {}
+                    Ok(Some(HostMsg::Welcome(_) | HostMsg::CodeRequired)) => {}
                     Ok(None) => break None,
                     Err(e) => break Some(format!("Verbindung unterbrochen: {e}")),
                 }

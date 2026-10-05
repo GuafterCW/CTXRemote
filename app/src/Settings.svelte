@@ -12,6 +12,7 @@
     directActive: initialActive,
     rightsAttended,
     rightsUnattended,
+    codeEnabled: initialCode,
     service,
     version,
     onclose,
@@ -23,6 +24,7 @@
     directActive: boolean;
     rightsAttended: number;
     rightsUnattended: number;
+    codeEnabled: boolean;
     service: boolean;
     version: string;
     onclose: () => void;
@@ -65,6 +67,51 @@
         ? `Aktiv auf Port ${savedDirect.port}`
         : "Nicht aktiv (Port belegt?)",
   );
+
+  // Two-factor for the permanent password; applied at once, not with the form.
+  let codeEnabled = $state(untrack(() => initialCode));
+  let codeSetup = $state<{ secret: string; uri: string; qr: string } | null>(null);
+  let codeConfirm = $state("");
+  let codeBusy = $state(false);
+  let codeError = $state("");
+
+  async function startCode() {
+    codeError = "";
+    try {
+      codeSetup = await api.codeSetup();
+      codeConfirm = "";
+    } catch (err) {
+      codeError = errorText(err);
+    }
+  }
+
+  async function enableCode() {
+    if (!codeSetup) return;
+    codeBusy = true;
+    codeError = "";
+    try {
+      await api.codeEnable(codeSetup.secret, codeConfirm);
+      codeEnabled = true;
+      codeSetup = null;
+    } catch (err) {
+      codeError = errorText(err);
+    } finally {
+      codeBusy = false;
+    }
+  }
+
+  async function disableCode() {
+    codeBusy = true;
+    codeError = "";
+    try {
+      await api.codeEnable(null, null);
+      codeEnabled = false;
+    } catch (err) {
+      codeError = errorText(err);
+    } finally {
+      codeBusy = false;
+    }
+  }
 
   // What new sessions may do; changeable per session in the banner while it runs.
   let attended = $state(untrack(() => rightsAttended));
@@ -206,6 +253,56 @@
           autocomplete="new-password"
           placeholder={unattended ? "Neues Passwort (leer lassen = unverändert)" : "Festes Passwort, mind. 8 Zeichen"}
         />
+      {/if}
+
+      {#if unattended && enableUnattended}
+        <div class="code-box">
+          <div class="toggle">
+            <span>
+              <span class="name">Bestätigungscode (Zwei-Faktor)</span>
+              <span class="note">
+                {codeEnabled
+                  ? "Aktiv: Zum festen Passwort ist der Code aus der Authenticator-App nötig."
+                  : "Zusätzlich zum festen Passwort einen Code aus einer Authenticator-App verlangen."}
+              </span>
+            </span>
+            {#if codeEnabled}
+              <button type="button" class="btn btn-quiet" disabled={codeBusy} onclick={disableCode}>Ausschalten</button>
+            {:else if !codeSetup}
+              <button type="button" class="btn btn-quiet" onclick={startCode}>Einrichten</button>
+            {/if}
+          </div>
+          {#if codeSetup && !codeEnabled}
+            <div class="code-setup">
+              <div class="qr" aria-label="QR-Code für die Authenticator-App">{@html codeSetup.qr}</div>
+              <div class="code-steps">
+                <span class="note">
+                  Den QR-Code mit einer Authenticator-App scannen (z. B. Microsoft oder Google Authenticator) oder den
+                  Schlüssel von Hand eingeben:
+                </span>
+                <code class="secret">{codeSetup.secret.replace(/(.{4})/g, "$1 ").trim()}</code>
+                <input
+                  class="field"
+                  bind:value={codeConfirm}
+                  inputmode="numeric"
+                  maxlength="7"
+                  placeholder="Angezeigter Code"
+                  autocomplete="one-time-code"
+                />
+                <div class="code-actions">
+                  <button type="button" class="btn btn-quiet" onclick={() => (codeSetup = null)}>Abbrechen</button>
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    disabled={codeBusy || codeConfirm.replace(/\s/g, "").length !== 6}
+                    onclick={enableCode}>Aktivieren</button
+                  >
+                </div>
+              </div>
+            </div>
+          {/if}
+          {#if codeError}<p class="error">{codeError}</p>{/if}
+        </div>
       {/if}
     </div>
 
@@ -543,5 +640,50 @@
   .rights-row.head {
     color: var(--ink-2);
     font-size: 12px;
+  }
+
+  .code-box {
+    display: grid;
+    gap: 10px;
+    margin-top: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  .code-setup {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+
+  .qr {
+    padding: 6px;
+    border-radius: 8px;
+    background: #fff;
+  }
+
+  .qr :global(svg) {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .code-steps {
+    display: grid;
+    gap: 8px;
+  }
+
+  .secret {
+    font-size: 12.5px;
+    letter-spacing: 0.04em;
+    user-select: all;
+    word-break: break-all;
+  }
+
+  .code-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 </style>

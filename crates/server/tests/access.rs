@@ -19,7 +19,7 @@ async fn try_connect(
 ) -> anyhow::Result<(ViewerSession, std_mpsc::Receiver<ctxremote_core::viewer::ViewerEvent>)> {
     let (tx, rx) = std_mpsc::channel();
     let tx = std::sync::Mutex::new(tx);
-    let session = ViewerSession::connect(server, None, id, password, member, None, move |event| {
+    let session = ViewerSession::connect(server, None, id, password, member, None, None, move |event| {
         let _ = tx.lock().unwrap().send(event);
     })
     .await?;

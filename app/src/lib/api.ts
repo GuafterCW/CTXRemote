@@ -105,6 +105,8 @@ export interface Overview {
   rightsAttended: number;
   /** The same for the permanent password and the account's devices. */
   rightsUnattended: number;
+  /** The permanent password also needs the code from an authenticator app. */
+  codeEnabled: boolean;
 }
 
 export interface AccountView {
@@ -155,6 +157,9 @@ export interface HostFeatures {
   /** Can blank its screen (privacy mode). */
   privacy: boolean;
 }
+
+/** The connect error of a host that wants its authenticator code (`CodeNeeded` in core). */
+export const CODE_NEEDED = "Bitte den Bestätigungscode aus der Authenticator-App eingeben";
 
 /** Mirrors `Permissions` in crates/proto/src/session.rs. */
 export const RIGHT = {
@@ -251,7 +256,9 @@ export const api = {
   forgetPeer: (id: string) => invoke<void>("forget_peer", { id }),
   setAlias: (id: string, alias: string | null) => invoke<void>("set_alias", { id, alias }),
   /** `target` is an ID or an alias. */
-  connect: (target: string, password: string) => invoke<number>("connect", { target, password }),
+  /** `code`: from the host's authenticator app, once it asked (see `CODE_NEEDED`). */
+  connect: (target: string, password: string, code?: string) =>
+    invoke<number>("connect", { target, password, code: code ?? null }),
   attach: (session: number, channel: Channel<ArrayBuffer>) =>
     invoke<{
       host: HostInfo;
@@ -279,6 +286,10 @@ export const api = {
   /** Blanks the host's screen and blocks its local input, or ends that. */
   setPrivacy: (session: number, on: boolean) => invoke<boolean>("set_privacy", { session, on }),
   /** Changes what the viewer of a session at this computer may do. */
+  /** A new authenticator secret with its QR code (SVG); stored only by `codeEnable`. */
+  codeSetup: () => invoke<{ secret: string; uri: string; qr: string }>("code_setup"),
+  /** Turns the code on (with a matching code) or off (`secret` null). */
+  codeEnable: (secret: string | null, code: string | null) => invoke<void>("code_enable", { secret, code }),
   saveRights: (attended: number, unattended: number) => invoke<void>("save_rights", { attended, unattended }),
   setHostedRights: (session: number, rights: number) => invoke<void>("set_hosted_rights", { session, rights }),
   endHostedSession: (session: number) => invoke<void>("end_hosted_session", { session }),

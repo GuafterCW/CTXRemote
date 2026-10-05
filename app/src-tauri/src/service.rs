@@ -39,6 +39,7 @@ impl Service {
             session_rights: Vec::new(),
             rights_attended: Default::default(),
             rights_unattended: Default::default(),
+            code_enabled: false,
             direct: DirectSettings { enabled: false, port: 0, addresses: Vec::new() },
             direct_active: false,
             chat_sessions: Vec::new(),
@@ -180,6 +181,13 @@ struct Request<'a> {
     access: Option<AccessChange>,
     /// When set, the helper only changes the rights of new sessions.
     rights: Option<RightsChange>,
+    /// When set, the helper only changes the authenticator secret.
+    code: Option<CodeChange>,
+}
+
+#[derive(serde::Serialize)]
+struct CodeChange {
+    secret: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -212,6 +220,11 @@ pub async fn configure_rights(attended: Permissions, unattended: Permissions) ->
         run_elevated(exe, file, &Request { rights: Some(RightsChange { attended, unattended }), ..Default::default() })
     })
     .await
+}
+
+/// Sets or drops the authenticator secret, the same way.
+pub async fn configure_code(secret: Option<String>) -> Result<(), String> {
+    elevated(move |file, exe| run_elevated(exe, file, &Request { code: Some(CodeChange { secret }), ..Default::default() })).await
 }
 
 /// Lets the account's devices in without a password (`None`: no longer), the same way.

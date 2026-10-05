@@ -32,6 +32,9 @@ const MAX_FAILURES: u32 = 5;
 const LOCKOUT: Duration = Duration::from_secs(5 * 60);
 /// Must stay below the viewer's wait for `Welcome`.
 pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long the viewer may take to send the authenticator code; it asks the
+/// user first, so like the approval this must stay below its wait for `Welcome`.
+const CODE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Decides whether the named viewer may connect, e.g. by asking the user.
 /// Also gets the profile the viewer sent, if any (self-declared).
@@ -97,6 +100,8 @@ struct Shared {
     direct_turn: tokio::sync::Mutex<()>,
     /// Who connected when (see [`crate::history`]).
     history: History,
+    /// The step of the last accepted authenticator code; each counts once.
+    last_code_step: Mutex<Option<u64>>,
 }
 
 #[derive(Clone)]
@@ -128,6 +133,7 @@ impl Host {
             direct: Mutex::new(None),
             direct_turn: tokio::sync::Mutex::new(()),
             history: History::open(Config::path().ok().map(|p| History::path_for(&p))),
+            last_code_step: Mutex::new(None),
         });
         tokio::spawn(presence_loop(shared.clone()));
         let (enabled, port, extra, listen) = {
@@ -448,6 +454,61 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
         info!(%peer, "Zugriff über das Konto");
     }
 
+    // Two-factor: the permanent password also needs the authenticator code.
+    let permanent_slot = slot != 0 && Some(slot) != account_slot;
+    let code_secret = shared.config.read().unwrap().code_secret.clone();
+    let mut tx = tx;
+    if let (true, Some(secret)) = (permanent_slot, code_secret) {
+        let refused = |reason: &str| reason.to_string();
+        let problem = if !features.has(Features::CODE) {
+            Some(refused("Dieses Gerät verlangt einen Bestätigungscode. Bitte CTXRemote aktualisieren."))
+        } else {
+            tx.send(&HostMsg::CodeRequired).await?;
+            match timeout(CODE_TIMEOUT, rx.recv::<ViewerMsg>()).await {
+                Ok(Ok(Some(ViewerMsg::Code(code)))) => {
+                    let step = crate::totp::check(&secret, &code, crate::totp::now());
+                    let mut last = shared.last_code_step.lock().unwrap();
+                    match step {
+                        // A code counts once; seen again it could be a replay.
+                        Some(step) if *last < Some(step) => {
+                            *last = Some(step);
+                            None
+                        }
+                        Some(_) => Some(refused("Dieser Code wurde schon benutzt, bitte den nächsten abwarten")),
+                        None => Some(refused("Der Bestätigungscode ist falsch")),
+                    }
+                }
+                // The viewer gave up without a code.
+                _ => {
+                    tx.close().await;
+                    bail!("{peer}: kein Bestätigungscode");
+                }
+            }
+        };
+        if let Some(reason) = problem {
+            let _ = tx.send(&HostMsg::Bye(reason.clone())).await;
+            tx.close().await;
+            record_failure(&shared);
+            shared.history.add(&peer, profile_name.as_deref(), Outcome::WrongCode);
+            bail!("{peer}: {reason}");
+        }
+    }
+    admitted(shared, slot, account_slot, tx, rx, peer, features, profile, profile_name).await
+}
+
+/// After the passwords (and the code): approval, then the session itself.
+#[allow(clippy::too_many_arguments)]
+async fn admitted(
+    shared: Arc<Shared>,
+    slot: usize,
+    account_slot: Option<usize>,
+    tx: SecureSender,
+    rx: SecureReceiver,
+    peer: String,
+    features: Features,
+    profile: Option<Profile>,
+    profile_name: Option<String>,
+) -> Result<()> {
     let approver = shared.approver.lock().unwrap().clone();
     if let Some(approve) = approver {
         // Viewer messages sent meanwhile (input) wait unread in the connection.
@@ -606,6 +667,12 @@ struct Route {
 }
 
 impl Route {
+    /// Reads the rights as they are now, not as last seen: a change must
+    /// apply to the very next message, even before its notice is handled.
+    fn allows(&self, right: u32) -> bool {
+        self.rights.borrow().has(right)
+    }
+
     fn rights_event(&self, rights: Permissions) {
         let privacy = self.privacy.load(Ordering::Relaxed);
         let _ = self.events.send(HostEvent::Rights { session: self.number, rights, privacy });
@@ -670,9 +737,9 @@ async fn run_session(
             tokio::select! {
                 msg = from_agent.recv() => match msg {
                     Some(HostMsg::Cursor(_)) if !route.features.has(Features::CURSOR) => {}
-                    Some(HostMsg::Audio(_)) if !route.features.has(Features::AUDIO) || !rights.has(Permissions::AUDIO) => {}
-                    Some(HostMsg::Clipboard(_)) if !rights.has(Permissions::CLIPBOARD) => {}
-                    Some(HostMsg::Transfer { id, msg }) if !rights.has(Permissions::FILES) => {
+                    Some(HostMsg::Audio(_)) if !route.features.has(Features::AUDIO) || !route.allows(Permissions::AUDIO) => {}
+                    Some(HostMsg::Clipboard(_)) if !route.allows(Permissions::CLIPBOARD) => {}
+                    Some(HostMsg::Transfer { id, msg }) if !route.allows(Permissions::FILES) => {
                         // A download the host no longer allows: stop it on both ends.
                         if stopped.insert(id) && !matches!(msg, Transfer::End | Transfer::Failed(_) | Transfer::Cancel) {
                             let _ = to_agent.send(ViewerMsg::Transfer { id, msg: Transfer::Cancel }).await;
@@ -774,7 +841,7 @@ async fn run_session(
                     Some(msg @ ViewerMsg::Transfer { msg: Transfer::Cancel, .. }) => {
                         let _ = to_agent.send(msg).await;
                     }
-                    Some(msg) if needed_right(&msg).is_some_and(|r| !rights.has(r)) => match msg {
+                    Some(msg) if needed_right(&msg).is_some_and(|r| !route.allows(r)) => match msg {
                         // Answered, so the viewer does not wait for them.
                         ViewerMsg::File { req, .. } => {
                             tx.send(&HostMsg::FileReply { req, result: Err(FILES_DENIED.into()) }).await?;

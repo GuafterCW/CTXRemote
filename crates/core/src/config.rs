@@ -55,6 +55,9 @@ pub struct Config {
     pub rights_attended: Permissions,
     /// The same for the permanent password and the account's devices.
     pub rights_unattended: Permissions,
+    /// Secret of the authenticator app (base32); with it, the permanent
+    /// password also needs the current code (see [`crate::totp`]).
+    pub code_secret: Option<String>,
 }
 
 /// The direct-connection part of the settings form.
@@ -118,6 +121,7 @@ impl Default for Config {
             account_access: None,
             rights_attended: Permissions::ATTENDED,
             rights_unattended: Permissions::ALL,
+            code_secret: None,
         }
     }
 }

@@ -24,6 +24,8 @@ pub enum Outcome {
     NotMember,
     /// The person at this computer said no (or did not answer).
     Declined,
+    /// The permanent password fitted, the code from the authenticator app not.
+    WrongCode,
 }
 
 impl Outcome {

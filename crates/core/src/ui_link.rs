@@ -30,6 +30,9 @@ pub struct ServiceState {
     pub rights_attended: ctxremote_proto::session::Permissions,
     #[serde(default)]
     pub rights_unattended: ctxremote_proto::session::Permissions,
+    /// The permanent password also needs the authenticator code.
+    #[serde(default)]
+    pub code_enabled: bool,
     pub direct: DirectSettings,
     /// The listener for direct connections runs.
     pub direct_active: bool,
@@ -68,6 +71,9 @@ pub enum UiRequest {
     /// What new sessions may do; elevated administrators only, like the
     /// permanent password, as it shapes unattended access.
     ConfigureRights { attended: ctxremote_proto::session::Permissions, unattended: ctxremote_proto::session::Permissions },
+    /// Sets or drops the authenticator secret for the permanent password;
+    /// elevated administrators only.
+    ConfigureCode(Option<String>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,6 +212,7 @@ mod imp {
             session_rights: host.session_rights(),
             rights_attended: config.rights_attended,
             rights_unattended: config.rights_unattended,
+            code_enabled: config.code_secret.is_some(),
             chat_sessions: host.chat_sessions(),
             public_alias: config.public_alias.clone(),
             account_access: config.account_access.as_ref().is_some_and(|g| Some(g.host) == config.device_id),
@@ -274,6 +281,19 @@ mod imp {
                         UiRequest::ConfigureAccountAccess(grant) => {
                             let answer = if is_elevated_admin(HANDLE(handle as _)) {
                                 configure_account_access(&config, grant)
+                            } else {
+                                Err("Nur Administratoren dürfen die Einstellungen des Dienstes ändern".into())
+                            };
+                            if answer.is_ok() {
+                                changed.send_replace(());
+                            }
+                            UiEvent::Configured(answer)
+                        }
+                        UiRequest::ConfigureCode(secret) => {
+                            let answer = if is_elevated_admin(HANDLE(handle as _)) {
+                                let mut config = config.write().unwrap();
+                                config.code_secret = secret;
+                                config.save().map_err(|e| format!("{e:#}"))
                             } else {
                                 Err("Nur Administratoren dürfen die Einstellungen des Dienstes ändern".into())
                             };
