@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
-use ctxremote_proto::session::{CursorShape, Features, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, Permissions, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, Permissions, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
@@ -55,6 +55,8 @@ pub enum ViewerEvent {
     Chat(String),
     /// 20 ms of the host's sound (Opus, 48 kHz stereo), after [`ViewerSession::set_audio`].
     Audio(Vec<u8>),
+    /// Files were copied at the host; [`FileClient::fetch_to_clipboard`] gets them.
+    ClipboardFiles(Vec<String>),
     /// What the host allows in this session (hosts with [`Features::RIGHTS`]).
     Rights(Permissions),
     /// Privacy mode went on or off; `error` if turning it on failed.
@@ -137,6 +139,9 @@ impl ViewerSession {
                         let Some(msg) = msg else { break };
                         // A message the host does not know would end its session.
                         let supported = match &msg {
+                            ViewerMsg::File { op: FileOp::PasteDir | FileOp::ClipboardFromDir { .. }, .. } => {
+                                features.has(Features::FILE_PASTE)
+                            }
                             ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => features.has(Features::FILES),
                             ViewerMsg::Restart => features.has(Features::RESTART),
                             ViewerMsg::SetQuality(_) => features.has(Features::QUALITY),
@@ -241,6 +246,7 @@ impl ViewerSession {
                     Ok(Some(HostMsg::Cursor(shape))) => on_event(ViewerEvent::Cursor(shape)),
                     Ok(Some(HostMsg::Audio(packet))) => on_event(ViewerEvent::Audio(packet.data)),
                     Ok(Some(HostMsg::Rights(rights))) => on_event(ViewerEvent::Rights(rights)),
+                    Ok(Some(HostMsg::ClipboardFiles(paths))) => on_event(ViewerEvent::ClipboardFiles(paths)),
                     Ok(Some(HostMsg::Privacy { on, error })) => on_event(ViewerEvent::Privacy { on, error }),
                     Ok(Some(HostMsg::Chat(text))) => {
                         if let Some(text) = crate::host::chat_text(&text) {

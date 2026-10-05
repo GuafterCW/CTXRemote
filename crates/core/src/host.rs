@@ -10,7 +10,7 @@ use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, ServerMsg, SessionId};
 use ctxremote_proto::framing::Transport;
 use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender, TransportStream};
-use ctxremote_proto::session::{Features, HelloExtras, HostMsg, InputEvent, Permissions, Transfer, ViewerMsg, MAX_CHAT};
+use ctxremote_proto::session::{Features, FileOp, HelloExtras, HostMsg, InputEvent, Permissions, Transfer, ViewerMsg, MAX_CHAT};
 use ctxremote_proto::DeviceId;
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -683,6 +683,8 @@ impl Route {
 fn needed_right(msg: &ViewerMsg) -> Option<u32> {
     match msg {
         ViewerMsg::Input(_) | ViewerMsg::SecureAttention | ViewerMsg::LockScreen => Some(Permissions::INPUT),
+        // Puts files on the host's clipboard, so it needs both.
+        ViewerMsg::File { op: FileOp::ClipboardFromDir { .. }, .. } => Some(Permissions::FILES | Permissions::CLIPBOARD),
         ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => Some(Permissions::FILES),
         ViewerMsg::Clipboard(_) => Some(Permissions::CLIPBOARD),
         ViewerMsg::SetAudio(true) => Some(Permissions::AUDIO),
@@ -739,6 +741,9 @@ async fn run_session(
                     Some(HostMsg::Cursor(_)) if !route.features.has(Features::CURSOR) => {}
                     Some(HostMsg::Audio(_)) if !route.features.has(Features::AUDIO) || !route.allows(Permissions::AUDIO) => {}
                     Some(HostMsg::Clipboard(_)) if !route.allows(Permissions::CLIPBOARD) => {}
+                    Some(HostMsg::ClipboardFiles(_))
+                        if !route.features.has(Features::FILE_PASTE)
+                            || !route.allows(Permissions::FILES | Permissions::CLIPBOARD) => {}
                     Some(HostMsg::Transfer { id, msg }) if !route.allows(Permissions::FILES) => {
                         // A download the host no longer allows: stop it on both ends.
                         if stopped.insert(id) && !matches!(msg, Transfer::End | Transfer::Failed(_) | Transfer::Cancel) {

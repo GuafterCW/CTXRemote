@@ -156,6 +156,8 @@ export interface HostFeatures {
   audio: boolean;
   /** Can blank its screen (privacy mode). */
   privacy: boolean;
+  /** Takes and offers files through the clipboard. */
+  filePaste: boolean;
 }
 
 /** The connect error of a host that wants its authenticator code (`CodeNeeded` in core). */
@@ -285,6 +287,10 @@ export const api = {
   setAudio: (session: number, on: boolean) => invoke<boolean>("set_audio", { session, on }),
   /** Blanks the host's screen and blocks its local input, or ends that. */
   setPrivacy: (session: number, on: boolean) => invoke<boolean>("set_privacy", { session, on }),
+  /** Ctrl+V: files on this computer's clipboard go onto the host's; false if there are none. */
+  pasteFiles: (session: number) => invoke<boolean>("paste_files", { session }),
+  /** Fetches the files last copied at the host onto this computer's clipboard. */
+  fetchHostFiles: (session: number) => invoke<number>("fetch_host_files", { session }),
   /** Changes what the viewer of a session at this computer may do. */
   /** A new authenticator secret with its QR code (SVG); stored only by `codeEnable`. */
   codeSetup: () => invoke<{ secret: string; uri: string; qr: string }>("code_setup"),

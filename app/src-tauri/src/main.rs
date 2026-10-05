@@ -102,6 +102,8 @@ struct Link {
     /// What the host allows, once it said so (older hosts never do).
     rights: Option<u32>,
     privacy: bool,
+    /// Files last copied at the host, until fetched or replaced.
+    host_files: Vec<String>,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -537,6 +539,14 @@ async fn connect(
                 link.lock().unwrap().rights = Some(rights.0);
                 let _ = app.emit_to(format!("session-{number}"), "rights", rights.0);
             }
+            ViewerEvent::ClipboardFiles(paths) => {
+                let names: Vec<String> = paths
+                    .iter()
+                    .map(|p| p.rsplit(['\\', '/']).next().unwrap_or(p).to_string())
+                    .collect();
+                link.lock().unwrap().host_files = paths;
+                let _ = app.emit_to(format!("session-{number}"), "host-files", names);
+            }
             ViewerEvent::Privacy { on, error } => {
                 link.lock().unwrap().privacy = on;
                 let _ = app.emit_to(format!("session-{number}"), "privacy", PrivacyUpdate { on, error });
@@ -641,6 +651,7 @@ struct Features {
     chat: bool,
     audio: bool,
     privacy: bool,
+    file_paste: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -653,6 +664,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             chat: f.has(F::CHAT),
             audio: f.has(F::AUDIO),
             privacy: f.has(F::PRIVACY),
+            file_paste: f.has(F::FILE_PASTE),
         }
     }
 }
@@ -820,6 +832,43 @@ async fn queue_drop(app: AppHandle, state: State<'_, AppState>, session: u32, pa
 #[tauri::command]
 fn take_drops(state: State<AppState>, session: u32) -> Vec<String> {
     state.drops.lock().unwrap().remove(&session).unwrap_or_default()
+}
+
+/// Ctrl+V in a session window: if files are on this computer's clipboard,
+/// they go to the host and onto its clipboard first. Returns whether there
+/// were files; the window then sends Ctrl+V itself.
+#[tauri::command]
+async fn paste_files(state: State<'_, AppState>, session: u32) -> CmdResult<bool> {
+    let local = tauri::async_runtime::spawn_blocking(ctxremote_core::clipboard::local_files).await.map_err(err)?;
+    if local.is_empty() {
+        return Ok(false);
+    }
+    let client = file_client(&state, session)?;
+    client.paste_to_host(local).await.map_err(chain)?;
+    Ok(true)
+}
+
+/// Fetches the files last copied at the host and puts them on this
+/// computer's clipboard. Returns how many arrived.
+#[tauri::command]
+async fn fetch_host_files(state: State<'_, AppState>, session: u32) -> CmdResult<usize> {
+    let paths = {
+        let viewers = state.viewers.lock().unwrap();
+        let viewer = viewers.get(&session).ok_or("Die Sitzung ist beendet")?;
+        let paths = viewer.link.lock().unwrap().host_files.clone();
+        paths
+    };
+    if paths.is_empty() {
+        return Err("Am Gerät sind keine Dateien kopiert".into());
+    }
+    let client = file_client(&state, session)?;
+    let landed = client.fetch_to_clipboard(paths).await.map_err(chain)?;
+    let count = landed.len();
+    tauri::async_runtime::spawn_blocking(move || ctxremote_core::clipboard::set_local_files(&landed))
+        .await
+        .map_err(err)?
+        .map_err(chain)?;
+    Ok(count)
 }
 
 fn file_client(state: &AppState, session: u32) -> CmdResult<Arc<FileClient>> {
@@ -1000,6 +1049,8 @@ macro_rules! handlers {
             request_keyframe,
             set_audio,
             set_privacy,
+            paste_files,
+            fetch_host_files,
             send_sas,
             lock_screen,
             restart_host,

@@ -49,6 +49,9 @@ pub enum HostMsg {
     /// (two-factor for the permanent password). Answered with
     /// [`ViewerMsg::Code`]; only to viewers with [`Features::CODE`].
     CodeRequired,
+    /// Files were copied at the host: their paths, for the viewer to fetch
+    /// if the user wants them; only to viewers with [`Features::FILE_PASTE`].
+    ClipboardFiles(Vec<String>),
 }
 
 /// What a viewer may do in a session, as bits. The host enforces them;
@@ -117,6 +120,8 @@ impl Features {
     pub const PRIVACY: u32 = 1 << 11;
     /// Answers `CodeRequired` with `Code` (two-factor).
     pub const CODE: u32 = 1 << 12;
+    /// Files through the clipboard: `PasteDir`, `ClipboardFromDir`, `ClipboardFiles`.
+    pub const FILE_PASTE: u32 = 1 << 13;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -132,7 +137,8 @@ impl Features {
             | Self::AUDIO
             | Self::RIGHTS
             | Self::PRIVACY
-            | Self::CODE,
+            | Self::CODE
+            | Self::FILE_PASTE,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -325,12 +331,20 @@ pub enum FileOp {
     /// Announces upload `id` into the folder `dir`; the content follows as
     /// [`ViewerMsg::Transfer`] messages.
     Upload { id: u32, dir: String },
+    /// A new, empty folder for files to paste (answered with `Path`); only to
+    /// hosts with [`Features::FILE_PASTE`].
+    PasteDir,
+    /// Puts everything in `dir` (from `PasteDir`) on the host's clipboard as
+    /// files, ready for Ctrl+V there.
+    ClipboardFromDir { dir: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FileReply {
     Listing(Listing),
     Done,
+    /// A folder on the host, after `PasteDir`.
+    Path(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -28,7 +28,7 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false });
   /** What the host allows; null from older hosts, which allow everything. */
   let rights = $state<number | null>(null);
   const can = (right: number) => rights === null || (rights & right) !== 0;
@@ -37,6 +37,11 @@
   /** A short message under the toolbar, e.g. why privacy mode failed. */
   let notice = $state("");
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Ctrl+V with files: the V waits until they are on the host's clipboard. */
+  let pasting = false;
+  /** Names of files copied at the host, offered to fetch. */
+  let hostFiles = $state<string[]>([]);
+  let fetching = $state(false);
   /** The host's sound; remembered across sessions. */
   let soundOn = $state(loadSound());
   let sound: SoundPlayer | null = null;
@@ -145,6 +150,10 @@
 
     const unlistenRoute = getCurrentWindow().listen<string>("route", (e) => (direct = e.payload));
     const unlistenRights = getCurrentWindow().listen<number>("rights", (e) => applyRights(e.payload));
+    const unlistenFiles = getCurrentWindow().listen<string[]>("host-files", (e) => {
+      hostFiles = e.payload;
+      toolbarVisible = true;
+    });
     const unlistenPrivacy = getCurrentWindow().listen<{ on: boolean; error: string | null }>("privacy", (e) => {
       privacy = e.payload.on;
       if (e.payload.error) showNotice(e.payload.error);
@@ -176,6 +185,7 @@
       unlistenDrop.then((off) => off());
       unlistenRoute.then((off) => off());
       unlistenRights.then((off) => off());
+      unlistenFiles.then((off) => off());
       unlistenPrivacy.then((off) => off());
       clearTimeout(noticeTimer);
       unlistenChat.then((off) => off());
@@ -306,7 +316,46 @@
     if (!streaming || closed !== null || !e.code) return;
     e.preventDefault();
     e.stopPropagation();
+    if (e.code === "KeyV" && (e.ctrlKey || pasting) && canPasteFiles()) {
+      if (down && !pasting) pasteThenV();
+      return;
+    }
     send({ Key: { code: e.code, down } });
+  }
+
+  const canPasteFiles = () => features.filePaste && can(RIGHT.FILES) && can(RIGHT.CLIPBOARD) && can(RIGHT.INPUT);
+
+  // Files on this computer's clipboard go to the host's first; then Ctrl+V
+  // there pastes them. Without files it is a plain Ctrl+V.
+  async function pasteThenV() {
+    pasting = true;
+    let files = false;
+    try {
+      const pending = api.pasteFiles(session);
+      // Only a paste that takes a moment gets a notice.
+      const slow = setTimeout(() => showNotice("Dateien werden übertragen …"), 400);
+      files = await pending.finally(() => clearTimeout(slow));
+    } catch (e) {
+      showNotice(`Einfügen fehlgeschlagen: ${errorText(e)}`);
+      pasting = false;
+      return;
+    }
+    if (files) notice = "";
+    pasting = false;
+    combo("ControlLeft", "KeyV");
+  }
+
+  async function fetchHostFiles() {
+    fetching = true;
+    try {
+      const count = await api.fetchHostFiles(session);
+      hostFiles = [];
+      showNotice(`${count === 1 ? "Die Datei liegt" : `${count} Dateien liegen`} in der Zwischenablage, einfügen mit Strg+V.`);
+    } catch (e) {
+      showNotice(errorText(e));
+    } finally {
+      fetching = false;
+    }
   }
 
   function combo(...codes: string[]) {
@@ -579,6 +628,18 @@
 
   {#if notice && closed === null}
     <div class="notice" role="status">{notice}</div>
+  {:else if hostFiles.length > 0 && closed === null && canPasteFiles()}
+    <div class="notice offer" role="status">
+      <span>
+        {hostFiles.length === 1 ? `„${hostFiles[0]}“` : `${hostFiles.length} Dateien`} am Gerät kopiert
+      </span>
+      <button class="offer-btn" disabled={fetching} onclick={fetchHostFiles}>
+        {fetching ? "Wird geholt …" : "Hierher holen"}
+      </button>
+      <button class="offer-close" title="Ausblenden" onclick={() => (hostFiles = [])}>
+        <Icon name="close" size={14} />
+      </button>
+    </div>
   {/if}
 
   {#if chatOpen && features.chat}
@@ -835,6 +896,33 @@
     border-radius: 999px;
     color: #a5a39c;
     font-size: 11.5px;
+  }
+
+  .notice.offer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .offer-btn {
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid #3b3a37;
+    border-radius: 6px;
+    background: #23221f;
+    color: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .offer-close {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 0;
+    background: transparent;
+    color: #a5a39c;
   }
 
   .route.private {

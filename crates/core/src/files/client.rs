@@ -54,6 +54,8 @@ pub struct FileClient {
     uploads: Mutex<HashMap<u32, Arc<Upload>>>,
     downloads: Mutex<HashMap<u32, std_mpsc::Sender<Transfer>>>,
     events: EventSink,
+    /// Transfers someone awaits: the local path of a download, or an error.
+    waiters: Mutex<HashMap<u32, oneshot::Sender<Result<Option<String>, String>>>>,
 }
 
 impl FileClient {
@@ -65,6 +67,7 @@ impl FileClient {
             uploads: Mutex::default(),
             downloads: Mutex::default(),
             events,
+            waiters: Mutex::default(),
         })
     }
 
@@ -92,14 +95,77 @@ impl FileClient {
     async fn done(&self, op: FileOp) -> Result<()> {
         match self.request(op).await? {
             FileReply::Done => Ok(()),
-            FileReply::Listing(_) => bail!("Unerwartete Antwort"),
+            _ => bail!("Unerwartete Antwort"),
         }
     }
 
     pub async fn list(&self, path: String) -> Result<Listing> {
         match self.request(FileOp::List { path }).await? {
             FileReply::Listing(listing) => Ok(listing),
-            FileReply::Done => bail!("Unerwartete Antwort"),
+            _ => bail!("Unerwartete Antwort"),
+        }
+    }
+
+    /// Copies local files and folders to the host and puts them on its
+    /// clipboard, so Ctrl+V there pastes them. Needs [`Features::FILE_PASTE`].
+    ///
+    /// [`Features::FILE_PASTE`]: ctxremote_proto::session::Features::FILE_PASTE
+    pub async fn paste_to_host(self: &Arc<Self>, local: Vec<PathBuf>) -> Result<()> {
+        let dir = match self.request(FileOp::PasteDir).await? {
+            FileReply::Path(dir) => dir,
+            _ => bail!("Unerwartete Antwort"),
+        };
+        for path in local {
+            let id = self.number();
+            let wait = self.waiter(id);
+            self.start_upload(id, path, dir.clone()).await?;
+            Self::finished(wait).await?;
+        }
+        self.done(FileOp::ClipboardFromDir { dir }).await
+    }
+
+    /// Fetches files copied at the host into a local folder for pasting;
+    /// returns where they landed, for this computer's clipboard.
+    pub async fn fetch_to_clipboard(self: &Arc<Self>, remote: Vec<String>) -> Result<Vec<PathBuf>> {
+        let root = super::UserContext::current().paste_root();
+        let dir = tokio::task::spawn_blocking(move || super::paste_dir(&root)).await??;
+        let mut landed = Vec::new();
+        for path in remote {
+            let id = self.number();
+            let wait = self.waiter(id);
+            self.start_download(id, path, dir.clone()).await?;
+            if let Some(local) = Self::finished(wait).await? {
+                landed.push(PathBuf::from(local));
+            }
+        }
+        Ok(landed)
+    }
+
+    fn waiter(&self, id: u32) -> oneshot::Receiver<Result<Option<String>, String>> {
+        let (tx, rx) = oneshot::channel();
+        self.waiters.lock().unwrap().insert(id, tx);
+        rx
+    }
+
+    async fn finished(wait: oneshot::Receiver<Result<Option<String>, String>>) -> Result<Option<String>> {
+        match wait.await {
+            Ok(result) => result.map_err(|e| anyhow!(e)),
+            Err(_) => bail!("Die Sitzung ist beendet"),
+        }
+    }
+
+    /// Reports a transfer's end to listeners and to whoever awaits it.
+    fn finish(&self, event: TransferEvent) {
+        let outcome = match &event {
+            TransferEvent::Finished { id, path } => Some((*id, Ok(path.clone()))),
+            TransferEvent::Failed { id, message } => Some((*id, Err(message.clone()))),
+            TransferEvent::Progress { .. } => None,
+        };
+        (self.events)(event);
+        if let Some((id, result)) = outcome {
+            if let Some(tx) = self.waiters.lock().unwrap().remove(&id) {
+                let _ = tx.send(result);
+            }
         }
     }
 
@@ -118,8 +184,20 @@ impl FileClient {
     /// Sends the local file or folder `local` into the host's folder `remote_dir`.
     /// Progress and the outcome arrive as [`TransferEvent`]s under the returned id.
     pub async fn upload(self: &Arc<Self>, local: PathBuf, remote_dir: String) -> Result<u32> {
-        let mut outgoing = tokio::task::spawn_blocking(move || Outgoing::open(&local)).await??;
         let id = self.number();
+        self.start_upload(id, local, remote_dir).await?;
+        Ok(id)
+    }
+
+    async fn start_upload(self: &Arc<Self>, id: u32, local: PathBuf, remote_dir: String) -> Result<()> {
+        let opened = tokio::task::spawn_blocking(move || Outgoing::open(&local)).await?;
+        let mut outgoing = match opened {
+            Ok(outgoing) => outgoing,
+            Err(e) => {
+                self.waiters.lock().unwrap().remove(&id);
+                return Err(e);
+            }
+        };
         let upload = Arc::new(Upload {
             acked: Mutex::new(0),
             wake: Condvar::new(),
@@ -130,6 +208,7 @@ impl FileClient {
         self.uploads.lock().unwrap().insert(id, upload.clone());
         if let Err(e) = self.done(FileOp::Upload { id, dir: remote_dir }).await {
             self.uploads.lock().unwrap().remove(&id);
+            self.waiters.lock().unwrap().remove(&id);
             return Err(e);
         }
         let this = self.clone();
@@ -141,7 +220,7 @@ impl FileClient {
                 }
             }
         })?;
-        Ok(id)
+        Ok(())
     }
 
     fn send_upload(&self, id: u32, upload: &Upload, outgoing: &mut Outgoing) -> Result<()> {
@@ -176,8 +255,19 @@ impl FileClient {
 
     /// Fetches the host's file or folder `remote` into the local folder `local_dir`.
     pub async fn download(self: &Arc<Self>, remote: String, local_dir: PathBuf) -> Result<u32> {
-        let incoming = Incoming::new(&local_dir)?;
         let id = self.number();
+        self.start_download(id, remote, local_dir).await?;
+        Ok(id)
+    }
+
+    async fn start_download(self: &Arc<Self>, id: u32, remote: String, local_dir: PathBuf) -> Result<()> {
+        let incoming = match Incoming::new(&local_dir) {
+            Ok(incoming) => incoming,
+            Err(e) => {
+                self.waiters.lock().unwrap().remove(&id);
+                return Err(e);
+            }
+        };
         let (tx, rx) = std_mpsc::channel();
         self.downloads.lock().unwrap().insert(id, tx);
         let this = self.clone();
@@ -187,9 +277,10 @@ impl FileClient {
         if let Err(e) = self.done(FileOp::Download { id, path: remote }).await {
             // Dropping the sender ends the thread without an event.
             self.downloads.lock().unwrap().remove(&id);
+            self.waiters.lock().unwrap().remove(&id);
             return Err(e);
         }
-        Ok(id)
+        Ok(())
     }
 
     fn receive_download(&self, id: u32, mut incoming: Incoming, rx: std_mpsc::Receiver<Transfer>) {
@@ -214,7 +305,7 @@ impl FileClient {
                     }
                     self.progress(id, incoming.written(), incoming.total());
                     let path = incoming.finished().map(|p| p.to_string_lossy().into_owned());
-                    (self.events)(TransferEvent::Finished { id, path });
+                    self.finish(TransferEvent::Finished { id, path });
                     // Keeps the result: dropping a finished transfer removes nothing.
                     return;
                 }
@@ -266,7 +357,7 @@ impl FileClient {
         match msg {
             Transfer::End => {
                 self.progress(id, upload.total, upload.total);
-                (self.events)(TransferEvent::Finished { id, path: None });
+                self.finish(TransferEvent::Finished { id, path: None });
             }
             Transfer::Failed(message) => self.fail(id, message),
             _ => self.fail(id, "Unerwartete Antwort".into()),
@@ -306,7 +397,7 @@ impl FileClient {
     }
 
     fn fail(&self, id: u32, message: String) {
-        (self.events)(TransferEvent::Failed { id, message });
+        self.finish(TransferEvent::Failed { id, message });
     }
 }
 
@@ -640,5 +731,42 @@ mod tests {
         std::fs::remove_dir_all(&src).unwrap();
         std::fs::remove_dir_all(&dst).unwrap();
         std::fs::remove_dir_all(&down_dir).unwrap();
+    }
+
+    /// Pasting to the host: the copies land in a fresh folder there; putting
+    /// them on the clipboard is the agent's part, which this rig lacks.
+    #[tokio::test]
+    async fn paste_uploads_into_a_fresh_folder() {
+        let rig = rig();
+        let src = temp_dir("paste-src");
+        let (tree, big) = make_tree(&src);
+        let single = src.join("notiz.txt");
+        std::fs::write(&single, "hallo").unwrap();
+        let result = rig.client.paste_to_host(vec![tree, single]).await;
+        let error = result.expect_err("ohne Agent keine Zwischenablage");
+        assert!(format!("{error:#}").contains("Zwischenablage"), "{error:#}");
+        let root = super::super::UserContext::current().paste_root();
+        let newest = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .max_by_key(|e| e.metadata().unwrap().modified().unwrap())
+            .unwrap()
+            .path();
+        assert_eq!(std::fs::read(newest.join("Projekt/sub/big.bin")).unwrap(), big);
+        assert_eq!(std::fs::read_to_string(newest.join("notiz.txt")).unwrap(), "hallo");
+        assert_eq!(super::super::entries_of(&newest).unwrap().len(), 2);
+        let _ = std::fs::remove_dir_all(&newest);
+    }
+
+    /// Fetching files copied at the host: each lands locally, paths come back.
+    #[tokio::test]
+    async fn fetch_lands_files_for_the_clipboard() {
+        let rig = rig();
+        let src = temp_dir("fetch-src");
+        let (tree, big) = make_tree(&src);
+        let landed = rig.client.fetch_to_clipboard(vec![s(&tree)]).await.unwrap();
+        assert_eq!(landed.len(), 1);
+        assert_eq!(std::fs::read(landed[0].join("sub/big.bin")).unwrap(), big);
+        let _ = std::fs::remove_dir_all(landed[0].parent().unwrap());
     }
 }

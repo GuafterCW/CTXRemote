@@ -118,6 +118,10 @@ impl State {
                 self.uploads.insert(id, incoming);
                 FileReply::Done
             }
+            // Created with the user's rights, so the pasted copies are the user's.
+            FileOp::PasteDir => FileReply::Path(super::paste_dir(&user.paste_root())?.to_string_lossy().into_owned()),
+            // The agent handles it, as it owns the clipboard.
+            FileOp::ClipboardFromDir { .. } => anyhow::bail!("Zwischenablage hier nicht verfügbar"),
         })
     }
 

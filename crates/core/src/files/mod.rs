@@ -58,6 +58,37 @@ pub fn list(path: &str, user: &UserContext) -> Result<Listing> {
     Ok(Listing { path: dir.to_string_lossy().into_owned(), parent, entries })
 }
 
+/// Files pasted through the clipboard stay this long, so a paste can still
+/// copy them; then a later paste clears them away.
+const PASTE_KEEP: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+
+/// A new, empty folder below `root` for one paste; clears out old ones.
+pub fn paste_dir(root: &Path) -> Result<PathBuf> {
+    std::fs::create_dir_all(root)?;
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let old = entry.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|age| age > PASTE_KEEP));
+            if old {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    let dir = root.join(free_name(root, &stamp.to_string()));
+    std::fs::create_dir(&dir)?;
+    Ok(dir)
+}
+
+/// Everything directly in `dir`, for the clipboard.
+pub fn entries_of(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)?.flatten().map(|e| e.path()).collect();
+    paths.sort();
+    if paths.is_empty() {
+        anyhow::bail!("Es sind keine Dateien zum Einfügen da");
+    }
+    Ok(paths)
+}
+
 pub fn create_dir(path: &str) -> Result<()> {
     let path = absolute(path)?;
     std::fs::create_dir(&path).with_context(|| format!("{} kann nicht angelegt werden", path.display()))

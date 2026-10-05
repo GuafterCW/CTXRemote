@@ -52,8 +52,16 @@ mod imp {
             directories::UserDirs::new()
                 .and_then(|d| d.download_dir().map(PathBuf::from).or_else(|| Some(d.home_dir().to_path_buf())))
         }
+
+        /// Where files pasted through the clipboard wait (see [`super::super::paste_dir`]).
+        pub fn paste_root(&self) -> PathBuf {
+            std::env::temp_dir().join(super::PASTE_FOLDER)
+        }
     }
 }
+
+/// Below the user's temp folder.
+const PASTE_FOLDER: &str = "CTXRemote-Einfuegen";
 
 #[cfg(windows)]
 mod imp {
@@ -71,7 +79,7 @@ mod imp {
     use windows::Win32::System::RemoteDesktop::{ProcessIdToSessionId, WTSQueryUserToken};
     use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentProcessId, OpenProcessToken};
     use windows::Win32::UI::Shell::{
-        FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_Profile, SHGetKnownFolderPath,
+        FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_LocalAppData, FOLDERID_Profile, SHGetKnownFolderPath,
         KF_FLAG_DEFAULT,
     };
 
@@ -122,6 +130,15 @@ mod imp {
 
         pub fn downloads(&self) -> Option<PathBuf> {
             self.known_folder(&FOLDERID_Downloads).or_else(|| self.known_folder(&FOLDERID_Profile))
+        }
+
+        /// Where files pasted through the clipboard wait: the user's own temp
+        /// folder (as SYSTEM, `temp_dir` would be SYSTEM's).
+        pub fn paste_root(&self) -> PathBuf {
+            self.known_folder(&FOLDERID_LocalAppData)
+                .map(|local| local.join("Temp"))
+                .unwrap_or_else(std::env::temp_dir)
+                .join(super::PASTE_FOLDER)
         }
 
         /// Resolved for the impersonated user if there is one; redirected

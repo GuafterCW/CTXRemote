@@ -8,7 +8,7 @@ use std::sync::mpsc as std_mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use ctxremote_proto::session::{AudioPacket, CursorShape, HostInfo, HostMsg, Quality, VideoCodec, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{AudioPacket, CursorShape, FileOp, FileReply, HostInfo, HostMsg, Quality, VideoCodec, VideoFrame, ViewerMsg};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -63,11 +63,19 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     let mut injector = Injector::new(&active);
     // The sender is kept so the receiver stays pending if there is no clipboard.
     let (clip_tx, mut clip_rx) = mpsc::unbounded_channel::<String>();
+    let (files_tx, mut files_rx) = mpsc::unbounded_channel::<Vec<std::path::PathBuf>>();
     let clipboard = {
         let clip_tx = clip_tx.clone();
-        ClipboardSync::start(false, move |text| {
-            let _ = clip_tx.send(text);
-        })
+        let files_tx = files_tx.clone();
+        ClipboardSync::start_with_files(
+            false,
+            move |text| {
+                let _ = clip_tx.send(text);
+            },
+            Some(Box::new(move |files| {
+                let _ = files_tx.send(files);
+            })),
+        )
     };
     // Started on the first file request; most sessions never need it.
     let mut files: Option<FileService> = None;
@@ -81,6 +89,10 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
         loop {
             tokio::select! {
                 Some(text) = clip_rx.recv() => outbox.send(HostMsg::Clipboard(text)).await?,
+                Some(files) = files_rx.recv() => {
+                    let paths = files.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+                    outbox.send(HostMsg::ClipboardFiles(paths)).await?;
+                }
                 Some(data) = audio_rx.recv() => outbox.send(HostMsg::Audio(AudioPacket { data })).await?,
                 frame = frames_rx.recv() => match frame {
                     Some(Captured::Frame(frame)) => outbox.send(HostMsg::Video(frame)).await?,
@@ -133,6 +145,18 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                             clipboard.apply(text);
                         }
                     }
+                    // Pasted files: the uploaded copies go on this computer's clipboard.
+                    Some(ViewerMsg::File { req, op: FileOp::ClipboardFromDir { dir } }) => {
+                        let result = match (&clipboard, crate::files::entries_of(std::path::Path::new(&dir))) {
+                            (Some(clipboard), Ok(paths)) => {
+                                clipboard.apply_files(paths);
+                                Ok(FileReply::Done)
+                            }
+                            (None, _) => Err("Die Zwischenablage ist hier nicht verfügbar".to_string()),
+                            (_, Err(e)) => Err(format!("{e:#}")),
+                        };
+                        outbox.send(HostMsg::FileReply { req, result }).await?;
+                    }
                     Some(msg @ (ViewerMsg::File { .. } | ViewerMsg::Transfer { .. })) => {
                         if files.is_none() {
                             files = Some(FileService::start(outbox.clone())?);
@@ -160,6 +184,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     drop(files);
     drop(clipboard);
     drop(clip_tx);
+    drop(files_tx);
     drop(commands);
     drop(frames_rx);
     let _ = tokio::task::spawn_blocking(move || video.join()).await;

@@ -1,5 +1,7 @@
-//! Text clipboard synchronisation between viewer and host.
+//! Clipboard synchronisation between viewer and host: text both ways, and on
+//! the host also files copied there (see `HostMsg::ClipboardFiles`).
 
+use std::path::PathBuf;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
@@ -41,16 +43,34 @@ impl Tracker {
     }
 }
 
+/// What the peer puts on this side's clipboard.
+enum Apply {
+    Text(String),
+    Files(Vec<PathBuf>),
+}
+
+/// Reports files copied here: once per new list, not lists set by the peer.
+type OnFiles = Box<dyn Fn(Vec<PathBuf>) + Send>;
+
 /// Owns a thread that polls the local clipboard and applies the peer's text.
 pub struct ClipboardSync {
-    incoming: mpsc::Sender<String>,
+    incoming: mpsc::Sender<Apply>,
 }
 
 impl ClipboardSync {
     /// Starts watching the clipboard. With `send_initial == false` the text present
     /// at start is not reported. Returns `None` if the clipboard is unavailable.
     pub fn start(send_initial: bool, on_change: impl Fn(String) + Send + 'static) -> Option<Self> {
-        let (incoming, applying) = mpsc::channel::<String>();
+        Self::start_with_files(send_initial, on_change, None)
+    }
+
+    /// Like [`ClipboardSync::start`], and `on_files` hears of files copied here.
+    pub fn start_with_files(
+        send_initial: bool,
+        on_change: impl Fn(String) + Send + 'static,
+        on_files: Option<OnFiles>,
+    ) -> Option<Self> {
+        let (incoming, applying) = mpsc::channel::<Apply>();
         let (ready_tx, ready_rx) = mpsc::channel::<bool>();
         let spawned = std::thread::Builder::new().name("ctxremote-clipboard".into()).spawn(move || {
             // arboard is not Send everywhere, so the clipboard lives only on this thread.
@@ -72,11 +92,17 @@ impl ClipboardSync {
                 }
             }
             let mut sequence = sequence_number();
+            // Files copied here already (or set by the peer), so each list is reported once.
+            let mut known_files: Vec<PathBuf> = clipboard.get().file_list().unwrap_or_default();
             loop {
                 match applying.recv_timeout(POLL_INTERVAL) {
-                    Ok(text) => match clipboard.set_text(text.clone()) {
+                    Ok(Apply::Text(text)) => match clipboard.set_text(text.clone()) {
                         Ok(()) => tracker.applied(&text),
                         Err(e) => warn!("Zwischenablage konnte nicht gesetzt werden: {e}"),
+                    },
+                    Ok(Apply::Files(files)) => match clipboard.set().file_list(&files) {
+                        Ok(()) => known_files = files,
+                        Err(e) => warn!("Dateien nicht in die Zwischenablage gelegt: {e}"),
                     },
                     Err(RecvTimeoutError::Timeout) => {
                         // Opening the clipboard every round can make other apps' copy fail.
@@ -85,7 +111,15 @@ impl ClipboardSync {
                             continue;
                         }
                         sequence = current;
-                        if let Some(text) = tracker.observe(clipboard.get_text().ok()) {
+                        let text = clipboard.get_text().ok();
+                        if let (None, Some(on_files)) = (&text, &on_files) {
+                            let files = clipboard.get().file_list().unwrap_or_default();
+                            if !files.is_empty() && files != known_files {
+                                on_files(files.clone());
+                            }
+                            known_files = files;
+                        }
+                        if let Some(text) = tracker.observe(text) {
                             on_change(text);
                         }
                     }
@@ -103,9 +137,25 @@ impl ClipboardSync {
     /// Sets the local clipboard to the peer's text.
     pub fn apply(&self, text: String) {
         if text.len() <= MAX_CLIPBOARD_BYTES {
-            let _ = self.incoming.send(text);
+            let _ = self.incoming.send(Apply::Text(text));
         }
     }
+
+    /// Puts files on the local clipboard, as if copied in the file manager.
+    pub fn apply_files(&self, files: Vec<PathBuf>) {
+        let _ = self.incoming.send(Apply::Files(files));
+    }
+}
+
+/// The files on this computer's clipboard, if it holds files.
+pub fn local_files() -> Vec<PathBuf> {
+    arboard::Clipboard::new().and_then(|mut c| c.get().file_list()).unwrap_or_default()
+}
+
+/// Puts files on this computer's clipboard.
+pub fn set_local_files(files: &[PathBuf]) -> anyhow::Result<()> {
+    arboard::Clipboard::new()?.set().file_list(files)?;
+    Ok(())
 }
 
 /// Changes with every clipboard update; `None` where the platform has no such counter.

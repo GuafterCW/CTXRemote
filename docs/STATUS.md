@@ -311,6 +311,16 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
   - Einmalpasswort und Kontozugriff brauchen keinen Code.
 - Getestet: Unit-Tests und `--test sessions` (`permanent_password_needs_the_authenticator_code`). Unter Windows ungetestet.
 
+### Dateien per Kopieren und Einfügen (5. Oktober, Cloud-Sitzung)
+
+- **Viewer → Gerät:** Dateien im eigenen Explorer kopieren, im Sitzungsfenster Strg+V drücken.
+  - Die App hält das V zurück und lädt die Dateien in einen frischen Ordner im Temp-Verzeichnis des angemeldeten Benutzers am Gerät (`%LOCALAPPDATA%\Temp\CTXRemote-Einfuegen\<Zeit>`, `FileOp::PasteDir`). Dabei gelten die Benutzerrechte wie bei der Dateiübertragung.
+  - Der Agent legt die Dateien in die Zwischenablage des Geräts (`FileOp::ClipboardFromDir`), dann sendet die App Strg+V. Der Explorer am Gerät fügt sie also normal ein.
+  - Ohne Dateien in der Zwischenablage ist es ein gewöhnliches Strg+V.
+- **Gerät → Viewer:** Kopiert man am Gerät Dateien, meldet der Agent das (`HostMsg::ClipboardFiles`). Das Sitzungsfenster zeigt „… am Gerät kopiert · Hierher holen“. Ein Klick lädt sie in einen lokalen Temp-Ordner und legt sie in die eigene Zwischenablage, dann einfügen mit Strg+V. Absichtlich nicht automatisch, damit große Kopien nicht ungefragt übertragen werden.
+- Voraussetzungen: Fähigkeit `FILE_PASTE`, Rechte Dateien und Zwischenablage (für Strg+V auch Maus und Tastatur). Die Temp-Ordner werden nach 24 Stunden beim nächsten Einfügen aufgeräumt.
+- Getestet: Upload in den Einfüge-Ordner und Holen ohne Netz (`files::client` Tests). **Unter Windows ungetestet**: die Zwischenablage selbst (CF_HDROP über `arboard`), auch als SYSTEM im Dienst.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -408,6 +418,11 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Vom Viewer mit dem festen Passwort verbinden: Ein Codefeld erscheint. Mit dem aktuellen Code klappt es, mit einem falschen kommt „falsch“.
     - Mit dem Einmalpasswort verbinden: Es wird kein Code verlangt.
     - Ausschalten: Danach reicht wieder das Passwort.
+27. Dateien per Kopieren und Einfügen (beide PCs aktualisiert, mit und ohne Dienst):
+    - Am Viewer eine Datei und einen Ordner im Explorer kopieren. In der Sitzung den Desktop anklicken, Strg+V: Beide erscheinen auf dem fernen Desktop. Bei großen Dateien steht kurz „Dateien werden übertragen …“.
+    - Text kopieren und mit Strg+V einfügen: muss weiter normal funktionieren.
+    - Am Gerät Dateien kopieren: Im Sitzungsfenster erscheint „… am Gerät kopiert · Hierher holen“. Klicken, dann lokal im Explorer Strg+V.
+    - Mit „Dateien“ oder „Zwischenablage“ im Rechte-Menü abgewählt: Es wird nichts angeboten, und Strg+V fügt keine Dateien ein.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.
