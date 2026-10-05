@@ -104,6 +104,53 @@ struct Link {
     privacy: bool,
     /// Files last copied at the host, until fetched or replaced.
     host_files: Vec<String>,
+    /// Set while the user records the session.
+    recording: Option<Recording>,
+}
+
+/// A recording in progress: one file per screen size.
+struct Recording {
+    dir: std::path::PathBuf,
+    base: String,
+    current: Option<ctxremote_core::record::Recorder>,
+    files: Vec<std::path::PathBuf>,
+}
+
+impl Recording {
+    fn frame(&mut self, frame: &VideoFrame) {
+        // Another screen or size: this file ends, the next keyframe starts one.
+        if self.current.as_ref().is_some_and(|r| !r.fits(frame)) {
+            self.close();
+        }
+        match &mut self.current {
+            Some(recorder) => {
+                if let Err(e) = recorder.push(frame) {
+                    tracing::warn!("Aufnahme unterbrochen: {e:#}");
+                    self.current = None;
+                }
+            }
+            None if frame.keyframe => {
+                let name = match self.files.len() {
+                    0 => format!("{}.mp4", self.base),
+                    n => format!("{}-{}.mp4", self.base, n + 1),
+                };
+                match ctxremote_core::record::Recorder::start(&self.dir.join(name), frame) {
+                    Ok(recorder) => self.current = Some(recorder),
+                    Err(e) => tracing::warn!("Aufnahme nicht startbar: {e:#}"),
+                }
+            }
+            None => {}
+        }
+    }
+
+    fn close(&mut self) {
+        if let Some(recorder) = self.current.take() {
+            match recorder.finish() {
+                Ok(path) => self.files.push(path),
+                Err(e) => tracing::warn!("Aufnahme nicht abgeschlossen: {e:#}"),
+            }
+        }
+    }
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -205,6 +252,8 @@ struct Hosted {
     rights: u32,
     /// The screen here is blanked for the viewer (privacy mode).
     privacy: bool,
+    /// The viewer records the session.
+    recording: bool,
 }
 
 #[tauri::command]
@@ -212,7 +261,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
     #[cfg(feature = "quick")]
     let _ = &app;
     let config = state.config.read().unwrap();
-    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles, account_access, rights, defaults, code_enabled) = match &state.host {
+    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles, account_access, rights, defaults, code_enabled, recording) = match &state.host {
         Side::Local(host) => (
             host.presence().borrow().clone(),
             host.password(),
@@ -229,11 +278,12 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
             host.session_rights(),
             (config.rights_attended, config.rights_unattended),
             config.code_secret.is_some(),
+            host.recording_sessions(),
         ),
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => {
             let s = service.state();
-            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles, s.account_access, s.session_rights, (s.rights_attended, s.rights_unattended), s.code_enabled)
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles, s.account_access, s.session_rights, (s.rights_attended, s.rights_unattended), s.code_enabled, s.session_recording)
         }
     };
     Overview {
@@ -266,6 +316,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
                 profile: profiles.iter().find(|(n, _)| *n == session).map(|(_, p)| p.clone()),
                 rights: rights.iter().find(|(n, ..)| *n == session).map_or(0, |(_, r, _)| r.0),
                 privacy: rights.iter().any(|(n, _, on)| *n == session && *on),
+                recording: recording.contains(&session),
             })
             .collect(),
         version: ctxremote_core::update::VERSION,
@@ -529,8 +580,12 @@ async fn connect(
         let app = app.clone();
         move |event: ViewerEvent| match event {
             ViewerEvent::Video(frame) => {
-                if let Some(channel) = &link.lock().unwrap().channel {
+                let mut link = link.lock().unwrap();
+                if let Some(channel) = &link.channel {
                     let _ = channel.send(InvokeResponseBody::Raw(video_packet(&frame)));
+                }
+                if let Some(recording) = &mut link.recording {
+                    recording.frame(&frame);
                 }
             }
             ViewerEvent::Cursor(shape) => {
@@ -599,6 +654,9 @@ async fn connect(
                 {
                     let mut link = link.lock().unwrap();
                     link.clipboard = None;
+                    if let Some(recording) = &mut link.recording {
+                        recording.close();
+                    }
                     if let Some(channel) = &link.channel {
                         let _ = channel.send(InvokeResponseBody::Raw(closed_packet(&reason)));
                     }
@@ -687,6 +745,7 @@ struct Features {
     privacy: bool,
     file_paste: bool,
     sysinfo: bool,
+    recording: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -701,6 +760,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             privacy: f.has(F::PRIVACY),
             file_paste: f.has(F::FILE_PASTE),
             sysinfo: f.has(F::SYSINFO),
+            recording: f.has(F::RECORDING),
         }
     }
 }
@@ -767,6 +827,38 @@ fn set_audio(state: State<AppState>, session: u32, on: bool) -> bool {
     let mut supported = false;
     with_viewer(&state, session, |s| supported = s.set_audio(on));
     supported
+}
+
+/// Starts recording the session into the video folder; returns the folder.
+/// The host is told, so the person there sees it.
+#[tauri::command]
+fn start_recording(state: State<AppState>, session: u32) -> CmdResult<String> {
+    let viewers = state.viewers.lock().unwrap();
+    let viewer = viewers.get(&session).ok_or("Die Sitzung ist beendet")?;
+    let dir = ctxremote_core::record::default_dir();
+    let name = state.config.read().unwrap().peer(viewer.target).map_or(viewer.session.host.hostname.clone(), |p| p.label().to_string());
+    let base = format!(
+        "{}_{}",
+        ctxremote_core::record::safe_name(&name),
+        chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")
+    );
+    viewer.link.lock().unwrap().recording = Some(Recording { dir: dir.clone(), base, current: None, files: Vec::new() });
+    // A file starts with a keyframe.
+    viewer.session.send(ViewerMsg::RequestKeyframe);
+    viewer.session.set_recording(true);
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+/// Ends the recording; returns the files written.
+#[tauri::command]
+fn stop_recording(state: State<AppState>, session: u32) -> CmdResult<Vec<String>> {
+    let viewers = state.viewers.lock().unwrap();
+    let viewer = viewers.get(&session).ok_or("Die Sitzung ist beendet")?;
+    let recording = viewer.link.lock().unwrap().recording.take();
+    viewer.session.set_recording(false);
+    let Some(mut recording) = recording else { return Ok(Vec::new()) };
+    recording.close();
+    Ok(recording.files.iter().map(|p| p.to_string_lossy().into_owned()).collect())
 }
 
 /// Asks the host about its computer; the answer arrives as `system-info`.
@@ -1095,6 +1187,8 @@ macro_rules! handlers {
             set_audio,
             set_privacy,
             request_system_info,
+            start_recording,
+            stop_recording,
             paste_files,
             fetch_host_files,
             send_sas,

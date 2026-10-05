@@ -23,6 +23,7 @@ export function profileLabel(profile: Profile): string {
 export type HostEvent =
   | { kind: "sessionStarted"; session: number; peer: string; chat: boolean; profile?: Profile | null; rights?: number }
   | { kind: "rights"; session: number; rights: number; privacy: boolean }
+  | { kind: "recording"; session: number; on: boolean }
   | { kind: "sessionEnded"; session: number }
   | { kind: "chat"; session: number; text: string }
   | { kind: "passwordChanged" };
@@ -63,6 +64,8 @@ export interface Hosted {
   rights: number;
   /** This computer's screen is blank for the viewer (privacy mode). */
   privacy: boolean;
+  /** The viewer records the session. */
+  recording: boolean;
 }
 
 /** Who controls a hosted session, as shown on this device. */
@@ -162,6 +165,8 @@ export interface HostFeatures {
   filePaste: boolean;
   /** Tells about its computer (system info). */
   sysinfo: boolean;
+  /** Shows the person there that the session is recorded. */
+  recording: boolean;
 }
 
 /** Mirrors `SystemInfo` in crates/proto/src/session.rs. */
@@ -310,6 +315,10 @@ export const api = {
   setAudio: (session: number, on: boolean) => invoke<boolean>("set_audio", { session, on }),
   /** Blanks the host's screen and blocks its local input, or ends that. */
   setPrivacy: (session: number, on: boolean) => invoke<boolean>("set_privacy", { session, on }),
+  /** Records the session as MP4 into the video folder; returns the folder. */
+  startRecording: (session: number) => invoke<string>("start_recording", { session }),
+  /** Ends the recording; returns the files written. */
+  stopRecording: (session: number) => invoke<string[]>("stop_recording", { session }),
   /** Asks the host about its computer; the answer comes as the `system-info` event. */
   requestSystemInfo: (session: number) => invoke<boolean>("request_system_info", { session }),
   /** Ctrl+V: files on this computer's clipboard go onto the host's; false if there are none. */

@@ -37,6 +37,7 @@ impl Service {
             sessions: Vec::new(),
             session_profiles: Vec::new(),
             session_rights: Vec::new(),
+            session_recording: Vec::new(),
             rights_attended: Default::default(),
             rights_unattended: Default::default(),
             code_enabled: false,

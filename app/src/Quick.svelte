@@ -56,8 +56,11 @@
               profile: event.profile ?? null,
               rights: event.rights ?? 0,
               privacy: false,
+              recording: false,
             },
           ];
+        if (event.kind === "recording")
+          hosted = hosted.map((h) => (h.session === event.session ? { ...h, recording: event.on } : h));
         if (event.kind === "rights")
           hosted = hosted.map((h) =>
             h.session === event.session ? { ...h, rights: event.rights, privacy: event.privacy } : h,
@@ -157,6 +160,7 @@
               <div class="live-row">
                 <span class="live"></span>
                 <span class="live-text">Verbunden mit <strong>{hostedLabel(h)}</strong></span>
+                {#if h.recording}<span class="rec-tag" title="Die Gegenseite zeichnet die Sitzung als Video auf">● Aufnahme</span>{/if}
                 <RightsMenu hosted={h} allowPrivacy={false} class="quick-rights" />
                 <button class="btn btn-quiet end" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
               </div>
@@ -402,5 +406,11 @@
     grid-template-columns: 1fr 1fr;
     gap: 10px;
     margin-top: 16px;
+  }
+
+  .rec-tag {
+    color: var(--bad);
+    font-size: 12.5px;
+    font-weight: 600;
   }
 </style>

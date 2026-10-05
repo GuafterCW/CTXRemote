@@ -166,6 +166,8 @@ impl Features {
     pub const FILE_PASTE: u32 = 1 << 13;
     /// Answers `GetSystemInfo`.
     pub const SYSINFO: u32 = 1 << 14;
+    /// Shows `Recording` to the person at the host.
+    pub const RECORDING: u32 = 1 << 15;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -183,7 +185,8 @@ impl Features {
             | Self::PRIVACY
             | Self::CODE
             | Self::FILE_PASTE
-            | Self::SYSINFO,
+            | Self::SYSINFO
+            | Self::RECORDING,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -350,6 +353,9 @@ pub enum ViewerMsg {
     Code(String),
     /// Asks for [`HostMsg::SystemInfo`]; only to hosts with [`Features::SYSINFO`].
     GetSystemInfo,
+    /// The viewer records the session (or stopped); the host shows it to the
+    /// person there. Only to hosts with [`Features::RECORDING`].
+    Recording(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

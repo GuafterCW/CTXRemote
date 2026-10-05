@@ -323,3 +323,20 @@ async fn system_info_reaches_the_viewer() {
     assert!(info.memory_total > 0);
     assert!(!info.hostname.is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn host_sees_that_the_viewer_records() {
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+    let (session, events) = connect(&addr, &host, id).await;
+    let number = host.sessions()[0].0;
+    session.set_recording(true);
+    // A clipboard echo afterwards shows the host has read the message.
+    tokio::task::spawn_blocking(move || {
+        echo(&session, &events, "danach");
+        session
+    })
+    .await
+    .unwrap();
+    assert_eq!(host.recording_sessions(), vec![number]);
+}

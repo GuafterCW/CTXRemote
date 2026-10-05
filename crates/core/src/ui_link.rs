@@ -25,6 +25,9 @@ pub struct ServiceState {
     /// Rights and privacy mode of each session in `sessions`.
     #[serde(default)]
     pub session_rights: Vec<(u64, ctxremote_proto::session::Permissions, bool)>,
+    /// Sessions the viewer records.
+    #[serde(default)]
+    pub session_recording: Vec<u64>,
     /// What new sessions may do (see [`Config::rights_attended`]).
     #[serde(default)]
     pub rights_attended: ctxremote_proto::session::Permissions,
@@ -210,6 +213,7 @@ mod imp {
             sessions: host.sessions(),
             session_profiles: host.session_profiles(),
             session_rights: host.session_rights(),
+            session_recording: host.recording_sessions(),
             rights_attended: config.rights_attended,
             rights_unattended: config.rights_unattended,
             code_enabled: config.code_secret.is_some(),

@@ -337,6 +337,14 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - Grenzen: Das funktioniert nur aus demselben Netz, und am Zielgerät muss Wake-on-LAN in BIOS/UEFI und Netzwerkkarte aktiv sein. Wecken über ein anderes, eingeschaltetes Gerät des Kontos fehlt noch.
 - Nebenbei behoben: `Config::remember` setzte das Alter des Alias auf 0. Beim Abgleich mit dem Konto konnte dadurch ein älterer Alias gewinnen.
 
+### Sitzungsaufzeichnung (5. Oktober, Cloud-Sitzung)
+
+- Aufnahmeknopf im Sitzungsfenster: Die App schreibt das empfangene H.264-Bild ohne Neukodierung als MP4 in den Videoordner (`Videos\CTXRemote\<Gerät>_<Datum>.mp4`). Während der Aufnahme läuft die Zeit im Knopf mit. Beim Beenden zeigt das Fenster die Datei(en) an.
+- Eigener kleiner Muxer für fragmentiertes MP4 (`crates/core/src/record.rs`), ein Fragment pro Bild. Eine abgebrochene Aufnahme ist bis zum letzten Bild abspielbar. Wechselt der Bildschirm oder seine Größe, beginnt eine neue Datei (`…-2.mp4`).
+- Die Person am Gerät sieht „● Aufnahme“ im Banner (Fähigkeit `RECORDING`, `ViewerMsg::Recording`).
+- Noch ohne Ton.
+- Getestet: Aufnahme aus dem echten Encoder, mit ffprobe/ffmpeg geprüft (Bildzahl, Größe, Dauer, vollständig dekodierbar, halbe Datei abspielbar) und `--test sessions` (`host_sees_that_the_viewer_records`). Unter Windows ungetestet: ob Windows' eigener Player die Dateien abspielt.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -441,6 +449,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Mit „Dateien“ oder „Zwischenablage“ im Rechte-Menü abgewählt: Es wird nichts angeboten, und Strg+V fügt keine Dateien ein.
 28. Systeminfo: In einer Sitzung den Infoknopf (i) drücken. Stimmen Windows-Version, Modell, Prozessor, Speicher, Laufwerke und Netzwerk? Was steht mit Dienst beim Benutzer?
 29. Wake-on-LAN: Einmal mit einem PC im selben Netz verbinden, damit die MAC gelernt wird. PC herunterfahren, Wake-on-LAN im BIOS aktiv. In der Geräteliste den Aufweck-Knopf drücken: Startet der PC? Erscheint der Knopf auch auf dem zweiten Gerät im Konto?
+30. Aufzeichnung: In einer Sitzung den Aufnahmeknopf drücken, etwas tun, den Bildschirm wechseln, beenden. Am Gerät muss „● Aufnahme“ im Banner gestanden haben. Spielen die Dateien in `Videos\CTXRemote` mit dem Windows-Player (Filme & TV / Medienwiedergabe) und VLC? Stimmt das Tempo?
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

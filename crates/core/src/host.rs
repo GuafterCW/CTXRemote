@@ -69,6 +69,8 @@ pub enum HostEvent {
     Chat { session: u64, text: String },
     /// The rights of `session` changed, or privacy mode went on or off.
     Rights { session: u64, rights: Permissions, privacy: bool },
+    /// The viewer of `session` started or stopped recording it.
+    Recording { session: u64, on: bool },
 }
 
 /// A running session as the rest of the host sees it.
@@ -81,6 +83,8 @@ struct SessionHandle {
     rights: watch::Sender<Permissions>,
     /// Privacy mode is on (the host's screen is blank).
     privacy: Arc<AtomicBool>,
+    /// The viewer records the session.
+    recording: Arc<AtomicBool>,
 }
 
 struct Shared {
@@ -235,6 +239,15 @@ impl Host {
     }
 
     /// Sessions whose viewer can receive chat messages.
+    /// Sessions the viewer records.
+    pub fn recording_sessions(&self) -> Vec<u64> {
+        let sessions = self.shared.sessions.lock().unwrap();
+        let mut list: Vec<u64> =
+            sessions.iter().filter(|(_, h)| h.recording.load(Ordering::Relaxed)).map(|(n, _)| *n).collect();
+        list.sort_unstable();
+        list
+    }
+
     pub fn chat_sessions(&self) -> Vec<u64> {
         let sessions = self.shared.sessions.lock().unwrap();
         let mut list: Vec<u64> = sessions.iter().filter(|(_, h)| h.chat.is_some()).map(|(n, _)| *n).collect();
@@ -539,6 +552,7 @@ async fn admitted(
     };
     let (rights, rights_rx) = watch::channel(initial);
     let privacy = Arc::new(AtomicBool::new(false));
+    let recording = Arc::new(AtomicBool::new(false));
     shared.sessions.lock().unwrap().insert(
         number,
         SessionHandle {
@@ -548,6 +562,7 @@ async fn admitted(
             chat,
             rights,
             privacy: privacy.clone(),
+            recording: recording.clone(),
         },
     );
     let _ = shared.events.send(HostEvent::SessionStarted {
@@ -568,6 +583,7 @@ async fn admitted(
         server: shared.config.read().unwrap().server_addr(),
         rights: rights_rx,
         privacy,
+        recording,
     };
     let result = run_session(tx, rx, stop, shared.screen.as_ref(), route).await;
 
@@ -664,6 +680,7 @@ struct Route {
     /// What the viewer may do, as set at the host.
     rights: watch::Receiver<Permissions>,
     privacy: Arc<AtomicBool>,
+    recording: Arc<AtomicBool>,
 }
 
 impl Route {
@@ -863,6 +880,12 @@ async fn run_session(
                         }
                         other => debug!("Nicht erlaubt in dieser Sitzung: {other:?}"),
                     },
+                    // Only shown here; recording itself happens at the viewer.
+                    Some(ViewerMsg::Recording(on)) => {
+                        route.recording.store(on, Ordering::Relaxed);
+                        info!(on, "Aufzeichnung der Sitzung");
+                        let _ = route.events.send(HostEvent::Recording { session: route.number, on });
+                    }
                     Some(ViewerMsg::Chat(text)) => {
                         if let Some(text) = chat_text(&text) {
                             let _ = route.events.send(HostEvent::Chat { session: route.number, text });

@@ -28,7 +28,7 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false });
   /** What the host allows; null from older hosts, which allow everything. */
   let rights = $state<number | null>(null);
   const can = (right: number) => rights === null || (rights & right) !== 0;
@@ -41,6 +41,34 @@
   let pasting = false;
   /** Names of files copied at the host, offered to fetch. */
   let hostFiles = $state<string[]>([]);
+  /** Unix ms when the recording started; null while not recording. */
+  let recordingSince = $state<number | null>(null);
+  let now = $state(Date.now());
+  let clock: ReturnType<typeof setInterval> | undefined;
+  const recordingFor = $derived.by(() => {
+    if (recordingSince === null) return "";
+    const secs = Math.max(0, Math.floor((now - recordingSince) / 1000));
+    return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  });
+
+  async function toggleRecording() {
+    try {
+      if (recordingSince === null) {
+        await api.startRecording(session);
+        recordingSince = Date.now();
+        now = recordingSince;
+        clock = setInterval(() => (now = Date.now()), 1000);
+      } else {
+        const files = await api.stopRecording(session);
+        recordingSince = null;
+        clearInterval(clock);
+        showNotice(files.length ? `Aufnahme gespeichert: ${files.join(", ")}` : "Es wurde nichts aufgezeichnet.");
+      }
+    } catch (e) {
+      showNotice(errorText(e));
+    }
+  }
+
   /** The info panel about the host's computer. */
   let infoOpen = $state(false);
   let info = $state<SystemInfo | null>(null);
@@ -191,6 +219,7 @@
       unlistenRights.then((off) => off());
       unlistenFiles.then((off) => off());
       unlistenInfo.then((off) => off());
+      clearInterval(clock);
       unlistenPrivacy.then((off) => off());
       clearTimeout(noticeTimer);
       unlistenChat.then((off) => off());
@@ -632,6 +661,15 @@
           <Icon name="folder" size={17} />
         </button>
       {/if}
+      <button
+        class="tool"
+        class:recording={recordingSince !== null}
+        title={recordingSince === null ? "Sitzung als Video aufzeichnen" : "Aufnahme beenden"}
+        onclick={toggleRecording}
+      >
+        <Icon name="record" size={17} />
+        {#if recordingSince !== null}<span class="rec-time">{recordingFor}</span>{/if}
+      </button>
       {#if features.sysinfo}
         <button class="tool" class:active={infoOpen} title="Informationen zum Gerät" onclick={toggleInfo}>
           <Icon name="info" size={17} />
@@ -1065,6 +1103,19 @@
     border: 0;
     background: transparent;
     color: #a5a39c;
+  }
+
+  .tool.recording {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    color: #e5654f;
+  }
+
+  .rec-time {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
 
   .route.private {

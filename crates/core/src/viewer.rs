@@ -301,6 +301,13 @@ impl ViewerSession {
         true
     }
 
+    /// Tells the host that this viewer records the session, or stopped.
+    pub fn set_recording(&self, on: bool) {
+        if self.features.has(Features::RECORDING) {
+            self.send(ViewerMsg::Recording(on));
+        }
+    }
+
     /// Turns privacy mode on or off. Returns false for hosts without it.
     pub fn set_privacy(&self, on: bool) -> bool {
         if !self.features.has(Features::PRIVACY) {

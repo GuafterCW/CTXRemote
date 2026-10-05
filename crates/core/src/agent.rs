@@ -178,7 +178,7 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                         }
                     }
                     // Windows accepts SendSAS only from the service itself, so the host handles it.
-                    Some(ViewerMsg::SecureAttention | ViewerMsg::Restart | ViewerMsg::Switch | ViewerMsg::Chat(_) | ViewerMsg::Hello { .. } | ViewerMsg::PunchAnswer { .. } | ViewerMsg::Code(_)) => {}
+                    Some(ViewerMsg::SecureAttention | ViewerMsg::Restart | ViewerMsg::Switch | ViewerMsg::Chat(_) | ViewerMsg::Hello { .. } | ViewerMsg::PunchAnswer { .. } | ViewerMsg::Code(_) | ViewerMsg::Recording(_)) => {}
                     Some(ViewerMsg::Bye) | None => return Ok(()),
                 },
             }

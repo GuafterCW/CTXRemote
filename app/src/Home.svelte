@@ -101,8 +101,11 @@
               profile: event.profile ?? null,
               rights: event.rights ?? 0,
               privacy: false,
+              recording: false,
             },
           ];
+        if (event.kind === "recording")
+          hosted = hosted.map((h) => (h.session === event.session ? { ...h, recording: event.on } : h));
         if (event.kind === "rights")
           hosted = hosted.map((h) =>
             h.session === event.session ? { ...h, rights: event.rights, privacy: event.privacy } : h,
@@ -295,6 +298,7 @@
           {:else}
             <span class="no-chat" title="Gegenstelle hat eine ältere Version ohne Chat">Kein Chat</span>
           {/if}
+          {#if h.recording}<span class="private-tag" title="Die Gegenseite zeichnet die Sitzung als Video auf">● Aufnahme</span>{/if}
           {#if h.privacy}<span class="private-tag" title="Der Bildschirm hier ist für die Gegenseite schwarz">Privat</span>{/if}
           <RightsMenu hosted={h} class="banner-rights" />
           <button class="banner-btn" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
