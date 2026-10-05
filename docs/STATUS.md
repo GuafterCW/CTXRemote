@@ -116,6 +116,16 @@ Wie bei AnyDesk kann jedes installierte Gerät einen eigenen Namen festlegen, un
   - Mit Dienst läuft das Setzen über die UI-Pipe (`UiRequest::SetPublicAlias`), ohne UAC. Die Schnellhilfe hat keinen Alias, weil sie keine feste Identität hat.
   - Test: `cargo test -p ctxremote-server --test sessions public_alias`.
 
+### Direktverbindung durch NAT (5. Oktober, Cloud-Sitzung)
+
+UDP-Hole-Punching mit QUIC, parallel zum bisherigen TCP-Weg. Details in `docs/DIRECT.md`, Abschnitt „Durch NAT ohne Portweiterleitung“.
+
+- Der Server hat einen UDP-Reflektor auf seinem Port (UDP 21300). **Nutzer muss in der Hetzner-Robot-Firewall UDP 21300 eingehend freigeben**, sonst wird der Weg still ausgelassen.
+- Neue Nachrichten `HostMsg::PunchOffer` und `ViewerMsg::PunchAnswer`, Bit `Features::PUNCH`. `framing::Transport` läuft jetzt über beliebige Byte-Streams (`transport_over`), damit ein QUIC-Stream dieselbe Sitzung tragen kann.
+- Neue Abhängigkeiten in `ctxremote-core`: `quinn` (ohne aws-lc), `rustls` mit `ring`, `rcgen`.
+- `CTXREMOTE_DIRECT=udp` beim Viewer lässt TCP weg, zum Ausprobieren im LAN.
+- Tests: `cargo test -p ctxremote-core punch` und `cargo test -p ctxremote-server --test punch`. Die gemeinsamen Testhelfer liegen jetzt in `crates/server/tests/common/mod.rs`.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -157,12 +167,16 @@ Wie bei AnyDesk kann jedes installierte Gerät einen eigenen Namen festlegen, un
     - Von einem zweiten Gerät mit dem Alias verbinden, auch in Großbuchstaben.
     - Denselben Alias auf dem zweiten Gerät versuchen: „Dieser Alias ist schon vergeben“.
     - Alias entfernen: Danach muss „Den Alias … gibt es nicht“ kommen.
+14. Direktverbindung durch NAT (vorher UDP 21300 in der Server-Firewall freigeben):
+    - Im LAN: Viewer mit `CTXREMOTE_DIRECT=udp` starten (PowerShell: `$env:CTXREMOTE_DIRECT="udp"; & "C:\Program Files\CTXRemote\ctxremote.exe"`). Das Sitzungsfenster muss nach wenigen Sekunden „Direkt“ zeigen. Kommt eine Firewall-Abfrage von Windows?
+    - Echt: Viewer im Handy-Hotspot, Host zu Hause, ohne Portweiterleitung. Erwartet: „Direkt“ über die öffentliche Adresse des Routers.
+    - Bild, Dateien und Chat laufen danach normal, auch nach 5 Minuten ohne Bildänderung (Keep-Alive).
 
 ## Nächste Schritte
 
 0. Die Pipeline einrichten (`docs/DEPLOY.md`, Abschnitt „Einrichtung Schritt für Schritt“), dann den Branch nach `master` mergen. Den ersten Installer von Hand installieren, danach zweimal pushen und prüfen, ob sich ein Gerät selbst aktualisiert.
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
-2. Direktverbindung durch NAT ohne Portweiterleitung (UDP-Hole-Punching, siehe `docs/DIRECT.md`), Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig).
+2. Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig). UDP-Weg auch für die Schnellhilfe als Host (braucht Token-Verwaltung ohne TCP-Listener).
 3. Adressbuch und Geräteverwaltung über den Server, Code-Signatur (braucht ein Konto bei Microsoft Trusted Signing).
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.

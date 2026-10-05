@@ -1,6 +1,6 @@
 # Direktverbindung und Fähigkeiten
 
-Stand: 4. Oktober 2026. Der Code liegt in `crates/core/src/direct.rs`, die Sitzungslogik in `host.rs` (`run_session`) und `viewer.rs`, der Test in `crates/server/tests/sessions.rs`.
+Stand: 5. Oktober 2026. Der Code liegt in `crates/core/src/direct.rs` (TCP), `crates/core/src/punch.rs` (durch NAT), die Sitzungslogik in `host.rs` (`run_session`) und `viewer.rs`, der Test in `crates/server/tests/sessions.rs`.
 
 ## Ablauf
 
@@ -16,7 +16,26 @@ Stand: 4. Oktober 2026. Der Code liegt in `crates/core/src/direct.rs`, die Sitzu
    - Den Wechsel startet bewusst nur der Viewer. Gibt er kurz vor der Bestätigung auf, bleibt die Sitzung auf dem Relay, statt abzubrechen.
 5. Klappt keine Adresse, bleibt die Sitzung ohne Meldung auf dem Relay.
 
-Der Server bleibt unverändert und muss nicht aktualisiert werden.
+## Durch NAT ohne Portweiterleitung (UDP-Hole-Punching)
+
+Sitzen beide Seiten hinter einem Router, erreicht der Viewer den TCP-Port des Hosts nicht. Dafür gibt es seit 0.1.9 einen zweiten Weg, der parallel zum TCP-Versuch läuft. Wer zuerst bestätigt ist, gewinnt.
+
+1. Kennen beide Seiten das Bit `PUNCH`, öffnet der Host nach dem `DirectOffer` einen UDP-Socket und fragt den **UDP-Reflektor des Servers** (gleicher Port wie TCP, also UDP 21300), unter welcher öffentlichen Adresse er ankommt (`proto::reflect`). Anfragen sind 64 Bytes groß, Antworten kleiner, damit sich der Reflektor nicht zur Verstärkung missbrauchen lässt.
+2. Der Host schickt `PunchOffer { candidates, cert }` in der verschlüsselten Sitzung: die öffentliche Adresse und die LAN-Adressen des Sockets sowie den SHA-256 seines frisch erzeugten, selbstsignierten QUIC-Zertifikats.
+3. Der Viewer macht dasselbe mit seinem eigenen Socket und antwortet mit `PunchAnswer { candidates }`.
+4. Beide schicken ein paar UDP-Pakete an die Adressen der Gegenseite. Damit lässt ihr eigener Router die Antworten herein, ebenso die Windows-Firewall, die UDP-Antworten zustandsbehaftet erlaubt.
+5. Der Viewer baut eine QUIC-Verbindung (quinn, rustls mit ring) zum Host auf. Er akzeptiert nur das Zertifikat mit dem Hash aus Schritt 2. Auf dem QUIC-Stream läuft dann dieselbe Token-Prüfung wie bei TCP (`DirectListener::admit_punched`), danach derselbe `Switch`.
+6. Zeitlimit für alles: 10 s. Keep-Alive alle 5 s hält die NAT-Zuordnung offen.
+
+Grenzen:
+- Funktioniert mit üblichen Heimroutern (gleiche öffentliche Portzuordnung für alle Ziele). Bei symmetrischem NAT (manche Mobilfunknetze, Firmen-Firewalls) bleibt die Sitzung auf dem Relay.
+- Nur IPv4. Öffentliches IPv6 deckt schon der TCP-Weg ab.
+- Nur wo auch der TCP-Listener läuft (Direktverbindung eingeschaltet). Die Schnellhilfe als Host bietet also keinen UDP-Weg an, als Viewer nutzt sie ihn aber.
+- Ein Server ohne Reflektor (vor 0.1.9) oder ohne UDP-Freigabe in der Firewall: Der UDP-Weg wird stillschweigend ausgelassen.
+
+**Zum Ausprobieren im LAN:** Mit der Umgebungsvariable `CTXREMOTE_DIRECT=udp` lässt der Viewer den TCP-Versuch weg und nimmt nur den UDP-Weg. Das nutzt auch der Test `cargo test -p ctxremote-server --test punch`.
+
+Für den TCP-Weg muss der Server nicht aktualisiert werden, für den UDP-Weg braucht er den Reflektor.
 
 ## Sicherheit des Listeners
 
@@ -44,6 +63,5 @@ Die Felder sind in der App unter Einstellungen > Direktverbindung bearbeitbar un
 
 ## Grenzen und nächste Schritte
 
-- Hinter zwei NATs (typischer Heimanschluss nur mit IPv4) klappt die Direktverbindung nur mit Portweiterleitung. Ohne Weiterleitung bräuchte es UDP-Hole-Punching, das wäre eine eigene Transportschicht (z. B. QUIC).
-- Der Server könnte dem Viewer die öffentliche IP des Hosts mitteilen. Das bräuchte aber eine Server-Änderung.
+- Hinter symmetrischem NAT gibt es keinen Direktweg. Dafür bräuchte es einen eigenen Relay-Dienst nahe am Nutzer (TURN), was hier der Server schon ist.
 - Getestet unter Linux: Wechsel mit echtem Server, danach 50 Nachrichten in Folge. Ohne Listener bleibt die Sitzung auf dem Relay. **Unter Windows noch nicht getestet**, vor allem nicht Firewall, IPv6 und Dienstmodus.

@@ -31,6 +31,10 @@ pub enum HostMsg {
     Switch,
     /// A chat message from the person at the host.
     Chat(String),
+    /// A UDP path through NAT for the token of the earlier `DirectOffer`:
+    /// the host's UDP `candidates` and the SHA-256 of its QUIC certificate.
+    /// The viewer answers with [`ViewerMsg::PunchAnswer`].
+    PunchOffer { candidates: Vec<String>, cert: [u8; 32] },
 }
 
 /// Longest chat message in bytes; longer ones are cut by the sender.
@@ -47,9 +51,11 @@ impl Features {
     pub const QUALITY: u32 = 1 << 3;
     pub const DIRECT: u32 = 1 << 4;
     pub const CHAT: u32 = 1 << 5;
+    /// `PunchOffer` / `PunchAnswer`: direct connections through NAT.
+    pub const PUNCH: u32 = 1 << 6;
 
     /// Everything this build supports.
-    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT);
+    pub const CURRENT: Self = Self(Self::FILES | Self::CURSOR | Self::RESTART | Self::QUALITY | Self::DIRECT | Self::CHAT | Self::PUNCH);
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
 
@@ -109,6 +115,8 @@ pub enum ViewerMsg {
     Switch,
     /// A chat message from the person at the viewer.
     Chat(String),
+    /// The viewer's UDP candidates; both sides then punch towards each other.
+    PunchAnswer { candidates: Vec<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

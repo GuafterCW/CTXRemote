@@ -1,10 +1,10 @@
 //! The controlling side of a session.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::{bail, Result};
-use ctxremote_proto::framing;
+use anyhow::{bail, Context, Result};
+use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
 use ctxremote_proto::session::{CursorShape, Features, HostInfo, HostMsg, VideoFrame, ViewerMsg};
@@ -16,6 +16,7 @@ use tracing::{debug, info};
 
 use crate::files::client::{FileClient, TransferEvent};
 use crate::net;
+use crate::punch::PunchViewer;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// The host may first ask its user (see `Host::require_approval`).
@@ -23,6 +24,23 @@ const WELCOME_TIMEOUT: Duration = Duration::from_secs(90);
 /// How long the viewer waits for its direct connection once the host switched.
 const SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
 const OUTDATED: &str = "Das ferngesteuerte Gerät braucht dafür eine neuere CTXRemote-Version";
+
+/// Hands the first confirmed direct connection to the session; later ones are dropped.
+#[derive(Clone)]
+struct Found(Arc<Mutex<Option<(oneshot::Sender<(TransportStream, String)>, mpsc::UnboundedSender<TransportSink>)>>>);
+
+impl Found {
+    fn new(found: oneshot::Sender<(TransportStream, String)>, reroute: mpsc::UnboundedSender<TransportSink>) -> Self {
+        Self(Arc::new(Mutex::new(Some((found, reroute)))))
+    }
+
+    fn deliver(&self, t: Transport, addr: String) {
+        let Some((found, reroute)) = self.0.lock().unwrap().take() else { return };
+        let (sink, stream) = t.split();
+        let _ = found.send((stream, addr));
+        let _ = reroute.send(sink);
+    }
+}
 
 pub enum ViewerEvent {
     Video(VideoFrame),
@@ -91,6 +109,7 @@ impl ViewerSession {
                             ViewerMsg::Restart => features.has(Features::RESTART),
                             ViewerMsg::SetQuality(_) => features.has(Features::QUALITY),
                             ViewerMsg::Chat(_) => features.has(Features::CHAT),
+                            ViewerMsg::PunchAnswer { .. } => features.has(Features::PUNCH),
                             _ => true,
                         };
                         if !supported {
@@ -118,25 +137,53 @@ impl ViewerSession {
         });
 
         let router = files.clone();
+        // Weak, so this task does not keep the sending side alive.
+        let (server, answers) = (server.to_string(), outbox.downgrade());
         tokio::spawn(async move {
             let mut direct: Option<oneshot::Receiver<(TransportStream, String)>> = None;
+            // Whichever route (TCP or punched UDP) confirms first takes the session.
+            let mut found: Option<Found> = None;
+            let mut token = None;
             let reason = loop {
                 match rx.recv::<HostMsg>().await {
-                    Ok(Some(HostMsg::DirectOffer { addrs, token })) => {
+                    Ok(Some(HostMsg::DirectOffer { addrs, token: offered })) => {
                         if direct.is_some() {
                             continue;
                         }
-                        let (found, wait) = oneshot::channel();
+                        let (tx, wait) = oneshot::channel();
                         direct = Some(wait);
-                        let reroute = reroute.clone();
+                        token = Some(offered);
+                        let deliver = Found::new(tx, reroute.clone());
+                        found = Some(deliver.clone());
+                        // `CTXREMOTE_DIRECT=udp` skips TCP, so the path through NAT can be
+                        // tried inside a LAN (and tested).
+                        if std::env::var("CTXREMOTE_DIRECT").is_ok_and(|v| v == "udp") {
+                            continue;
+                        }
                         tokio::spawn(async move {
-                            match crate::direct::dial(&addrs, token).await {
-                                Ok((t, addr)) => {
-                                    let (sink, stream) = t.split();
-                                    let _ = found.send((stream, addr));
-                                    let _ = reroute.send(sink);
-                                }
+                            match crate::direct::dial(&addrs, offered).await {
+                                Ok((t, addr)) => deliver.deliver(t, addr),
                                 Err(e) => debug!("Direktverbindung nicht möglich, bleibe beim Server: {e:#}"),
+                            }
+                        });
+                    }
+                    // A UDP route through NAT for the same token: tell the host our
+                    // addresses, then both sides punch towards each other.
+                    Ok(Some(HostMsg::PunchOffer { candidates, cert })) => {
+                        let (Some(deliver), Some(token)) = (found.take(), token) else { continue };
+                        let (server, answers) = (server.clone(), answers.clone());
+                        tokio::spawn(async move {
+                            let result = async {
+                                let punch = PunchViewer::prepare(&server).await?;
+                                answers
+                                    .upgrade()
+                                    .context("Sitzung beendet")?
+                                    .send(ViewerMsg::PunchAnswer { candidates: punch.candidates().to_vec() })?;
+                                punch.dial(&candidates, cert, token).await
+                            };
+                            match result.await {
+                                Ok((t, addr)) => deliver.deliver(t, addr),
+                                Err(e) => debug!("Direktverbindung durch NAT nicht möglich: {e:#}"),
                             }
                         });
                     }

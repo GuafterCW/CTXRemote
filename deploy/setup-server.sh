@@ -73,4 +73,4 @@ if [ -x /opt/ctxremote/ctxremote-server ]; then
 else
   echo "Eingerichtet. Der Server startet mit der ersten Auslieferung aus GitHub Actions."
 fi
-echo "Firewall: TCP 21300 eingehend freigeben (z. B. ufw allow 21300/tcp)."
+echo "Firewall: TCP und UDP 21300 eingehend freigeben (z. B. ufw allow 21300/tcp; ufw allow 21300/udp)."

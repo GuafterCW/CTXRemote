@@ -110,11 +110,14 @@ Auf dem Server, mit der kopierten Zeile in Anführungszeichen und dem Datenordne
 
 Erwartete Ausgabe: „Geräte-IDs aus … übernommen.“ und „Eingerichtet. Der Server startet mit der ersten Auslieferung …“.
 
-Firewall (nur falls `ufw` aktiv ist; bei einer Cloud-Firewall des Anbieters dort TCP 21300 freigeben):
+Firewall (nur falls `ufw` aktiv ist; bei einer Firewall des Anbieters, z. B. Hetzner Robot, dort TCP 21300 **und UDP 21300** eingehend freigeben):
 
 ```bash
 # ufw allow 21300/tcp
+# ufw allow 21300/udp
 ```
+
+UDP 21300 braucht nur die Direktverbindung durch NAT (siehe `docs/DIRECT.md`). Ohne diese Freigabe laufen Sitzungen weiter, dann aber über den Server, sobald beide Seiten hinter einem Router sitzen.
 
 ### Schritt 6: Anmeldung testen
 

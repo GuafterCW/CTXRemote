@@ -17,11 +17,12 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, watch, Notify};
 use tokio::time::{sleep, timeout};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::agent;
 use crate::config::{generate_password, Config, DirectSettings};
 use crate::direct::{DirectListener, Offer};
+use crate::punch::PunchHost;
 use crate::net;
 
 const PING_INTERVAL: Duration = Duration::from_secs(15);
@@ -501,6 +502,9 @@ async fn run_session(
     // The direct route on offer until the viewer switches to it.
     let mut offer: Option<Offer> = None;
     let mut offered = false;
+    // The UDP side of the offer, for viewers behind NAT; prepared in the background.
+    let (punch_ready, mut punch_prepared) = mpsc::unbounded_channel::<PunchHost>();
+    let mut punch: Option<PunchHost> = None;
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -515,6 +519,15 @@ async fn run_session(
                             if !new.addrs.is_empty() {
                                 tx.send(&HostMsg::DirectOffer { addrs: new.addrs.clone(), token: new.token }).await?;
                                 offer = Some(new);
+                                if route.features.has(Features::PUNCH) {
+                                    let (server, ready) = (route.server.clone(), punch_ready.clone());
+                                    tokio::spawn(async move {
+                                        match PunchHost::prepare(&server).await {
+                                            Ok(prepared) => { let _ = ready.send(prepared); }
+                                            Err(e) => debug!("Kein Weg durch NAT: {e:#}"),
+                                        }
+                                    });
+                                }
                             }
                         }
                     }
@@ -539,11 +552,34 @@ async fn run_session(
                     },
                 },
                 Some(text) = route.chat.recv() => tx.send(&HostMsg::Chat(text)).await?,
+                Some(prepared) = punch_prepared.recv() => {
+                    // Only while the offer stands; after a switch it is moot.
+                    if offer.is_some() {
+                        let candidates = prepared.candidates().to_vec();
+                        tx.send(&HostMsg::PunchOffer { candidates, cert: prepared.cert_hash() }).await?;
+                        punch = Some(prepared);
+                    }
+                }
                 msg = rx.recv::<ViewerMsg>() => match msg? {
                     Some(ViewerMsg::Bye) | None => return Ok(()),
                     Some(ViewerMsg::Chat(text)) => {
                         if let Some(text) = chat_text(&text) {
                             let _ = route.events.send(HostEvent::Chat { session: route.number, text });
+                        }
+                    }
+                    // The viewer's UDP addresses: punch towards them and accept its
+                    // QUIC connection, which then takes the TCP route's token check.
+                    Some(ViewerMsg::PunchAnswer { candidates }) => {
+                        if let (Some(prepared), Some(listener), true) = (punch.take(), route.direct.clone(), offer.is_some()) {
+                            tokio::spawn(async move {
+                                let result = match prepared.accept(&candidates).await {
+                                    Ok(t) => listener.admit_punched(t).await,
+                                    Err(e) => Err(e),
+                                };
+                                if let Err(e) = result {
+                                    debug!("Direktverbindung durch NAT nicht möglich: {e:#}");
+                                }
+                            });
                         }
                     }
                     // The viewer's last message on the relay. Only the viewer starts

@@ -93,6 +93,13 @@ async fn main() -> Result<()> {
 
     let listener = TcpListener::bind(listen).await?;
     info!("CTXRemote-Server lauscht auf {listen}");
+    // Without UDP, sessions still work; direct paths through NAT do not.
+    match tokio::net::UdpSocket::bind(listen).await {
+        Ok(socket) => {
+            tokio::spawn(reflect(socket));
+        }
+        Err(e) => warn!("UDP-Reflektor nicht verfügbar: {e}"),
+    }
     loop {
         let (stream, peer) = listener.accept().await?;
         let server = server.clone();
@@ -101,6 +108,21 @@ async fn main() -> Result<()> {
                 debug!(%peer, "Verbindung beendet: {e:#}");
             }
         });
+    }
+}
+
+/// Answers every client with the address its UDP packets come from.
+async fn reflect(socket: tokio::net::UdpSocket) {
+    let mut buf = [0u8; 512];
+    loop {
+        match socket.recv_from(&mut buf).await {
+            Ok((len, from)) => {
+                if let Some(reply) = ctxremote_proto::reflect::answer(&buf[..len], from) {
+                    let _ = socket.send_to(&reply, from).await;
+                }
+            }
+            Err(e) => debug!("UDP-Reflektor: {e}"),
+        }
     }
 }
 

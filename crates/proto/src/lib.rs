@@ -6,6 +6,7 @@
 //! server never sees session content.
 
 pub mod framing;
+pub mod reflect;
 pub mod rendezvous;
 pub mod secure;
 pub mod session;

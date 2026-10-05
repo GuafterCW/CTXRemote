@@ -91,6 +91,12 @@ impl DirectListener {
         }
     }
 
+    /// Runs the token check on a connection punched through NAT (see
+    /// [`crate::punch`]) and hands it to its session like a TCP one.
+    pub async fn admit_punched(&self, t: Transport) -> Result<()> {
+        admit(t, &self.waiting).await
+    }
+
     /// Registers a fresh token and lists the addresses this host is likely
     /// reachable at, as seen on the way to `server`.
     pub fn offer(&self, server: &str) -> Offer {
@@ -165,7 +171,7 @@ async fn accept_loop(
         };
         let waiting = waiting.clone();
         tokio::spawn(async move {
-            if let Err(e) = admit(stream, &waiting).await {
+            if let Err(e) = admit(framing::transport(stream), &waiting).await {
                 debug!(%peer, "Direktverbindung abgelehnt: {e:#}");
             }
             release();
@@ -175,8 +181,7 @@ async fn accept_loop(
 }
 
 /// Reads the hello and hands the connection to the session that owns the token.
-async fn admit(stream: TcpStream, waiting: &Waiting) -> Result<()> {
-    let mut t = framing::transport(stream);
+async fn admit(mut t: Transport, waiting: &Waiting) -> Result<()> {
     // A stranger gets to send one small frame and nothing else.
     t.codec_mut().set_max_frame_length(256);
     let hello: DirectHello = timeout(HELLO_TIMEOUT, framing::recv(&mut t)).await.context("kein Hello")??;
@@ -223,7 +228,7 @@ async fn attempt(addr: &str, token: [u8; 32]) -> Result<(Transport, String)> {
 
 /// The addresses of the interfaces that route towards `server` (IPv4) and
 /// towards the public IPv6 internet. Asking the routing table needs no packets.
-fn local_ips(server: &str) -> Vec<IpAddr> {
+pub(crate) fn local_ips(server: &str) -> Vec<IpAddr> {
     use std::net::ToSocketAddrs;
     let mut targets: Vec<SocketAddr> = server.to_socket_addrs().map(|a| a.collect()).unwrap_or_default();
     // Documentation addresses: never contacted, only used to pick a route.
