@@ -321,6 +321,15 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - Voraussetzungen: Fähigkeit `FILE_PASTE`, Rechte Dateien und Zwischenablage (für Strg+V auch Maus und Tastatur). Die Temp-Ordner werden nach 24 Stunden beim nächsten Einfügen aufgeräumt.
 - Getestet: Upload in den Einfüge-Ordner und Holen ohne Netz (`files::client` Tests). **Unter Windows ungetestet**: die Zwischenablage selbst (CF_HDROP über `arboard`), auch als SYSTEM im Dienst.
 
+### Systeminfo des Geräts (5. Oktober, Cloud-Sitzung)
+
+- Infoknopf im Sitzungsfenster (Fähigkeit `SYSINFO`, `ViewerMsg::GetSystemInfo`):
+  - Windows-Version mit Build, Hersteller und Modell (aus `HARDWARE\DESCRIPTION\System\BIOS`), Prozessor und Kerne
+  - Arbeitsspeicher, Laufzeit seit dem Start, Laufwerke mit freiem Platz
+  - Netzwerkkarten mit Adressen und MAC, CTXRemote-Version
+- Gesammelt mit `sysinfo` im Agenten, nebenher, damit das Bild weiterläuft (`crates/core/src/sysinfo.rs`).
+- Getestet: `--test sessions` (`system_info_reaches_the_viewer`). Unter Windows ungetestet. Offen: Im Dienst-Modus steht beim Benutzer vermutlich „SYSTEM“, wie schon in `HostInfo`.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -423,6 +432,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Text kopieren und mit Strg+V einfügen: muss weiter normal funktionieren.
     - Am Gerät Dateien kopieren: Im Sitzungsfenster erscheint „… am Gerät kopiert · Hierher holen“. Klicken, dann lokal im Explorer Strg+V.
     - Mit „Dateien“ oder „Zwischenablage“ im Rechte-Menü abgewählt: Es wird nichts angeboten, und Strg+V fügt keine Dateien ein.
+28. Systeminfo: In einer Sitzung den Infoknopf (i) drücken. Stimmen Windows-Version, Modell, Prozessor, Speicher, Laufwerke und Netzwerk? Was steht mit Dienst beim Benutzer?
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

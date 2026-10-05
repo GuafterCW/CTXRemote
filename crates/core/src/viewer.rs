@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
-use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, Permissions, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, Permissions, SystemInfo, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
@@ -55,6 +55,8 @@ pub enum ViewerEvent {
     Chat(String),
     /// 20 ms of the host's sound (Opus, 48 kHz stereo), after [`ViewerSession::set_audio`].
     Audio(Vec<u8>),
+    /// The host's computer, after [`ViewerSession::request_system_info`].
+    SystemInfo(SystemInfo),
     /// Files were copied at the host; [`FileClient::fetch_to_clipboard`] gets them.
     ClipboardFiles(Vec<String>),
     /// What the host allows in this session (hosts with [`Features::RIGHTS`]).
@@ -247,6 +249,7 @@ impl ViewerSession {
                     Ok(Some(HostMsg::Audio(packet))) => on_event(ViewerEvent::Audio(packet.data)),
                     Ok(Some(HostMsg::Rights(rights))) => on_event(ViewerEvent::Rights(rights)),
                     Ok(Some(HostMsg::ClipboardFiles(paths))) => on_event(ViewerEvent::ClipboardFiles(paths)),
+                    Ok(Some(HostMsg::SystemInfo(info))) => on_event(ViewerEvent::SystemInfo(info)),
                     Ok(Some(HostMsg::Privacy { on, error })) => on_event(ViewerEvent::Privacy { on, error }),
                     Ok(Some(HostMsg::Chat(text))) => {
                         if let Some(text) = crate::host::chat_text(&text) {
@@ -285,6 +288,16 @@ impl ViewerSession {
             return false;
         }
         self.send(ViewerMsg::SetAudio(on));
+        true
+    }
+
+    /// Asks the host what its computer is; the answer comes as
+    /// [`ViewerEvent::SystemInfo`]. Returns false for hosts that cannot tell.
+    pub fn request_system_info(&self) -> bool {
+        if !self.features.has(Features::SYSINFO) {
+            return false;
+        }
+        self.send(ViewerMsg::GetSystemInfo);
         true
     }
 

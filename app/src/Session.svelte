@@ -4,7 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { api, errorText, RIGHT, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
+  import { api, errorText, RIGHT, type SystemInfo, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
@@ -28,7 +28,7 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false });
   /** What the host allows; null from older hosts, which allow everything. */
   let rights = $state<number | null>(null);
   const can = (right: number) => rights === null || (rights & right) !== 0;
@@ -41,6 +41,9 @@
   let pasting = false;
   /** Names of files copied at the host, offered to fetch. */
   let hostFiles = $state<string[]>([]);
+  /** The info panel about the host's computer. */
+  let infoOpen = $state(false);
+  let info = $state<SystemInfo | null>(null);
   let fetching = $state(false);
   /** The host's sound; remembered across sessions. */
   let soundOn = $state(loadSound());
@@ -150,6 +153,7 @@
 
     const unlistenRoute = getCurrentWindow().listen<string>("route", (e) => (direct = e.payload));
     const unlistenRights = getCurrentWindow().listen<number>("rights", (e) => applyRights(e.payload));
+    const unlistenInfo = getCurrentWindow().listen<SystemInfo>("system-info", (e) => (info = e.payload));
     const unlistenFiles = getCurrentWindow().listen<string[]>("host-files", (e) => {
       hostFiles = e.payload;
       toolbarVisible = true;
@@ -186,6 +190,7 @@
       unlistenRoute.then((off) => off());
       unlistenRights.then((off) => off());
       unlistenFiles.then((off) => off());
+      unlistenInfo.then((off) => off());
       unlistenPrivacy.then((off) => off());
       clearTimeout(noticeTimer);
       unlistenChat.then((off) => off());
@@ -343,6 +348,31 @@
     if (files) notice = "";
     pasting = false;
     combo("ControlLeft", "KeyV");
+  }
+
+  function toggleInfo() {
+    infoOpen = !infoOpen;
+    // Fresh each time it opens: disks and memory change.
+    if (infoOpen) api.requestSystemInfo(session).catch(() => {});
+  }
+
+  function bytes(n: number): string {
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0;
+    while (n >= 1024 && i < units.length - 1) {
+      n /= 1024;
+      i++;
+    }
+    return `${n.toLocaleString("de-DE", { maximumFractionDigits: n < 10 && i > 0 ? 1 : 0 })} ${units[i]}`;
+  }
+
+  function uptime(secs: number): string {
+    const days = Math.floor(secs / 86400);
+    const hours = Math.floor((secs % 86400) / 3600);
+    const minutes = Math.floor((secs % 3600) / 60);
+    if (days > 0) return `${days} ${days === 1 ? "Tag" : "Tage"}, ${hours} Std.`;
+    if (hours > 0) return `${hours} Std., ${minutes} Min.`;
+    return `${minutes} Min.`;
   }
 
   async function fetchHostFiles() {
@@ -602,6 +632,11 @@
           <Icon name="folder" size={17} />
         </button>
       {/if}
+      {#if features.sysinfo}
+        <button class="tool" class:active={infoOpen} title="Informationen zum Gerät" onclick={toggleInfo}>
+          <Icon name="info" size={17} />
+        </button>
+      {/if}
       {#if features.privacy && can(RIGHT.PRIVACY)}
         <button
           class="tool"
@@ -640,6 +675,49 @@
         <Icon name="close" size={14} />
       </button>
     </div>
+  {/if}
+
+  {#if infoOpen && closed === null}
+    <aside class="info-box" aria-label="Informationen zum Gerät">
+      <header>
+        <strong>{info?.hostname ?? host?.hostname ?? "Gerät"}</strong>
+        <button class="offer-close" title="Schließen" onclick={() => (infoOpen = false)}>
+          <Icon name="close" size={14} />
+        </button>
+      </header>
+      {#if info}
+        <dl>
+          <dt>System</dt>
+          <dd>{info.os}{#if info.os_build}<small>Build {info.os_build}</small>{/if}</dd>
+          {#if info.model}<dt>Modell</dt><dd>{info.model}</dd>{/if}
+          <dt>Prozessor</dt>
+          <dd>{info.cpu || "unbekannt"}{#if info.cores}<small>{info.cores} Kerne</small>{/if}</dd>
+          <dt>Arbeitsspeicher</dt>
+          <dd>
+            {bytes(info.memory_used)} von {bytes(info.memory_total)} belegt
+            <span class="bar"><span style:width={`${Math.round((info.memory_used / Math.max(info.memory_total, 1)) * 100)}%`}></span></span>
+          </dd>
+          <dt>Läuft seit</dt>
+          <dd>{uptime(info.uptime_secs)}</dd>
+          {#if info.user}<dt>Benutzer</dt><dd>{info.user}</dd>{/if}
+          {#each info.disks as disk (disk.mount)}
+            <dt>Laufwerk {disk.mount}</dt>
+            <dd>
+              {bytes(disk.free)} frei von {bytes(disk.total)}
+              <span class="bar"><span style:width={`${Math.round(((disk.total - disk.free) / Math.max(disk.total, 1)) * 100)}%`}></span></span>
+            </dd>
+          {/each}
+          {#each info.networks as net (net.name)}
+            <dt>{net.name}</dt>
+            <dd>{net.addresses.join(", ")}<small>{net.mac}</small></dd>
+          {/each}
+          <dt>CTXRemote</dt>
+          <dd>{info.app_version}</dd>
+        </dl>
+      {:else}
+        <p class="info-wait">Wird abgefragt …</p>
+      {/if}
+    </aside>
   {/if}
 
   {#if chatOpen && features.chat}
@@ -841,6 +919,70 @@
     color: #0d1a16;
     font-size: 10px;
     line-height: 14px;
+  }
+
+  .info-box {
+    position: absolute;
+    top: 60px;
+    right: 14px;
+    width: 340px;
+    max-height: calc(100% - 80px);
+    overflow: auto;
+    padding: 12px 14px;
+    border: 1px solid #2f2e2b;
+    border-radius: 10px;
+    background: #181816;
+    color: #d8d6d0;
+    font-size: 13px;
+  }
+
+  .info-box header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .info-box dl {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 6px 10px;
+    margin: 0;
+  }
+
+  .info-box dt {
+    color: #8f8d86;
+  }
+
+  .info-box dd {
+    display: grid;
+    gap: 3px;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .info-box small {
+    color: #8f8d86;
+    font-size: 11.5px;
+  }
+
+  .bar {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+    background: #2f2e2b;
+  }
+
+  .bar span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: #4fb495;
+  }
+
+  .info-wait {
+    margin: 0;
+    color: #8f8d86;
   }
 
   .chat-box {

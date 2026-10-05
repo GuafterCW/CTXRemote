@@ -38,6 +38,7 @@ impl ScreenSource for Echo {
                     ViewerMsg::SetAudio(true) => HostMsg::Audio(ctxremote_proto::session::AudioPacket { data: vec![0xf8, 1, 2, 3] }),
                     // Stands in for blanking the screen: always works.
                     ViewerMsg::Privacy(on) => HostMsg::Privacy { on, error: None },
+                    ViewerMsg::GetSystemInfo => HostMsg::SystemInfo(ctxremote_core::sysinfo::gather()),
                     _ => continue,
                 };
                 if outbox.send(answer).await.is_err() {

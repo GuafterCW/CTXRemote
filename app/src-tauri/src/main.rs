@@ -539,6 +539,9 @@ async fn connect(
                 link.lock().unwrap().rights = Some(rights.0);
                 let _ = app.emit_to(format!("session-{number}"), "rights", rights.0);
             }
+            ViewerEvent::SystemInfo(info) => {
+                let _ = app.emit_to(format!("session-{number}"), "system-info", info);
+            }
             ViewerEvent::ClipboardFiles(paths) => {
                 let names: Vec<String> = paths
                     .iter()
@@ -652,6 +655,7 @@ struct Features {
     audio: bool,
     privacy: bool,
     file_paste: bool,
+    sysinfo: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -665,6 +669,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             audio: f.has(F::AUDIO),
             privacy: f.has(F::PRIVACY),
             file_paste: f.has(F::FILE_PASTE),
+            sysinfo: f.has(F::SYSINFO),
         }
     }
 }
@@ -730,6 +735,14 @@ fn request_keyframe(state: State<AppState>, session: u32) {
 fn set_audio(state: State<AppState>, session: u32, on: bool) -> bool {
     let mut supported = false;
     with_viewer(&state, session, |s| supported = s.set_audio(on));
+    supported
+}
+
+/// Asks the host about its computer; the answer arrives as `system-info`.
+#[tauri::command]
+fn request_system_info(state: State<AppState>, session: u32) -> bool {
+    let mut supported = false;
+    with_viewer(&state, session, |s| supported = s.request_system_info());
     supported
 }
 
@@ -1049,6 +1062,7 @@ macro_rules! handlers {
             request_keyframe,
             set_audio,
             set_privacy,
+            request_system_info,
             paste_files,
             fetch_host_files,
             send_sas,

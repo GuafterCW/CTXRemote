@@ -158,6 +158,25 @@ export interface HostFeatures {
   privacy: boolean;
   /** Takes and offers files through the clipboard. */
   filePaste: boolean;
+  /** Tells about its computer (system info). */
+  sysinfo: boolean;
+}
+
+/** Mirrors `SystemInfo` in crates/proto/src/session.rs. */
+export interface SystemInfo {
+  hostname: string;
+  user: string;
+  os: string;
+  os_build: string;
+  model: string;
+  cpu: string;
+  cores: number;
+  memory_total: number;
+  memory_used: number;
+  uptime_secs: number;
+  disks: { mount: string; label: string; total: number; free: number }[];
+  networks: { name: string; mac: string; addresses: string[] }[];
+  app_version: string;
 }
 
 /** The connect error of a host that wants its authenticator code (`CodeNeeded` in core). */
@@ -287,6 +306,8 @@ export const api = {
   setAudio: (session: number, on: boolean) => invoke<boolean>("set_audio", { session, on }),
   /** Blanks the host's screen and blocks its local input, or ends that. */
   setPrivacy: (session: number, on: boolean) => invoke<boolean>("set_privacy", { session, on }),
+  /** Asks the host about its computer; the answer comes as the `system-info` event. */
+  requestSystemInfo: (session: number) => invoke<boolean>("request_system_info", { session }),
   /** Ctrl+V: files on this computer's clipboard go onto the host's; false if there are none. */
   pasteFiles: (session: number) => invoke<boolean>("paste_files", { session }),
   /** Fetches the files last copied at the host onto this computer's clipboard. */

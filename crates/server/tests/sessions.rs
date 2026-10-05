@@ -304,3 +304,22 @@ async fn permanent_password_needs_the_authenticator_code() {
     let session = ViewerSession::connect(&addr, None, id, &host.password(), None, None, None, |_| {}).await;
     assert!(session.is_ok(), "Einmalpasswort ohne Code");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn system_info_reaches_the_viewer() {
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+    let (session, events) = connect(&addr, &host, id).await;
+    assert!(session.request_system_info());
+    let info = tokio::task::spawn_blocking(move || {
+        wait_for(&events, |e| match e {
+            ViewerEvent::SystemInfo(info) => Some(info),
+            _ => None,
+        })
+    })
+    .await
+    .unwrap()
+    .expect("Systeminfo kam an");
+    assert!(info.memory_total > 0);
+    assert!(!info.hostname.is_empty());
+}

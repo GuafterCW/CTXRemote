@@ -120,6 +120,15 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                             }
                         }
                     }
+                    // Collected on the side, so the picture keeps flowing meanwhile.
+                    Some(ViewerMsg::GetSystemInfo) => {
+                        let outbox = outbox.clone();
+                        tokio::spawn(async move {
+                            if let Ok(info) = tokio::task::spawn_blocking(crate::sysinfo::gather).await {
+                                let _ = outbox.send(HostMsg::SystemInfo(info)).await;
+                            }
+                        });
+                    }
                     Some(ViewerMsg::Privacy(on)) => {
                         let error = if !on {
                             privacy = None;

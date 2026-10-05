@@ -52,6 +52,48 @@ pub enum HostMsg {
     /// Files were copied at the host: their paths, for the viewer to fetch
     /// if the user wants them; only to viewers with [`Features::FILE_PASTE`].
     ClipboardFiles(Vec<String>),
+    /// The answer to [`ViewerMsg::GetSystemInfo`].
+    SystemInfo(SystemInfo),
+}
+
+/// What the host's computer is, for the viewer's info panel.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemInfo {
+    pub hostname: String,
+    /// The user signed in at the computer, if any.
+    pub user: String,
+    /// E.g. "Windows 11 Pro 24H2".
+    pub os: String,
+    /// Build or kernel version.
+    pub os_build: String,
+    /// Maker and model, where the system tells.
+    pub model: String,
+    pub cpu: String,
+    pub cores: u32,
+    pub memory_total: u64,
+    pub memory_used: u64,
+    pub uptime_secs: u64,
+    pub disks: Vec<DiskInfo>,
+    pub networks: Vec<NetworkInfo>,
+    /// The CTXRemote version on the host.
+    pub app_version: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskInfo {
+    /// Drive or mount point, e.g. `C:\`.
+    pub mount: String,
+    pub label: String,
+    pub total: u64,
+    pub free: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetworkInfo {
+    pub name: String,
+    /// `aa:bb:cc:dd:ee:ff`; used to wake the computer over the network.
+    pub mac: String,
+    pub addresses: Vec<String>,
 }
 
 /// What a viewer may do in a session, as bits. The host enforces them;
@@ -122,6 +164,8 @@ impl Features {
     pub const CODE: u32 = 1 << 12;
     /// Files through the clipboard: `PasteDir`, `ClipboardFromDir`, `ClipboardFiles`.
     pub const FILE_PASTE: u32 = 1 << 13;
+    /// Answers `GetSystemInfo`.
+    pub const SYSINFO: u32 = 1 << 14;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -138,7 +182,8 @@ impl Features {
             | Self::RIGHTS
             | Self::PRIVACY
             | Self::CODE
-            | Self::FILE_PASTE,
+            | Self::FILE_PASTE
+            | Self::SYSINFO,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -303,6 +348,8 @@ pub enum ViewerMsg {
     Privacy(bool),
     /// The answer to [`HostMsg::CodeRequired`].
     Code(String),
+    /// Asks for [`HostMsg::SystemInfo`]; only to hosts with [`Features::SYSINFO`].
+    GetSystemInfo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
