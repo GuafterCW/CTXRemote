@@ -44,6 +44,8 @@ export interface Peer {
   lastSeen: number;
   /** This device lets devices of my account connect without a password. */
   access: boolean;
+  /** Its network cards are known, so it can be woken over the network. */
+  wake: boolean;
 }
 
 export function peerLabel(peer: Peer): string {
@@ -275,6 +277,8 @@ export const api = {
   /** An empty profile removes it; returns the profile as stored. */
   saveProfile: (profile: Profile) => invoke<Profile | null>("save_profile", { profile }),
   forgetPeer: (id: string) => invoke<void>("forget_peer", { id }),
+  /** Sends the Wake-on-LAN packet into the local networks. */
+  wakePeer: (id: string) => invoke<void>("wake_peer", { id }),
   setAlias: (id: string, alias: string | null) => invoke<void>("set_alias", { id, alias }),
   /** `target` is an ID or an alias. */
   /** `code`: from the host's authenticator app, once it asked (see `CODE_NEEDED`). */

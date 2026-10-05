@@ -189,6 +189,8 @@ struct PeerView {
     last_seen: u64,
     /// It lets this account's devices in without a password.
     access: bool,
+    /// Its network cards are known, so it can be woken.
+    wake: bool,
 }
 
 #[derive(Serialize)]
@@ -252,6 +254,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
                 name: p.name.clone(),
                 last_seen: p.last_seen,
                 access: ctxremote_core::account::access_for(&config, p.id).is_some(),
+                wake: !p.macs.is_empty(),
             })
             .collect(),
         hosted: sessions
@@ -451,6 +454,18 @@ async fn set_public_alias(state: State<'_, AppState>, alias: Option<String>) -> 
     }
 }
 
+/// Sends the Wake-on-LAN packet for a known device into the local networks.
+#[tauri::command]
+async fn wake_peer(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    let id: DeviceId = id.parse().map_err(err)?;
+    let macs = state.config.read().unwrap().peer(id).map(|p| p.macs.clone()).unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || ctxremote_core::wol::wake(&macs))
+        .await
+        .map_err(err)?
+        .map_err(chain)?;
+    Ok(())
+}
+
 #[tauri::command]
 fn forget_peer(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<()> {
     let id: DeviceId = id.parse().map_err(err)?;
@@ -540,6 +555,20 @@ async fn connect(
                 let _ = app.emit_to(format!("session-{number}"), "rights", rights.0);
             }
             ViewerEvent::SystemInfo(info) => {
+                // Its network cards, to wake it later (and on the account's other devices).
+                let macs: Vec<String> = info.networks.iter().map(|n| n.mac.clone()).collect();
+                let changed = {
+                    let state = app.state::<AppState>();
+                    let mut config = state.config.write().unwrap();
+                    let changed = config.set_macs(target, macs);
+                    if changed {
+                        let _ = config.save();
+                    }
+                    changed
+                };
+                if changed {
+                    poke_sync(&app);
+                }
                 let _ = app.emit_to(format!("session-{number}"), "system-info", info);
             }
             ViewerEvent::ClipboardFiles(paths) => {
@@ -596,6 +625,8 @@ async fn connect(
     let session = ViewerSession::connect(&server, own_id, target, &password, member.as_ref(), profile, code.as_deref(), on_event)
         .await
         .map_err(|e| format!("{e:#}"))?;
+    // Once per session: the info panel opens filled, and the MACs are learned.
+    session.request_system_info();
     link.lock().unwrap().clipboard = {
         let outbox = session.sender();
         ctxremote_core::clipboard::ClipboardSync::start(true, move |text| {
@@ -1054,6 +1085,7 @@ macro_rules! handlers {
             code_enable,
             save_direct,
             forget_peer,
+            wake_peer,
             set_alias,
             connect,
             attach,

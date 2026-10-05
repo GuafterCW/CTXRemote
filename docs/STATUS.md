@@ -330,6 +330,13 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - Gesammelt mit `sysinfo` im Agenten, nebenher, damit das Bild weiterläuft (`crates/core/src/sysinfo.rs`).
 - Getestet: `--test sessions` (`system_info_reaches_the_viewer`). Unter Windows ungetestet. Offen: Im Dienst-Modus steht beim Benutzer vermutlich „SYSTEM“, wie schon in `HostInfo`.
 
+### Wake-on-LAN (5. Oktober, Cloud-Sitzung)
+
+- Bei jeder Sitzung fragt die App die Systeminfo des Geräts ab und merkt sich dessen MAC-Adressen im Geräteeintrag (`Peer::macs`). Über das Konto werden sie mit den anderen Geräten geteilt (`Entry::macs`, ältere Versionen ignorieren das Feld).
+- In der Geräteliste steht bei solchen Geräten ein Aufweck-Knopf. Er schickt das Magic Packet an 255.255.255.255 und an die Broadcast-Adresse jedes lokalen Netzes (Ports 9 und 7, `crates/core/src/wol.rs`).
+- Grenzen: Das funktioniert nur aus demselben Netz, und am Zielgerät muss Wake-on-LAN in BIOS/UEFI und Netzwerkkarte aktiv sein. Wecken über ein anderes, eingeschaltetes Gerät des Kontos fehlt noch.
+- Nebenbei behoben: `Config::remember` setzte das Alter des Alias auf 0. Beim Abgleich mit dem Konto konnte dadurch ein älterer Alias gewinnen.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -433,6 +440,7 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
     - Am Gerät Dateien kopieren: Im Sitzungsfenster erscheint „… am Gerät kopiert · Hierher holen“. Klicken, dann lokal im Explorer Strg+V.
     - Mit „Dateien“ oder „Zwischenablage“ im Rechte-Menü abgewählt: Es wird nichts angeboten, und Strg+V fügt keine Dateien ein.
 28. Systeminfo: In einer Sitzung den Infoknopf (i) drücken. Stimmen Windows-Version, Modell, Prozessor, Speicher, Laufwerke und Netzwerk? Was steht mit Dienst beim Benutzer?
+29. Wake-on-LAN: Einmal mit einem PC im selben Netz verbinden, damit die MAC gelernt wird. PC herunterfahren, Wake-on-LAN im BIOS aktiv. In der Geräteliste den Aufweck-Knopf drücken: Startet der PC? Erscheint der Knopf auch auf dem zweiten Gerät im Konto?
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

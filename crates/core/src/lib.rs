@@ -27,5 +27,6 @@ pub mod totp;
 pub mod ui_link;
 pub mod update;
 pub mod viewer;
+pub mod wol;
 
 pub use ctxremote_proto as proto;

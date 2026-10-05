@@ -15,6 +15,20 @@
   let newId = $state("");
   let newAlias = $state("");
   let error = $state("");
+  let notice = $state("");
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function wake(peer: Peer) {
+    error = "";
+    try {
+      await api.wakePeer(peer.id);
+      notice = `Weckpaket an ${peerLabel(peer)} gesendet. Bis das Gerät online ist, kann es eine Minute dauern.`;
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(() => (notice = ""), 8000);
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
 
   // Named devices first (alphabetically), then the history by recency.
   const sorted = $derived(
@@ -104,6 +118,8 @@
 
 {#if error}
   <p class="error">{error}</p>
+{:else if notice}
+  <p class="notice">{notice}</p>
 {/if}
 
 {#if sorted.length > 0}
@@ -141,6 +157,15 @@
             <span class="peer-when">{peer.lastSeen ? since(peer.lastSeen) : "noch nie verbunden"}</span>
           </button>
           <div class="actions">
+            {#if peer.wake}
+              <button
+                class="icon-btn small"
+                title="Aufwecken (Wake-on-LAN, nur im selben Netzwerk)"
+                onclick={() => wake(peer)}
+              >
+                <Icon name="power" size={15} />
+              </button>
+            {/if}
             <button class="icon-btn small" title="Alias ändern" onclick={() => startRename(peer)}>
               <Icon name="pencil" size={15} />
             </button>
@@ -319,5 +344,11 @@
     margin: 0;
     color: var(--ink-3);
     font-size: 13px;
+  }
+
+  .notice {
+    margin: 4px 0;
+    color: var(--ink-2);
+    font-size: 12.5px;
   }
 </style>

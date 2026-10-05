@@ -84,6 +84,9 @@ pub struct Peer {
     /// account's address book; 0 if never set here.
     #[serde(default)]
     pub alias_at: u64,
+    /// MAC addresses of its network cards, learned from its system info.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub macs: Vec<String>,
 }
 
 impl Peer {
@@ -264,10 +267,12 @@ impl Config {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
+        // Read before the entry is taken out, or the alias's age would be lost.
         let alias = self.peer(id).and_then(|p| p.alias.clone());
-        self.peers.retain(|p| p.id != id);
         let alias_at = self.peer(id).map_or(0, |p| p.alias_at);
-        self.peers.insert(0, Peer { id, alias, name: name.to_string(), last_seen: now, alias_at });
+        let macs = self.peer(id).map(|p| p.macs.clone()).unwrap_or_default();
+        self.peers.retain(|p| p.id != id);
+        self.peers.insert(0, Peer { id, alias, name: name.to_string(), last_seen: now, alias_at, macs });
         self.prune();
     }
 
@@ -300,10 +305,25 @@ impl Config {
                 name: String::new(),
                 last_seen: 0,
                 alias_at,
+                macs: Vec::new(),
             }),
         }
         self.prune();
         Ok(())
+    }
+
+    /// The network cards of a known device, for waking it ([`crate::wol`]).
+    /// Returns whether they changed.
+    pub fn set_macs(&mut self, id: DeviceId, mut macs: Vec<String>) -> bool {
+        macs.sort();
+        macs.dedup();
+        match self.peers.iter_mut().find(|p| p.id == id) {
+            Some(peer) if !macs.is_empty() && peer.macs != macs => {
+                peer.macs = macs;
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn forget(&mut self, id: DeviceId) {
@@ -433,5 +453,19 @@ mod tests {
         }
         assert_eq!(config.peers.len(), MAX_UNNAMED_PEERS + 1);
         assert!(config.peer(id(100_000_000)).is_some());
+    }
+
+    #[test]
+    fn remembering_keeps_alias_age_and_macs() {
+        let mut config = Config::default();
+        let id = DeviceId::new(123_456_789).unwrap();
+        config.set_alias(id, Some("Büro")).unwrap();
+        let at = config.peer(id).unwrap().alias_at;
+        assert!(config.set_macs(id, vec!["01:23:45:67:89:ab".into()]));
+        assert!(!config.set_macs(id, vec!["01:23:45:67:89:ab".into()]), "unverändert");
+        config.remember(id, "PC");
+        let peer = config.peer(id).unwrap();
+        assert_eq!(peer.alias_at, at);
+        assert_eq!(peer.macs.len(), 1);
     }
 }

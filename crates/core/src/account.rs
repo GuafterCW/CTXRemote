@@ -291,6 +291,9 @@ pub struct Entry {
     pub name: String,
     /// Unix seconds; the newer connection brings its name along.
     pub last_seen: u64,
+    /// Its network cards, for waking it (newer versions only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub macs: Vec<String>,
 }
 
 impl Book {
@@ -300,7 +303,13 @@ impl Book {
                 .peers
                 .iter()
                 .map(|p| {
-                    let entry = Entry { alias: p.alias.clone(), alias_at: p.alias_at, name: p.name.clone(), last_seen: p.last_seen };
+                    let entry = Entry {
+                        alias: p.alias.clone(),
+                        alias_at: p.alias_at,
+                        name: p.name.clone(),
+                        last_seen: p.last_seen,
+                        macs: p.macs.clone(),
+                    };
                     (p.id.get(), entry)
                 })
                 .collect(),
@@ -315,7 +324,14 @@ impl Book {
             .entries
             .iter()
             .filter_map(|(id, e)| {
-                Some(Peer { id: DeviceId::new(*id)?, alias: e.alias.clone(), name: e.name.clone(), last_seen: e.last_seen, alias_at: e.alias_at })
+                Some(Peer {
+                    id: DeviceId::new(*id)?,
+                    alias: e.alias.clone(),
+                    name: e.name.clone(),
+                    last_seen: e.last_seen,
+                    alias_at: e.alias_at,
+                    macs: e.macs.clone(),
+                })
             })
             .collect();
         peers.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
@@ -343,7 +359,10 @@ impl Book {
                     let alias_from = if y.alias_at > x.alias_at { y } else { x };
                     let seen_from = if y.last_seen > x.last_seen { y } else { x };
                     let name = if seen_from.name.is_empty() { alias_from.name.clone() } else { seen_from.name.clone() };
-                    Entry { alias: alias_from.alias.clone(), alias_at: alias_from.alias_at, name, last_seen: seen_from.last_seen }
+                    // The newer connection knows the cards; else whichever side has them.
+                    let macs = if seen_from.macs.is_empty() { alias_from.macs.clone() } else { seen_from.macs.clone() };
+                    let macs = if macs.is_empty() { x.macs.iter().chain(&y.macs).cloned().collect() } else { macs };
+                    Entry { alias: alias_from.alias.clone(), alias_at: alias_from.alias_at, name, last_seen: seen_from.last_seen, macs }
                 }
                 (Some(x), None) | (None, Some(x)) => x.clone(),
                 (None, None) => continue,
@@ -565,7 +584,7 @@ mod tests {
     use super::*;
 
     fn entry(alias: Option<&str>, alias_at: u64, name: &str, last_seen: u64) -> Entry {
-        Entry { alias: alias.map(Into::into), alias_at, name: name.into(), last_seen }
+        Entry { alias: alias.map(Into::into), alias_at, name: name.into(), last_seen, macs: Vec::new() }
     }
 
     #[test]
@@ -674,5 +693,22 @@ mod tests {
         assert_eq!(open(&key, SEAL_AAD, &sealed).unwrap(), b"geheim");
         assert!(open(&other, SEAL_AAD, &sealed).is_err());
         assert!(open(&key, BOOK_AAD, &sealed).is_err());
+    }
+
+    #[test]
+    fn macs_travel_with_the_book() {
+        let mut a = Book::default();
+        let mut with = entry(None, 0, "PC", 100);
+        with.macs = vec!["01:23:45:67:89:ab".into()];
+        a.entries.insert(123_456_789, with);
+        let mut b = Book::default();
+        // A newer connection from a device that does not know the cards keeps them.
+        b.entries.insert(123_456_789, entry(None, 0, "PC", 200));
+        let merged = Book::merge(&a, &b);
+        assert_eq!(merged.entries[&123_456_789].macs, vec!["01:23:45:67:89:ab".to_string()]);
+        assert_eq!(merged.entries[&123_456_789].last_seen, 200);
+        // Older books without the field still read.
+        let old: Entry = serde_json::from_str(r#"{"alias":null,"alias_at":0,"name":"PC","last_seen":1}"#).unwrap();
+        assert!(old.macs.is_empty());
     }
 }
