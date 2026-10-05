@@ -52,7 +52,8 @@ if [ -d "$incoming/website" ] && [ -w "$web" ]; then
     sed -i "s|<!--version-->[^<]*<!--/version-->|<!--version-->$version<!--/version-->|g" "$new"/*.html
   fi
   # Atomic switch: Caddy serves the old or the new site, never a half-copied one.
-  ln -sfn "$new" "$web/.site.tmp"
+  # Relative, so the link also works where the folder is mounted elsewhere (Docker).
+  ln -sfn "site-$stamp" "$web/.site.tmp"
   mv -Tf "$web/.site.tmp" "$web/site"
   find "$web" -maxdepth 1 -name 'site-*' ! -name "site-$stamp" -exec rm -rf {} +
   for file in "$incoming"/download/*; do

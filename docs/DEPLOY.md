@@ -234,7 +234,19 @@ Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werd
    # bash setup-website.sh remote.ctx.ink
    ```
 
-   Erwartet: „Website eingerichtet für https://remote.ctx.ink“.
+   Erwartet: „Website eingerichtet für https://remote.ctx.ink“. Läuft Caddy dort schon als Dienst, bleiben deine bestehenden Seiten unverändert: Das Skript legt nur `/etc/caddy/ctxremote.caddy` an, hängt eine `import`-Zeile an die `Caddyfile` und nimmt beides zurück, falls die Konfiguration danach ungültig wäre.
+
+   **Caddy im Docker-Container** (so beim Nutzer): stattdessen
+
+   ```bash
+   # bash setup-website.sh --docker remote.ctx.ink
+   ```
+
+   Das legt nur den Ordner `/var/www/ctxremote` an und gibt zwei Dinge aus, die du selbst einträgst. Am Server selbst ändert es nichts.
+   - die Volume-Zeile für `docker-compose.yml`: `- /var/www/ctxremote:/srv/ctxremote:ro`
+   - den Block für die Caddyfile des Containers, mit den Pfaden `/srv/ctxremote`
+
+   Danach den Container mit dem neuen Volume neu erstellen (`docker compose up -d caddy`). Der Symlink `site` ist relativ, funktioniert also auch unter dem anderen Pfad im Container.
 4. **Einmal nach `master` pushen** (oder den Release-Workflow von Hand starten). Danach zeigt https://remote.ctx.ink die Seite.
 5. **Vor dem Veröffentlichen** in `website/impressum.html` und `website/datenschutz.html` die markierten Platzhalter ersetzen, also Name, Anschrift und E-Mail. Bei Hetzner im Robot den **Vertrag zur Auftragsverarbeitung** abschließen, die Datenschutzerklärung verweist darauf.
 

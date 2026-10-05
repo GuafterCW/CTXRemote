@@ -149,7 +149,8 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
   - Preise: Free privat kostenlos, Pro und Ultra „bald verfügbar“, ohne Preise
   - Impressum und Datenschutz als Vorlagen mit **markierten Platzhaltern** (`<span class="todo">`), die der Nutzer füllen muss
 - **Adresse und Server:** https://remote.ctx.ink auf dem Hetzner-Server, ausgeliefert von Caddy. Einrichtung einmalig mit `deploy/setup-website.sh`, siehe `docs/DEPLOY.md`, Abschnitt „Website“.
-  - **Offen beim Nutzer:** TCP 80/443 in der Hetzner-Firewall freigeben, `setup-website.sh` ausführen, Platzhalter füllen, AVV mit Hetzner abschließen.
+  - **Caddy des Nutzers läuft in Docker** mit weiteren Seiten. Deshalb `setup-website.sh --docker`: Es legt nur den Ordner an und gibt Volume und Caddy-Block aus. Ohne `--docker` bricht das Skript ab, wenn die Ports fremd belegt sind.
+  - **Offen beim Nutzer:** `setup-website.sh --docker` ausführen, Volume und Block in den Container eintragen, Platzhalter füllen, AVV mit Hetzner abschließen.
 - **Pipeline:** `release.yml` packt `website/`, die Version und die Downloads unter festen Namen dazu. `remote-deploy.sh` schaltet die Seite per Symlink atomar um, aber nur, wenn `/var/www/ctxremote` existiert.
 - **Selbst-Hosting** bietet die Seite bewusst nicht an (Entscheidung des Nutzers).
 - Die App-Screenshots in `website/img/` stammen aus dem Frontend mit nachgebauter Tauri-API. Bei sichtbaren UI-Änderungen neu erzeugen.
