@@ -1,0 +1,8 @@
+[Unit]
+Description=Sicherung der CTXRemote-Serverdaten
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ctxremote/ctxremote-backup.sh
+Nice=10
+IOSchedulingClass=idle

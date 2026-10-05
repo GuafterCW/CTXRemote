@@ -176,8 +176,8 @@ Wunsch des Nutzers: Konten in App und Website, Geräteverwaltung im Web, alles E
 3. Webinterface: **erledigt**, https://ctxremote.ctx.ink/konto/ (`web/`, Svelte; Server-API `crates/server/src/web.rs`). Die Oberfläche hat ein Sonnet-Agent nach Vorgabe gebaut, Krypto und Sitzungslogik (`web/src/lib/crypto.ts`, `session.ts`) sind selbst geschrieben.
    - Interop im echten Browser gegen echten Server getestet: Registrieren im Browser, App koppelt sich mit dem Browser-Code und meldet sich mit dem Browser-Passwort an. Gerätenamen und Geräteliste aus der App erscheinen im Browser, Umbenennen im Browser kommt in der App an.
    - `npm test` in `web/` prüft die Browser-Krypto gegen feste Werte aus Rust (`vectors_stay_stable`).
-   - **Offen beim Nutzer:** Web-API für Caddy in Docker freischalten (`docs/DEPLOY.md`, „Webinterface Konto“): `systemctl edit` mit `--http 172.17.0.1:21380`, `extra_hosts`, neuer Caddy-Block mit `/api` und erweiterter CSP.
-4. Mails per SMTP: **erledigt** (`crates/server/src/mail.rs`, lettre mit rustls/ring; der statische Build braucht `musl-tools`, steht in `release.yml`). Bestätigung der Adresse (Link `/konto/#bestaetigen=…`, 48 h), Hinweise bei neuer Adresse, neuem Passwort, neuer Anmeldung und benutztem Wiederherstellungscode. **Offen beim Nutzer:** `/etc/ctxremote/mail.env` anlegen (`docs/DEPLOY.md`, „Mails“).
+   - **Erledigt beim Nutzer:** Web-API für Caddy in Docker freigeschaltet.
+4. Mails per SMTP: **erledigt** (`crates/server/src/mail.rs`, lettre mit rustls/ring; der statische Build braucht `musl-tools`, steht in `release.yml`). Bestätigung der Adresse (Link `/konto/#bestaetigen=…`, 48 h), Hinweise bei neuer Adresse, neuem Passwort, neuer Anmeldung und benutztem Wiederherstellungscode. **Erledigt beim Nutzer:** `/etc/ctxremote/mail.env` angelegt, Mails kommen an.
 
 ### GitHub Actions (5. Oktober)
 
@@ -191,7 +191,7 @@ Zu Schritt 1:
 - **Technik:** Noise NK mit festem Server-Schlüssel (`tunnel.key`), Datensatz-Schicht `SecureIo` unter dem Framing (`crates/proto/src/tunnel.rs`). Der Server leitet Sitzungen weiter, indem er entschlüsselt und wieder verschlüsselt. Die Inhalte bleiben dabei Ende-zu-Ende verschlüsselt.
 - **Übergang:** Unverschlüsselte Clients werden noch angenommen.
 - **Tests:** Alle Tests mit echtem Server laufen verschlüsselt (fester Testschlüssel in `tests/common`). `unencrypted_clients_still_work` prüft den Übergang.
-- **Offen beim Nutzer:** `tunnel-key` auf dem Server ausgeben und als GitHub-Variable `CTXREMOTE_SERVER_KEY` eintragen (`docs/DEPLOY.md`). Erst danach verschlüsseln die ausgelieferten Clients.
+- **Erledigt beim Nutzer** (seit mehreren Releases): `CTXREMOTE_SERVER_KEY` ist als GitHub-Variable eingetragen, die ausgelieferten Clients verschlüsseln. UDP 21300 ist in der Hetzner-Firewall offen.
 
 ### Eigenes Setup-Fenster (5. Oktober, Cloud-Sitzung)
 
@@ -229,6 +229,12 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
 - Datei neben der Config (`config.history.json`, beim Dienst also im geschützten Ordner des Dienstes), höchstens 200 Einträge, nichts geht an den Server.
 - App: Icon „Verlauf“ neben dem Konto-Knopf. Mit Dienst holt die App den Verlauf über die UI-Pipe (`UiRequest::History`). Die Oberfläche hat ein Agent gebaut.
 - Test: `--test access` prüft die Einträge.
+
+### Sicherung der Serverdaten (5. Oktober, Cloud-Sitzung)
+
+- `deploy/ctxremote-backup.sh` mit Timer (`ctxremote-backup.timer`, täglich 3:30) und einmaliger Einrichtung `deploy/setup-backup.sh`. Gesichert wird der Datenordner ohne `updates/`. Verschlüsselt wird mit AES-256 und einer Passphrase in `/etc/ctxremote/backup.key`, die sicher verwahrt werden muss. Aufbewahrt wird 14 Tage, optional mit rsync auf eine Hetzner Storage Box (nur verschlüsselt). `--restore` spielt eine Sicherung ein und bewahrt den alten Stand auf.
+- Lokal getestet: Sicherung, Verschlüsselung, Kopie per rsync, Aufbewahrung, Wiederherstellen, falsche Passphrase.
+- **Offen beim Nutzer:** einrichten nach `docs/DEPLOY.md`, „Sicherung der Serverdaten“, Passphrase im Passwortmanager ablegen, optional Storage Box.
 
 ### Testliste für den nächsten Windows-Termin
 

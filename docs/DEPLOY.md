@@ -358,6 +358,77 @@ Danach:
 
 Neu installierte Server haben `EnvironmentFile=-/etc/ctxremote/mail.env` schon in der Unit. Bestehende bekommen die Zeile über `systemctl edit ctxremote-server`, siehe „Webinterface Konto“ oben.
 
+## Sicherung der Serverdaten
+
+Im Datenordner `/var/lib/ctxremote` liegt alles, was sich nicht neu erzeugen lässt:
+- `accounts.json`: Konten, Anmeldungen, Geräteliste.
+- `devices.json`: Geräte-IDs und Aliase.
+- `tunnel.key`: Der Server-Schlüssel. Ist er weg, verbinden sich die Apps nicht mehr verschlüsselt, bis ein Release mit neuem Schlüssel draußen ist.
+
+Die Installer in `updates/` kommen mit dem nächsten Release wieder und werden nicht gesichert.
+
+`deploy/ctxremote-backup.sh` sichert täglich um 3:30 Uhr (systemd-Timer), verschlüsselt mit AES-256 und bewahrt 14 Tage auf. Auf Wunsch kopiert es die Sicherungen per rsync auf eine Hetzner Storage Box.
+
+**Einrichten** (einmalig, als root auf dem Server):
+
+1. Die vier Dateien aus `deploy/` auf den Server kopieren: `ctxremote-backup.sh`, `ctxremote-backup.service`, `ctxremote-backup.timer` und `setup-backup.sh`. Zum Beispiel:
+
+   ```bash
+   $ scp deploy/ctxremote-backup.* deploy/setup-backup.sh root@SERVER:/root/ctxremote-backup/
+   ```
+2. Ausführen:
+
+   ```bash
+   # bash /root/ctxremote-backup/setup-backup.sh
+   ```
+
+   Das Skript legt die Passphrase `/etc/ctxremote/backup.key` an und **zeigt sie einmal an**. Leg sie sofort im Passwortmanager ab. Ohne sie ist keine Sicherung lesbar, auch nicht die auf der Storage Box. Danach macht es gleich eine erste Sicherung.
+3. Prüfen: `ls -lh /var/backups/ctxremote/` und `systemctl list-timers ctxremote-backup.timer`.
+
+Das Skript wird bewusst **nicht** über die Release-Pipeline aktualisiert, denn es läuft als root. Eine neue Fassung kommt auf dieselbe Weise auf den Server, `setup-backup.sh` darf man mehrfach ausführen.
+
+**Kopie auf eine Hetzner Storage Box** (empfohlen, denn eine Sicherung auf derselben Platte hilft nicht, wenn der Server ausfällt):
+
+1. In der Hetzner Console eine Storage Box anlegen, dort „SSH-Support“ einschalten.
+2. Auf dem Server einen eigenen Schlüssel erzeugen und hochladen. Die Storage Box nimmt SSH auf Port 23 an:
+
+   ```bash
+   # ssh-keygen -t ed25519 -N '' -f /root/.ssh/ctxremote-backup
+   # cat /root/.ssh/ctxremote-backup.pub | ssh -p 23 u123456@u123456.your-storagebox.de install-ssh-key
+   # ssh -p 23 -i /root/.ssh/ctxremote-backup u123456@u123456.your-storagebox.de mkdir ctxremote
+   ```
+
+   Der letzte Befehl legt den Zielordner an. Beim ersten Mal den Fingerabdruck bestätigen, er landet dann in `/root/.ssh/known_hosts`.
+3. In `/etc/ctxremote/backup.env` eintragen:
+
+   ```ini
+   BACKUP_REMOTE=u123456@u123456.your-storagebox.de:ctxremote
+   BACKUP_SSH_PORT=23
+   BACKUP_SSH_KEY=/root/.ssh/ctxremote-backup
+   ```
+4. Testen: `/opt/ctxremote/ctxremote-backup.sh`. Am Ende muss „kopiert nach …“ stehen.
+
+Nach außen geht nur Verschlüsseltes. Fehlt die Passphrase, bricht das Skript vor dem Hochladen ab. Die Aufbewahrung gilt auf der Storage Box genauso.
+
+**Wiederherstellen:**
+
+```bash
+# /opt/ctxremote/ctxremote-backup.sh --list
+# /opt/ctxremote/ctxremote-backup.sh --restore /var/backups/ctxremote/ctxremote-20261005-033012.tar.gz.enc
+```
+
+Das Skript hält den Server an, legt den bisherigen Datenordner daneben ab (`/var/lib/ctxremote.vor-wiederherstellung-…`), spielt die Sicherung ein und startet den Server wieder.
+
+Auf einem **neuen Server**:
+1. Zuerst die normale Einrichtung durchführen.
+2. Die Passphrase aus dem Passwortmanager nach `/etc/ctxremote/backup.key` legen, mit `chmod 600`.
+3. Die Sicherung von der Storage Box holen, z. B. mit `scp -P 23 -i … u123456@…:ctxremote/DATEI .`.
+4. Mit `--restore` einspielen.
+
+Weil `tunnel.key` mit zurückkommt, verbinden sich die Apps ohne neues Release.
+
+**Fehler sehen:** `systemctl status ctxremote-backup.service` bzw. `journalctl -u ctxremote-backup`. Scheitert das Hochladen, bleibt die lokale Sicherung, und der Dienst steht auf „failed“.
+
 ## Wenn etwas nicht klappt
 
 | Symptom | Ursache und Lösung |
