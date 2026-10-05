@@ -95,7 +95,7 @@ Gebaut, aber **noch auf keinem Windows-Rechner ausgeführt**. Geprüft ist es nu
   - Der Installer läuft über `cmd /C "installer /S & sc start CTXRemote"`. Der Dienst kommt also auch nach einem Abbruch zurück.
   - Nach dem Update startet der Dienst die App für den angemeldeten Benutzer wieder, mit `--tray`, also ohne Fenster.
   - Die Fehlermeldung im Installer-Hook hat `/SD IDOK`, damit sie ein stilles Update nicht blockiert.
-- **Offen:** Ob die Auflösung des fernen Geräts der Fenstergröße folgen soll (dynamische Auflösung wie bei RDP), ist noch nicht entschieden. Dafür müsste der Host seine Bildschirmauflösung ändern.
+- **Entschieden (5. Oktober):** Keine dynamische Auflösung. Die ferne Auflösung bleibt, wie sie ist.
 
 ### Bestätigt durch den Nutzer (5. Oktober)
 
