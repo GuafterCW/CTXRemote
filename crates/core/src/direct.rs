@@ -84,6 +84,12 @@ impl DirectListener {
         Some(Arc::new(Self { port, waiting, extra, tasks: Mutex::new(tasks) }))
     }
 
+    /// A listener without TCP sockets: it only hands over connections punched
+    /// through NAT (see [`crate::punch`]). Offers carry no TCP addresses.
+    pub fn without_tcp() -> Arc<Self> {
+        Arc::new(Self { port: 0, waiting: Arc::default(), extra: Vec::new(), tasks: Mutex::new(Vec::new()) })
+    }
+
     /// Stops accepting and frees the port. Sessions that already moved over keep running.
     pub fn stop(&self) {
         for task in self.tasks.lock().unwrap().drain(..) {
@@ -103,10 +109,11 @@ impl DirectListener {
         let token: [u8; 32] = rand::random();
         let (tx, connection) = oneshot::channel();
         self.waiting.lock().unwrap().insert(token, tx);
-        let mut addrs: Vec<String> = local_ips(server)
-            .into_iter()
-            .map(|ip| SocketAddr::new(ip, self.port).to_string())
-            .collect();
+        let mut addrs: Vec<String> = if self.port == 0 {
+            Vec::new()
+        } else {
+            local_ips(server).into_iter().map(|ip| SocketAddr::new(ip, self.port).to_string()).collect()
+        };
         addrs.extend(self.extra.iter().cloned());
         Offer { addrs, token, connection, waiting: self.waiting.clone() }
     }

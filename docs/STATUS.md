@@ -155,6 +155,10 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
 - **Selbst-Hosting** bietet die Seite bewusst nicht an (Entscheidung des Nutzers).
 - Die App-Screenshots in `website/img/` stammen aus dem Frontend mit nachgebauter Tauri-API. Bei sichtbaren UI-Änderungen neu erzeugen.
 
+### UDP-Weg auch für die Schnellhilfe (5. Oktober, Cloud-Sitzung)
+
+Die Schnellhilfe hatte die Direktverbindung ganz abgeschaltet, weil der TCP-Listener eine Firewall-Abfrage auslösen würde. Gerade beim typischen Fall (helfen bei jemandem zu Hause) lief deshalb alles über den Server. Jetzt läuft sie mit `direct: true, direct_listen: false`: kein TCP-Port, aber der UDP-Weg durch NAT. Siehe `docs/DIRECT.md`.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -200,6 +204,7 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
     - Im LAN: Viewer mit `CTXREMOTE_DIRECT=udp` starten (PowerShell: `$env:CTXREMOTE_DIRECT="udp"; & "C:\Program Files\CTXRemote\ctxremote.exe"`). Das Sitzungsfenster muss nach wenigen Sekunden „Direkt“ zeigen. Kommt eine Firewall-Abfrage von Windows?
     - Echt: Viewer im Handy-Hotspot, Host zu Hause, ohne Portweiterleitung. Erwartet: „Direkt“ über die öffentliche Adresse des Routers.
     - Bild, Dateien und Chat laufen danach normal, auch nach 5 Minuten ohne Bildänderung (Keep-Alive).
+16. Schnellhilfe direkt: Mit der App auf eine Schnellhilfe in einem anderen Netz verbinden, z. B. über einen Handy-Hotspot. Nach wenigen Sekunden sollte „Direkt“ im Sitzungsfenster stehen. **Kommt bei der Schnellhilfe eine Windows-Firewall-Abfrage?** Das sollte nicht passieren, weil sie nur antwortet und keinen Port öffnet.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.
@@ -210,7 +215,7 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
 
 0. Die Pipeline einrichten (`docs/DEPLOY.md`, Abschnitt „Einrichtung Schritt für Schritt“), dann den Branch nach `master` mergen. Den ersten Installer von Hand installieren, danach zweimal pushen und prüfen, ob sich ein Gerät selbst aktualisiert.
 1. Die Testliste oben abarbeiten und den Zustimmungsdialog der Schnellhilfe testen.
-2. Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig). UDP-Weg auch für die Schnellhilfe als Host (braucht Token-Verwaltung ohne TCP-Listener).
+2. Hardware-Encoder, macOS-Host (zum Testen ist ein Mac nötig).
 3. Adressbuch und Geräteverwaltung über den Server, Code-Signatur (braucht ein Konto bei Microsoft Trusted Signing).
 4. Bezahlte Pläne nach `docs/PLANS.md`. Erst wenn es eine Firma gibt. Schritt 1 (Konten und Adressbuch) ginge auch vorher schon. Konten gehören auf die Website (ctxremote.ctx.ink), später mit Stripe.
 

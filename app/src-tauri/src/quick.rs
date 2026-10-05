@@ -42,8 +42,10 @@ pub fn load_config() -> anyhow::Result<Config> {
     let mut config = Config::load()?;
     config.server = SERVER.to_string();
     config.permanent_password = None;
-    // A portable helper should not open a port (and trigger a firewall prompt).
-    config.direct = false;
+    // A portable helper should not open a port (and trigger a firewall prompt),
+    // but the UDP path through NAT needs none: it only answers the viewer.
+    config.direct = true;
+    config.direct_listen = false;
     Ok(config)
 }
 

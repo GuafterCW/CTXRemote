@@ -1,4 +1,4 @@
-//! A session that reaches its host only through the UDP path (hole punching
+//! Sessions that reach their host only through the UDP path (hole punching
 //! via the server's reflector). Its own test binary, because it switches the
 //! viewer's TCP attempt off through the environment.
 
@@ -33,3 +33,25 @@ async fn session_moves_to_punched_connection() {
     .unwrap();
 }
 
+
+/// Like the quick helper: no TCP listener at all, only the UDP path.
+#[tokio::test(flavor = "multi_thread")]
+async fn host_without_listener_is_reached_through_udp() {
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host_with(&addr, |config| config.direct_listen = false).await;
+    let (session, events) = connect(&addr, &host, id).await;
+
+    tokio::task::spawn_blocking(move || {
+        wait_for(&events, |e| match e {
+            ViewerEvent::Direct(addr) => Some(addr),
+            ViewerEvent::Closed(reason) => panic!("Sitzung beendet: {reason:?}"),
+            _ => None,
+        })
+        .expect("Sitzung wechselt auf den UDP-Weg");
+        for n in 0..20 {
+            echo(&session, &events, &format!("ohne Listener {n}"));
+        }
+    })
+    .await
+    .unwrap();
+}

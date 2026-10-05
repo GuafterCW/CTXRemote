@@ -33,6 +33,10 @@ pub struct Config {
     pub direct_addresses: Vec<String>,
     /// Public alias others can connect with instead of the ID (kept on the server).
     pub public_alias: Option<String>,
+    /// Whether `direct` includes the TCP listener. Without it (the quick
+    /// helper, which must not open a port) only the UDP path through NAT is
+    /// offered, which needs no listening port.
+    pub direct_listen: bool,
     /// How this user presents themselves when connecting to others.
     pub profile: Option<crate::profile::Profile>,
 }
@@ -86,6 +90,7 @@ impl Default for Config {
             direct_port: crate::direct::DEFAULT_PORT,
             direct_addresses: Vec::new(),
             public_alias: None,
+            direct_listen: true,
             profile: None,
         }
     }

@@ -118,11 +118,13 @@ impl Host {
             direct_turn: tokio::sync::Mutex::new(()),
         });
         tokio::spawn(presence_loop(shared.clone()));
-        let (enabled, port, extra) = {
+        let (enabled, port, extra, listen) = {
             let config = shared.config.read().unwrap();
-            (config.direct, config.direct_port, config.direct_addresses.clone())
+            (config.direct, config.direct_port, config.direct_addresses.clone(), config.direct_listen)
         };
-        if enabled {
+        if enabled && !listen {
+            *shared.direct.lock().unwrap() = Some(DirectListener::without_tcp());
+        } else if enabled {
             tokio::spawn(restart_direct(shared.clone(), DirectSettings { enabled, port, addresses: extra }));
         }
         Self { shared }
@@ -243,6 +245,10 @@ async fn restart_direct(shared: Arc<Shared>, settings: DirectSettings) {
         old.stop();
     }
     if !settings.enabled {
+        return;
+    }
+    if !shared.config.read().unwrap().direct_listen {
+        *shared.direct.lock().unwrap() = Some(DirectListener::without_tcp());
         return;
     }
     // The old sockets close once their aborted tasks are dropped; on a restart
@@ -539,7 +545,8 @@ async fn run_session(
                         if let (false, true, Some(listener)) = (offered, route.features.has(Features::DIRECT), &route.direct) {
                             offered = true;
                             let new = listener.offer(&route.server);
-                            if !new.addrs.is_empty() {
+                            // Without TCP addresses the offer still carries the token for the UDP path.
+                            if !new.addrs.is_empty() || route.features.has(Features::PUNCH) {
                                 tx.send(&HostMsg::DirectOffer { addrs: new.addrs.clone(), token: new.token }).await?;
                                 offer = Some(new);
                                 if route.features.has(Features::PUNCH) {

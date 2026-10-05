@@ -30,7 +30,7 @@ Sitzen beide Seiten hinter einem Router, erreicht der Viewer den TCP-Port des Ho
 Grenzen:
 - Funktioniert mit üblichen Heimroutern (gleiche öffentliche Portzuordnung für alle Ziele). Bei symmetrischem NAT (manche Mobilfunknetze, Firmen-Firewalls) bleibt die Sitzung auf dem Relay.
 - Nur IPv4. Öffentliches IPv6 deckt schon der TCP-Weg ab.
-- Nur wo auch der TCP-Listener läuft (Direktverbindung eingeschaltet). Die Schnellhilfe als Host bietet also keinen UDP-Weg an, als Viewer nutzt sie ihn aber.
+- Die **Schnellhilfe** bietet als Host nur den UDP-Weg an, ohne TCP-Listener (`direct_listen: false`, `DirectListener::without_tcp`). Sie öffnet also keinen Port, der eine Firewall-Abfrage auslösen würde, und ist trotzdem direkt erreichbar. Das `DirectOffer` hat dann keine Adressen und trägt nur das Token. Es geht nur an Viewer mit dem Bit `PUNCH`, ältere Viewer bekommen nichts. Test: `host_without_listener_is_reached_through_udp`.
 - Ein Server ohne Reflektor (vor 0.1.9) oder ohne UDP-Freigabe in der Firewall: Der UDP-Weg wird stillschweigend ausgelassen.
 
 **Zum Ausprobieren im LAN:** Mit der Umgebungsvariable `CTXREMOTE_DIRECT=udp` lässt der Viewer den TCP-Versuch weg und nimmt nur den UDP-Weg. Das nutzt auch der Test `cargo test -p ctxremote-server --test punch`.

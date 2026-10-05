@@ -74,14 +74,19 @@ pub async fn start_server() -> (Server, String) {
 }
 
 pub async fn start_host(server: &str, direct: bool) -> (Host, DeviceId) {
+    start_host_with(server, |config| config.direct = direct).await
+}
+
+/// A host whose config `adjust` changes first.
+pub async fn start_host_with(server: &str, adjust: impl FnOnce(&mut Config)) -> (Host, DeviceId) {
     let config_path = std::env::temp_dir().join(format!("ctxremote-test-host-{}.json", free_port()));
     std::env::set_var("CTXREMOTE_CONFIG", &config_path);
-    let config = Config {
+    let mut config = Config {
         server: server.to_string(),
-        direct,
         direct_port: free_port(),
         ..Config::default()
     };
+    adjust(&mut config);
     let host = Host::start_with(Arc::new(RwLock::new(config)), Arc::new(Echo));
     let mut presence = host.presence();
     let id = tokio::time::timeout(Duration::from_secs(10), async {
