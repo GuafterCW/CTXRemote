@@ -384,7 +384,7 @@ Der Nutzer hat bestätigt: Privatsphäre-Modus, Rechte und Zeichnen funktioniere
 - **Port-Tunnel: Eingabe in die Felder ging nicht.** Das Sitzungsfenster schickte alle Tasten an den Host. Jetzt bleiben Tasten in Eingabefeldern lokal.
 - **Privatsphäre-Modus: Der Mauszeiger war am Host zu sehen.** Windows zeichnet den Zeiger über jedes Fenster. Jetzt werden die System-Zeiger für die Dauer des Modus gegen einen unsichtbaren getauscht (`SetSystemCursor`). Der Viewer bekommt die echte Form aus vorher gemachten Kopien, denn die Aufnahme sieht nur den unsichtbaren Zeiger (`PrivacyMode::pointer`, alle 50 ms abgefragt). Beim Ende lädt `SPI_SETCURSORS` die Zeiger des Benutzers neu. Stirbt der Agent vorher, holt der nächste Agent sie anhand einer Markierungsdatei im Temp-Ordner zurück. Eigene Zeiger von Programmen (nicht die System-Zeiger) bleiben am Host sichtbar.
 - **Rechte am Host direkt sichtbar:** Statt des Menüs gibt es eine Leiste mit einem Symbol je Recht. Ein leuchtendes Symbol heißt erlaubt, ein durchgestrichenes gesperrt. Ein Klick schaltet um, ein Tooltip nennt das Recht.
-- **Offen: Zeichnen wirkt pixelig.** Das Overlay nutzt eine Farbschlüssel-Transparenz, und GDI glättet dort nicht. Abhilfe wäre ein Overlay mit Alpha je Pixel (`UpdateLayeredWindow`) und eigener geglätteter Linie. Zurückgestellt, weil es laut Nutzer nicht stört.
+- **Zeichnen wirkte pixelig.** Das Overlay nutzte eine Farbschlüssel-Transparenz, und GDI glättet dort nicht. Jetzt rastert `annotate::stroke` die Linien selbst mit weichen Kanten und runden Enden, direkt in eine DIB-Section. Das Fenster zeigt sie mit Alpha je Pixel und frischt nur den geänderten Bereich auf (`UpdateLayeredWindowIndirect`). Die Stücke eines Strichs (alle 60 ms eines) gehen nahtlos ineinander über. Unit-Tests prüfen das. Unter Windows ungetestet.
 
 ### Bilder in der Zwischenablage, Bildschirmfoto, Sperren beim Trennen (5. Oktober, spät, Cloud-Sitzung)
 
@@ -507,6 +507,8 @@ Der Nutzer hat bestätigt: Privatsphäre-Modus, Rechte und Zeichnen funktioniere
 38. Rechte-Leiste im Banner und in der Schnellhilfe: Ein Klick auf ein Symbol schaltet das Recht sofort um, und der Viewer merkt es.
 39. Bilder in der Zwischenablage: Am Viewer einen Screenshot machen (Win+Umschalt+S) und in der Sitzung in Paint mit Strg+V einfügen. Umgekehrt am Gerät ein Bild kopieren und lokal einfügen.
 40. Bildschirmfoto-Knopf: Liegt die Datei in `Bilder\CTXRemote`, und zeigt sie das Bild?
+42. Zeichnen erneut: Sind die Linien am Gerät glatt? Ruckelt etwas bei schnellem Zeichnen auf einem 4K-Bildschirm? Kann man weiter durch die Linien klicken?
+43. Verbindungsdaten und „Nur ansehen“ im Bild-Menü: Die Zahlen unten links müssen plausibel sein. Mit „Nur ansehen“ darf am Gerät keine Maus- oder Tastatureingabe ankommen.
 41. „Beim Trennen sperren“ im Tastenmenü an, dann trennen: Das Gerät muss gesperrt sein. Beim nächsten Verbinden zum selben Gerät ist der Haken noch gesetzt.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
