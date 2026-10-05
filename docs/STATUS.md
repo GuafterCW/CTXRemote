@@ -247,6 +247,23 @@ Der Download auf der Website ist jetzt `CTXRemote-Setup.exe` aus `crates/setup` 
   - `--test sessions` (Ton erreicht den Viewer erst nach `SetAudio`).
 - **Ungetestet:** die WASAPI-Aufnahme selbst. Offen ist vor allem, ob sie im Dienst-Modus funktioniert, denn der Agent läuft dort als SYSTEM in der Benutzersitzung.
 
+### Test durch den Nutzer (5. Oktober, nachmittags)
+
+- Bestätigt:
+  - Die Schnellhilfe zum Windows-Server läuft über den Server, die installierte App verbindet sich direkt.
+  - Die Geräteliste im Konto funktioniert.
+  - Anmeldung mit Passwort und Zugriff ohne Passwort funktionieren.
+  - Das Setup-Fenster funktioniert.
+  - Der Verlauf funktioniert.
+- **Offen: Am Windows-Server hat sich die Geräte-ID geändert.** Die ID hängt am Geräteschlüssel. Ein Wechsel heißt also, dass das Gerät einen neuen Schlüssel erzeugt hat oder seine Datei verloren hat. Ein Datenverlust auf dem Server allein ändert keine ID.
+  - Mögliche Ursachen:
+    - Die Konfiguration war unlesbar. Bis jetzt startete das Gerät dann still mit neuer Identität.
+    - Der Datenordner wurde verschoben, weil er nicht SYSTEM oder den Administratoren gehörte. Dann gibt es einen Ordner `C:\ProgramData\CTXRemote.untrusted-*`.
+    - App und Dienst nutzen verschiedene Dateien. Die App hat `%APPDATA%\philipp-dev\CTXRemote\config\config.json`, der Dienst `C:\ProgramData\CTXRemote\host.json`. Wurde der Dienst neu eingerichtet, ohne dass es eine Benutzerkonfiguration gab, entsteht eine neue ID.
+  - Seitdem gilt:
+    - Eine unlesbare Datei bleibt als `*.json.broken-<Zeit>` erhalten, und das Log meldet das als Fehler.
+    - Gerät und Server melden im Log, wenn eine gespeicherte ID abgelehnt wird.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.

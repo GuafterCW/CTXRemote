@@ -44,7 +44,7 @@ impl Registry {
             match self.stored.devices.get(&id.get()) {
                 Some(owner) if *owner == key => return Ok(id),
                 None => return self.insert(id, key),
-                Some(_) => {}
+                Some(_) => tracing::warn!(%id, "ID gehört einem anderen Schlüssel, vergebe eine neue"),
             }
         }
         if let Some((&raw, _)) = self.stored.devices.iter().find(|(_, owner)| **owner == key) {

@@ -143,7 +143,15 @@ impl Config {
         let path = Self::path()?;
         match std::fs::read_to_string(&path) {
             Ok(json) => Ok(serde_json::from_str(&json).unwrap_or_else(|e| {
-                tracing::warn!("Konfiguration unlesbar, starte neu: {e}");
+                // Starting over means a new key and thus a new device ID; keep the
+                // old file so the identity can be restored by hand.
+                let aside = path.with_extension(format!("json.broken-{}", crate::account::now_ms() / 1000));
+                let kept = std::fs::copy(&path, &aside).is_ok();
+                tracing::error!(
+                    "Konfiguration {} unlesbar ({e}), starte mit neuer Identität{}",
+                    path.display(),
+                    if kept { format!("; alte Datei liegt in {}", aside.display()) } else { String::new() }
+                );
                 Self::default()
             })),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

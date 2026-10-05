@@ -312,6 +312,10 @@ async fn stay_registered(shared: &Arc<Shared>) -> Result<()> {
         other => bail!("unerwartete Serverantwort: {other:?}"),
     };
     if requested != Some(id) {
+        if let Some(old) = requested {
+            // Another key owns the old ID on the server.
+            tracing::warn!(%old, %id, "Server hat die gespeicherte ID abgelehnt und eine neue vergeben");
+        }
         let mut config = shared.config.write().unwrap();
         config.device_id = Some(id);
         config.save()?;
