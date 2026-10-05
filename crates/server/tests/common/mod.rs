@@ -56,7 +56,15 @@ impl Drop for Server {
 }
 
 pub fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    // Server and hosts use the port for TCP and UDP. On Windows a free TCP
+    // port can lie in a range reserved for UDP (os error 10013), so check both.
+    loop {
+        let tcp = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = tcp.local_addr().unwrap().port();
+        if std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok() {
+            return port;
+        }
+    }
 }
 
 /// Every test server uses this tunnel key; clients learn it from the environment.

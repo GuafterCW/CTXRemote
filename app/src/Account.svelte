@@ -45,6 +45,8 @@
         if (details.email && !email) email = details.email;
       } catch (err) {
         error = errorText(err);
+        // Removed from the account or the account deleted: show the login again.
+        account = (await api.overview()).account ?? null;
       }
     }
   }
@@ -201,6 +203,8 @@
               </li>
             {/each}
           </ul>
+        {:else if error}
+          <span class="note">Nicht geladen</span>
         {:else}
           <span class="note">Wird geladen …</span>
         {/if}

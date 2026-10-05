@@ -8,6 +8,12 @@ export function isCompleteId(input: string): boolean {
   return input.replace(/\D/g, "").length === 9;
 }
 
+/** Mirrors `normalize_alias` in crates/proto/src/rendezvous.rs. */
+export function isPublicAlias(input: string): boolean {
+  const alias = input.trim().toLowerCase();
+  return /^[a-z0-9](?:[a-z0-9._-]{1,30})[a-z0-9]$/.test(alias) && /[a-z]/.test(alias);
+}
+
 const relative = new Intl.RelativeTimeFormat("de", { numeric: "auto" });
 
 export function since(unixSeconds: number): string {

@@ -12,7 +12,7 @@
     type Peer,
     type Presence,
   } from "./lib/api";
-  import { formatId, isCompleteId } from "./lib/format";
+  import { formatId, isCompleteId, isPublicAlias } from "./lib/format";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
   import PeerList from "./PeerList.svelte";
@@ -161,7 +161,7 @@
     queryFocused && suggestions.length > 0 && !(typingId && isCompleteId(query)),
   );
   const canSubmit = $derived(
-    typingId ? isCompleteId(query) || suggestions.length === 1 : suggestions.length > 0,
+    typingId ? isCompleteId(query) || suggestions.length === 1 : suggestions.length > 0 || isPublicAlias(query),
   );
 
   function onQuery(value: string) {
@@ -202,6 +202,11 @@
       return choose(known ?? { id: query, alias: null, name: "", lastSeen: 0, access: false });
     }
     if (suggestions.length === 1) return choose(suggestions[0]);
+    // Not in the own list: a public alias, which the server resolves.
+    if (!typingId && isPublicAlias(query)) {
+      const alias = query.trim().toLowerCase();
+      return choose({ id: alias, alias, name: "", lastSeen: 0, access: false });
+    }
   }
 
   function onQueryKey(e: KeyboardEvent) {

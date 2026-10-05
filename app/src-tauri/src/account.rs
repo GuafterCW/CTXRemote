@@ -93,14 +93,7 @@ async fn sync_now(app: &AppHandle) {
         }
         // The account was deleted (in the web interface) or this device was
         // removed from it: work on without one.
-        Err(e) if e.downcast_ref::<ctxremote_core::proto::account::AccountError>()
-            == Some(&ctxremote_core::proto::account::AccountError::NotLinked) =>
-        {
-            tracing::info!("Nicht mehr im Konto, Verknüpfung entfernt");
-            let _ = save_link(&state, None);
-            *sync.error.lock().unwrap() = None;
-            let _ = app.emit("peers-changed", ());
-        }
+        Err(e) if not_linked(&e) => unlinked(app),
         Err(e) => {
             tracing::info!("Adressbuch nicht abgeglichen: {e:#}");
             *sync.error.lock().unwrap() = Some(format!("{e:#}"));
@@ -135,16 +128,36 @@ pub async fn account_join(app: AppHandle, state: State<'_, AppState>, sync: Stat
     linked(&app, &state, link, _turn).await
 }
 
-/// Takes this device out of the account; its list stays as it is.
+/// Takes this device out of the account, and the account's list off it.
 #[tauri::command]
 pub async fn account_leave(app: AppHandle, state: State<'_, AppState>, sync: State<'_, Sync>) -> CmdResult<()> {
     let _turn = sync.turn.lock().await;
     let (server, key) = credentials(&state)?;
     account::leave(&server, &key).await.map_err(|e| format!("{e:#}"))?;
-    save_link(&state, None)?;
-    *sync.error.lock().unwrap() = None;
-    let _ = app.emit("peers-changed", ());
+    unlinked(&app);
     Ok(())
+}
+
+fn not_linked(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<ctxremote_core::proto::account::AccountError>()
+        == Some(&ctxremote_core::proto::account::AccountError::NotLinked)
+}
+
+/// This device left the account, was removed from it, or the account was
+/// deleted: drop the link and the account's list. The list is the account's,
+/// shared by its devices; kept, it would be uploaded into the next account
+/// this device joins, which may be someone else's.
+fn unlinked(app: &AppHandle) {
+    tracing::info!("Nicht mehr im Konto, Verknüpfung und Geräteliste entfernt");
+    let state = app.state::<AppState>();
+    {
+        let mut config = state.config.write().unwrap();
+        config.peers.clear();
+        config.removed.clear();
+    }
+    let _ = save_link(&state, None);
+    *app.state::<Sync>().error.lock().unwrap() = None;
+    let _ = app.emit("peers-changed", ());
 }
 
 /// Registers an account with a login; returns the recovery code to show once.
@@ -203,11 +216,19 @@ pub struct AccountDetails {
 
 /// The account's login and devices, fresh from the server.
 #[tauri::command]
-pub async fn account_details(state: State<'_, AppState>) -> CmdResult<AccountDetails> {
+pub async fn account_details(app: AppHandle, state: State<'_, AppState>) -> CmdResult<AccountDetails> {
     let (server, key) = credentials(&state)?;
     let link = state.config.read().unwrap().account.clone().ok_or("Dieses Gerät gehört zu keinem Konto")?;
-    let login = account::login_status(&server, &key).await.map_err(|e| format!("{e:#}"))?;
-    let devices = account::devices(&server, &key, &link).await.map_err(|e| format!("{e:#}"))?;
+    let gone = |e: anyhow::Error| {
+        if not_linked(&e) {
+            unlinked(&app);
+            "Dieses Gerät gehört nicht mehr zum Konto".to_string()
+        } else {
+            format!("{e:#}")
+        }
+    };
+    let login = account::login_status(&server, &key).await.map_err(gone)?;
+    let devices = account::devices(&server, &key, &link).await.map_err(gone)?;
     Ok(AccountDetails {
         email: login.as_ref().map(|l| l.email.clone()),
         verified: login.is_some_and(|l| l.verified),
