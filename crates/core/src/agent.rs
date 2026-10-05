@@ -85,6 +85,11 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
     let mut audio: Option<crate::audio::AudioCapture> = None;
     // Blanks this computer's screen while it runs (see `privacy`).
     let mut privacy: Option<crate::privacy::PrivacyMode> = None;
+    // An agent that died in privacy mode may have left the pointers invisible.
+    crate::privacy::restore_pointers();
+    // In privacy mode capture sees an invisible pointer; the real shape is polled.
+    let mut pointer_poll = tokio::time::interval(std::time::Duration::from_millis(50));
+    pointer_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // The viewer's lines over the shown display (see `annotate`).
     let mut drawing: Option<crate::annotate::Overlay> = None;
     // The viewer's voice on this computer's speaker (see `speaker`).
@@ -98,8 +103,14 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                     outbox.send(HostMsg::ClipboardFiles(paths)).await?;
                 }
                 Some(data) = audio_rx.recv() => outbox.send(HostMsg::Audio(AudioPacket { data })).await?,
+                _ = pointer_poll.tick(), if privacy.is_some() => {
+                    if let Some(shape) = privacy.as_mut().and_then(|p| p.pointer()) {
+                        outbox.send(HostMsg::Cursor(shape)).await?;
+                    }
+                }
                 frame = frames_rx.recv() => match frame {
                     Some(Captured::Frame(frame)) => outbox.send(HostMsg::Video(frame)).await?,
+                    Some(Captured::Pointer(shape)) if privacy.is_some() && crate::privacy::is_blank(&shape) => {}
                     Some(Captured::Pointer(shape)) => outbox.send(HostMsg::Cursor(shape)).await?,
                     None => anyhow::bail!("Bildschirmaufnahme nicht verfügbar"),
                 },

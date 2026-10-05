@@ -1,124 +1,127 @@
 <script lang="ts">
   import { api, errorText, RIGHT, type Hosted } from "./api";
+  import Icon, { type IconName } from "./Icon.svelte";
 
-  // What the viewer of a session at this computer may do, changeable while it runs.
+  // What the viewer of a session at this computer may do, changeable while it
+  // runs. Always in view: one switch per right, lit while it is allowed.
   let {
     hosted,
     allowPrivacy = true,
     class: className = "",
   }: { hosted: Hosted; allowPrivacy?: boolean; class?: string } = $props();
 
-  let open = $state(false);
   let error = $state("");
-  let anchor = $state<HTMLDivElement>();
 
-  const ITEMS: [number, string][] = [
-    [RIGHT.INPUT, "Maus und Tastatur"],
-    [RIGHT.FILES, "Dateien"],
-    [RIGHT.CLIPBOARD, "Zwischenablage"],
-    [RIGHT.AUDIO, "Ton"],
-    [RIGHT.RESTART, "Neu starten"],
+  type Item = [bit: number, icon: IconName, label: string];
+  const ITEMS: Item[] = [
+    [RIGHT.INPUT, "keyboard", "Maus und Tastatur"],
+    [RIGHT.FILES, "folder", "Dateien"],
+    [RIGHT.CLIPBOARD, "copy", "Zwischenablage"],
+    [RIGHT.AUDIO, "volume", "Ton"],
+    [RIGHT.RESTART, "power", "Neu starten"],
   ];
   // Only where nobody needs to sit at the computer (not in the quick helper).
-  const UNATTENDED: [number, string][] = [
-    [RIGHT.PRIVACY, "Bildschirm hier schwarz schalten"],
-    [RIGHT.TUNNEL, "Port-Tunnel in dieses Netz"],
+  const UNATTENDED: Item[] = [
+    [RIGHT.PRIVACY, "eyeOff", "Bildschirm hier schwarz schalten"],
+    [RIGHT.TUNNEL, "tunnel", "Port-Tunnel in dieses Netz"],
   ];
   const items = $derived(allowPrivacy ? [...ITEMS, ...UNATTENDED] : ITEMS);
   const viewOnly = $derived((hosted.rights & RIGHT.INPUT) === 0);
 
   async function toggle(bit: number) {
     error = "";
-    const next = hosted.rights ^ bit;
     const before = hosted.rights;
-    hosted.rights = next;
+    hosted.rights = before ^ bit;
     try {
-      await api.setHostedRights(hosted.session, next);
+      await api.setHostedRights(hosted.session, hosted.rights);
     } catch (e) {
       hosted.rights = before;
       error = errorText(e);
     }
   }
-
-  function onWindowClick(e: MouseEvent) {
-    if (open && anchor && !anchor.contains(e.target as Node)) open = false;
-  }
 </script>
 
-<svelte:window onclick={onWindowClick} onkeydown={(e) => e.key === "Escape" && (open = false)} />
-
-<div class="anchor {className}" bind:this={anchor}>
-  <button class="rights-btn" aria-expanded={open} onclick={() => (open = !open)}>
-    {viewOnly ? "Nur ansehen" : "Rechte"}
-  </button>
-  {#if open}
-    <div class="menu" role="menu">
-      <p class="title">Die Gegenseite darf</p>
-      {#each items as [bit, label] (bit)}
-        <label class="item">
-          <input type="checkbox" checked={(hosted.rights & bit) !== 0} onchange={() => toggle(bit)} />
-          <span>{label}</span>
-        </label>
-      {/each}
-      {#if error}<p class="error">{error}</p>{/if}
-    </div>
-  {/if}
+<div class="rights {className}" role="group" aria-label="Rechte der Gegenseite">
+  {#if viewOnly}<span class="view-only">Nur ansehen</span>{/if}
+  {#each items as [bit, icon, label] (bit)}
+    {@const on = (hosted.rights & bit) !== 0}
+    <button
+      class="right"
+      class:on
+      aria-pressed={on}
+      title={`${label}: ${on ? "erlaubt" : "gesperrt"} (klicken zum ${on ? "Sperren" : "Erlauben"})`}
+      onclick={() => toggle(bit)}
+    >
+      <Icon name={icon} size={14} />
+    </button>
+  {/each}
+  {#if error}<span class="error" title={error}>!</span>{/if}
 </div>
 
 <style>
-  .anchor {
-    position: relative;
+  .rights {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    border-radius: 8px;
   }
 
-  .rights-btn {
-    height: 26px;
-    padding: 0 12px;
-    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  .view-only {
+    padding: 0 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .right {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    border: 0;
     border-radius: 6px;
     background: transparent;
     color: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
+    opacity: 0.45;
+    transition:
+      background 0.12s,
+      opacity 0.12s;
   }
 
-  .menu {
+  /* Struck through while the right is withheld. */
+  .right:not(.on)::after {
+    content: "";
     position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    z-index: 20;
-    min-width: 240px;
-    padding: 8px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--raised);
-    color: var(--ink);
-    box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+    width: 18px;
+    height: 1.5px;
+    background: currentColor;
+    border-radius: 1px;
+    transform: rotate(-45deg);
   }
 
-  .title {
-    margin: 2px 6px 6px;
-    color: var(--ink-2);
-    font-size: 12px;
+  .right.on {
+    background: color-mix(in srgb, currentColor 18%, transparent);
+    opacity: 1;
   }
 
-  .item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 400;
-    cursor: pointer;
-  }
-
-  .item:hover {
-    background: var(--bg);
+  .right:hover {
+    opacity: 1;
+    background: color-mix(in srgb, currentColor 26%, transparent);
   }
 
   .error {
-    margin: 6px;
-    color: var(--bad);
-    font-size: 12px;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--bad);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
   }
 </style>

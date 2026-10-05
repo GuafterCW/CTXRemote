@@ -151,6 +151,8 @@
   async function toggleTunnels() {
     tunnelOpen = !tunnelOpen;
     infoOpen = false;
+    // Keys still held on the remote device would stay pressed while typing in the fields.
+    if (tunnelOpen) send("ReleaseAll");
     if (tunnelOpen) tunnels = await api.listTunnels(session).catch(() => []);
   }
 
@@ -432,7 +434,9 @@
   }
 
   // Keys typed into the chat panel must stay local.
-  const inChat = (e: Event) => e.target instanceof Element && e.target.closest("[data-chat]") !== null;
+  // Typing in the chat or in a field of a panel (port tunnel, …) stays on this computer.
+  const inChat = (e: Event) =>
+    e.target instanceof Element && e.target.closest("[data-chat], input, textarea, select") !== null;
 
   async function sendChat(text: string) {
     await api.sendChat(session, text);
