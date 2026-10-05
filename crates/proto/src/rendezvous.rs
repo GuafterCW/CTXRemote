@@ -10,6 +10,8 @@
 //! * [`ClientMsg::ClaimAlias`]: a device sets (or drops) its public alias,
 //!   proving with its key that it owns its ID. [`ClientMsg::ResolveAlias`]
 //!   looks an alias up. Servers from before aliases close the connection.
+//! * [`ClientMsg::Account`]: an account request (address-book sync, pairing),
+//!   see [`crate::account`].
 //! * [`ClientMsg::UpdateCheck`] / [`ClientMsg::UpdateDownload`]: asks for the
 //!   newest client release (see [`crate::update`]). Servers from before this
 //!   existed close the connection, which clients take as "no update".
@@ -44,6 +46,8 @@ pub enum ServerMsg {
     AliasClaimed(Result<Option<String>, AliasError>),
     /// Answer to `ResolveAlias`.
     AliasResolved(Option<DeviceId>),
+    /// Answer to `Account`.
+    Account(Result<crate::account::AccountReply, crate::account::AccountError>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
@@ -93,6 +97,9 @@ pub enum ClientMsg {
     ResolveAlias { alias: String },
     /// Fetches the release announced for `platform`, if it is still `version`.
     UpdateDownload { platform: String, version: String },
+    /// An account request, signed over the nonce and `op` (see [`crate::account`]).
+    /// Servers from before accounts close the connection.
+    Account { auth: crate::account::DeviceAuth, op: crate::account::AccountOp },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]

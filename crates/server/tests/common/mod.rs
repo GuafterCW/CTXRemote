@@ -1,5 +1,5 @@
 //! Helpers shared by the tests with a real server.
-#![allow(dead_code)]
+#![allow(dead_code, unused_imports)]
 
 pub use std::process::{Child, Command};
 pub use std::sync::mpsc as std_mpsc;

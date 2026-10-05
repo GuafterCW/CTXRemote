@@ -5,6 +5,7 @@
 //! peers run a password-authenticated handshake ([`secure`]) on top, so the
 //! server never sees session content.
 
+pub mod account;
 pub mod framing;
 pub mod reflect;
 pub mod rendezvous;

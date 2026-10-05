@@ -39,6 +39,11 @@ pub struct Config {
     pub direct_listen: bool,
     /// How this user presents themselves when connecting to others.
     pub profile: Option<crate::profile::Profile>,
+    /// Devices removed from the list, with Unix milliseconds, so the account's
+    /// address book does not bring them back (see `crate::account`).
+    pub removed: Vec<(DeviceId, u64)>,
+    /// Set while this user's address book syncs with an account.
+    pub account: Option<crate::account::AccountLink>,
 }
 
 /// The direct-connection part of the settings form.
@@ -61,6 +66,10 @@ pub struct Peer {
     pub name: String,
     /// Unix seconds of the last successful connection, 0 if never connected.
     pub last_seen: u64,
+    /// Unix milliseconds of the last alias change, for merging with the
+    /// account's address book; 0 if never set here.
+    #[serde(default)]
+    pub alias_at: u64,
 }
 
 impl Peer {
@@ -92,6 +101,8 @@ impl Default for Config {
             public_alias: None,
             direct_listen: true,
             profile: None,
+            removed: Vec::new(),
+            account: None,
         }
     }
 }
@@ -228,7 +239,8 @@ impl Config {
             .map_or(0, |d| d.as_secs());
         let alias = self.peer(id).and_then(|p| p.alias.clone());
         self.peers.retain(|p| p.id != id);
-        self.peers.insert(0, Peer { id, alias, name: name.to_string(), last_seen: now });
+        let alias_at = self.peer(id).map_or(0, |p| p.alias_at);
+        self.peers.insert(0, Peer { id, alias, name: name.to_string(), last_seen: now, alias_at });
         self.prune();
     }
 
@@ -249,13 +261,18 @@ impl Config {
                 bail!("„{alias}“ wird bereits für ein anderes Gerät verwendet");
             }
         }
+        let alias_at = crate::account::now_ms();
         match self.peers.iter_mut().find(|p| p.id == id) {
-            Some(peer) => peer.alias = alias.map(Into::into),
+            Some(peer) => {
+                peer.alias = alias.map(Into::into);
+                peer.alias_at = alias_at;
+            }
             None => self.peers.push(Peer {
                 id,
                 alias: alias.map(Into::into),
                 name: String::new(),
                 last_seen: 0,
+                alias_at,
             }),
         }
         self.prune();
@@ -264,6 +281,8 @@ impl Config {
 
     pub fn forget(&mut self, id: DeviceId) {
         self.peers.retain(|p| p.id != id);
+        self.removed.retain(|(r, _)| *r != id);
+        self.removed.push((id, crate::account::now_ms()));
     }
 
     /// Accepts an ID in any grouping or an exact alias (case-insensitive).
@@ -277,7 +296,7 @@ impl Config {
         })
     }
 
-    fn prune(&mut self) {
+    pub(crate) fn prune(&mut self) {
         // Never-connected peers only exist because of their alias.
         self.peers.retain(|p| p.alias.is_some() || p.last_seen > 0);
         let mut unnamed = 0;

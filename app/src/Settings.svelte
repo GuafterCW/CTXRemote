@@ -1,10 +1,11 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { api, errorText, type DirectSettings, type Profile } from "./lib/api";
+  import { api, errorText, type AccountView, type DirectSettings, type Profile } from "./lib/api";
   import Icon from "./lib/Icon.svelte";
   import ProfileCard from "./lib/ProfileCard.svelte";
 
   let {
+    account: initialAccount,
     profile: initialProfile,
     server: initialServer,
     unattended,
@@ -14,6 +15,7 @@
     version,
     onclose,
   }: {
+    account: AccountView | null;
     profile: Profile | null;
     server: string;
     unattended: boolean;
@@ -129,6 +131,41 @@
     }
   }
 
+  // Account actions take effect at once, independent of "Speichern".
+  let account = $state<AccountView | null>(untrack(() => initialAccount));
+  let accountBusy = $state(false);
+  let accountError = $state("");
+  let joining = $state(false);
+  let joinCode = $state("");
+  let pairingCode = $state("");
+
+  async function accountAction(action: () => Promise<unknown>) {
+    accountBusy = true;
+    accountError = "";
+    try {
+      await action();
+      account = (await api.overview()).account ?? null;
+    } catch (err) {
+      accountError = errorText(err);
+    } finally {
+      accountBusy = false;
+    }
+  }
+
+  const createAccount = () => accountAction(() => api.accountCreate());
+  const joinAccount = () =>
+    accountAction(async () => {
+      await api.accountJoin(joinCode);
+      joining = false;
+      joinCode = "";
+    });
+  const showPairingCode = () => accountAction(async () => (pairingCode = await api.accountPairingCode()));
+  const leaveAccount = () =>
+    accountAction(async () => {
+      await api.accountLeave();
+      pairingCode = "";
+    });
+
   async function save(e: SubmitEvent) {
     e.preventDefault();
     saving = true;
@@ -234,6 +271,70 @@
       <span class="note status">{directStatus}</span>
       {#if directError}
         <p class="error">{directError}</p>
+      {/if}
+    </section>
+
+    <section class="group section">
+      <h3>Konto und Geräteliste</h3>
+      {#if account}
+        <span class="note status">
+          Verbunden · {account.devices === 1 ? "1 Gerät" : `${account.devices} Geräte`} im Konto
+        </span>
+        <span class="note">
+          Ihre Geräteliste mit allen Namen ist auf allen Geräten des Kontos gleich. Sie wird verschlüsselt
+          übertragen, der Server kann sie nicht lesen.
+        </span>
+        {#if account.error}
+          <p class="error">Letzter Abgleich fehlgeschlagen: {account.error}</p>
+        {/if}
+        {#if pairingCode}
+          <div class="code-box">
+            <span class="code">{pairingCode}</span>
+            <span class="note">
+              Auf dem anderen Gerät unter Einstellungen → „Mit Code verbinden“ eingeben. Gilt 10 Minuten und
+              nur einmal.
+            </span>
+          </div>
+        {:else}
+          <div class="logo-row">
+            <button type="button" class="btn btn-quiet" disabled={accountBusy} onclick={showPairingCode}>
+              Gerät hinzufügen
+            </button>
+          </div>
+        {/if}
+        <button type="button" class="link-btn" disabled={accountBusy} onclick={leaveAccount}>
+          Dieses Gerät vom Konto abmelden
+        </button>
+      {:else}
+        <span class="note">
+          Mit einem Konto ist Ihre Geräteliste samt Namen auf allen Ihren PCs gleich. Ohne E-Mail und Passwort:
+          weitere Geräte verbinden Sie mit einem Einmal-Code.
+        </span>
+        {#if joining}
+          <div class="logo-row">
+            <input
+              class="field code-field"
+              bind:value={joinCode}
+              placeholder="ABCD-EFGH-JKMN"
+              spellcheck="false"
+              autocomplete="off"
+            />
+            <button type="button" class="btn btn-primary" disabled={accountBusy || joinCode.trim().length < 12} onclick={joinAccount}>
+              Verbinden
+            </button>
+          </div>
+          <span class="note">Den Code zeigt ein Gerät, das schon im Konto ist, unter „Gerät hinzufügen“.</span>
+        {:else}
+          <div class="logo-row">
+            <button type="button" class="btn btn-quiet" disabled={accountBusy} onclick={createAccount}>Konto anlegen</button>
+            <button type="button" class="btn btn-quiet" disabled={accountBusy} onclick={() => (joining = true)}>
+              Mit Code verbinden
+            </button>
+          </div>
+        {/if}
+      {/if}
+      {#if accountError}
+        <p class="error">{accountError}</p>
       {/if}
     </section>
 
@@ -439,6 +540,46 @@
   .logo-row {
     display: flex;
     gap: 8px;
+  }
+
+  .code-field {
+    flex: 1;
+    min-width: 0;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .code-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  .code {
+    font: 600 22px/1.2 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.08em;
+    user-select: all;
+  }
+
+  .link-btn {
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink-3);
+    font-size: 12.5px;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+
+  .link-btn:hover {
+    color: var(--bad);
   }
 
   .error {

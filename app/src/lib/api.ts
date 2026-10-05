@@ -90,6 +90,14 @@ export interface Overview {
   aliasSupported: boolean;
   /** How this user presents themselves when connecting to others. */
   profile: Profile | null;
+  /** Set while the address book syncs with an account (not in the portable helper). */
+  account?: AccountView | null;
+}
+
+export interface AccountView {
+  devices: number;
+  /** Why the last sync failed, if it did. */
+  error: string | null;
 }
 
 export interface DisplayInfo {
@@ -158,6 +166,12 @@ export const api = {
   saveSettings: (server: string, permanentPassword: string | null) =>
     invoke<void>("save_settings", { server, permanentPassword }),
   saveDirect: (settings: DirectSettings) => invoke<void>("save_direct", { settings }),
+  accountCreate: () => invoke<void>("account_create"),
+  /** A one-time code for another device, e.g. "ABCD-EFGH-JKMN"; valid for ten minutes. */
+  accountPairingCode: () => invoke<string>("account_pairing_code"),
+  accountJoin: (code: string) => invoke<void>("account_join", { code }),
+  accountLeave: () => invoke<void>("account_leave"),
+  accountSync: () => invoke<void>("account_sync"),
   /** An empty profile removes it; returns the profile as stored. */
   saveProfile: (profile: Profile) => invoke<Profile | null>("save_profile", { profile }),
   forgetPeer: (id: string) => invoke<void>("forget_peer", { id }),

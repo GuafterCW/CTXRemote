@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(not(feature = "quick"))]
+mod account;
 #[cfg(feature = "quick")]
 mod quick;
 #[cfg(not(feature = "quick"))]
@@ -147,6 +149,9 @@ struct Overview {
     alias_supported: bool,
     /// How this user presents themselves when connecting to others.
     profile: Option<Profile>,
+    /// Set while the address book syncs with an account.
+    #[cfg(not(feature = "quick"))]
+    account: Option<account::AccountView>,
 }
 
 #[derive(Serialize)]
@@ -169,7 +174,9 @@ struct Hosted {
 }
 
 #[tauri::command]
-fn overview(state: State<AppState>) -> Overview {
+fn overview(app: AppHandle, state: State<AppState>) -> Overview {
+    #[cfg(feature = "quick")]
+    let _ = &app;
     let config = state.config.read().unwrap();
     let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles) = match &state.host {
         Side::Local(host) => (
@@ -224,6 +231,8 @@ fn overview(state: State<AppState>) -> Overview {
         public_alias,
         alias_supported: !cfg!(feature = "quick"),
         profile: config.profile.clone(),
+        #[cfg(not(feature = "quick"))]
+        account: account::view(&app),
     }
 }
 
@@ -332,19 +341,30 @@ async fn set_public_alias(state: State<'_, AppState>, alias: Option<String>) -> 
 }
 
 #[tauri::command]
-fn forget_peer(state: State<AppState>, id: String) -> CmdResult<()> {
+fn forget_peer(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<()> {
     let id: DeviceId = id.parse().map_err(err)?;
     let mut config = state.config.write().unwrap();
     config.forget(id);
-    config.save().map_err(err)
+    config.save().map_err(err)?;
+    poke_sync(&app);
+    Ok(())
 }
 
 #[tauri::command]
-fn set_alias(state: State<AppState>, id: String, alias: Option<String>) -> CmdResult<()> {
+fn set_alias(app: AppHandle, state: State<AppState>, id: String, alias: Option<String>) -> CmdResult<()> {
     let id: DeviceId = id.parse().map_err(err)?;
     let mut config = state.config.write().unwrap();
     config.set_alias(id, alias.as_deref()).map_err(err)?;
-    config.save().map_err(err)
+    config.save().map_err(err)?;
+    poke_sync(&app);
+    Ok(())
+}
+
+/// Lets the address book reach the account soon after a change.
+fn poke_sync(app: &AppHandle) {
+    #[cfg(not(feature = "quick"))]
+    app.state::<account::Sync>().poke();
+    let _ = app;
 }
 
 #[tauri::command]
@@ -440,6 +460,7 @@ async fn connect(
         let _ = config.save();
         config.peer(target).map_or(session.host.hostname.clone(), |p| p.label().to_string())
     };
+    poke_sync(&app);
     state.viewers.lock().unwrap().insert(number, Viewer { session, target, link });
 
     WebviewWindowBuilder::new(
@@ -925,9 +946,17 @@ fn main() {
     #[cfg(feature = "quick")]
     let commands: fn(tauri::ipc::Invoke) -> bool = handlers![quick::answer_approval];
     #[cfg(not(feature = "quick"))]
-    let commands: fn(tauri::ipc::Invoke) -> bool = handlers![];
+    let commands: fn(tauri::ipc::Invoke) -> bool = handlers![
+        account::account_create,
+        account::account_pairing_code,
+        account::account_join,
+        account::account_leave,
+        account::account_sync
+    ];
     #[cfg(feature = "quick")]
     let builder = builder.manage(quick::Approvals::default());
+    #[cfg(not(feature = "quick"))]
+    let builder = builder.manage(account::Sync::default());
 
     builder
         .setup(|app| {
@@ -963,6 +992,8 @@ fn main() {
 
             #[cfg(not(feature = "quick"))]
             build_tray(app)?;
+            #[cfg(not(feature = "quick"))]
+            account::start(app.handle());
             // With the service installed, the service updates everything itself.
             #[cfg(not(feature = "quick"))]
             if matches!(app.state::<AppState>().host, Side::Local(_)) {

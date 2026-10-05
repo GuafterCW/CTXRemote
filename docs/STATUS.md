@@ -159,6 +159,15 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
 
 Die Schnellhilfe hatte die Direktverbindung ganz abgeschaltet, weil der TCP-Listener eine Firewall-Abfrage auslösen würde. Gerade beim typischen Fall (helfen bei jemandem zu Hause) lief deshalb alles über den Server. Jetzt läuft sie mit `direct: true, direct_listen: false`: kein TCP-Port, aber der UDP-Weg durch NAT. Siehe `docs/DIRECT.md`.
 
+### Konten und gemeinsame Geräteliste (5. Oktober, Cloud-Sitzung)
+
+Ohne E-Mail und Passwort: Ein Konto ist eine Menge von Geräteschlüsseln, neue Geräte kommen über einen Einmal-Code dazu. Die Geräteliste wird Ende-zu-Ende verschlüsselt abgeglichen. Alles Weitere in `docs/ACCOUNTS.md`.
+
+- **Bedienung:** Einstellungen → „Konto und Geräteliste“: „Konto anlegen“, „Gerät hinzufügen“ (zeigt den Code), „Mit Code verbinden“, „Dieses Gerät vom Konto abmelden“.
+- Server-Update nötig, kommt mit dem Release.
+- Neue Felder in `config.json`: `account`, `removed`, `peers[].alias_at`.
+- Tests: `accounts::tests` im Server und im Kern, sowie `--test accounts` mit echtem Server.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf allen drei Systemen grün sein.
@@ -205,6 +214,11 @@ Die Schnellhilfe hatte die Direktverbindung ganz abgeschaltet, weil der TCP-List
     - Echt: Viewer im Handy-Hotspot, Host zu Hause, ohne Portweiterleitung. Erwartet: „Direkt“ über die öffentliche Adresse des Routers.
     - Bild, Dateien und Chat laufen danach normal, auch nach 5 Minuten ohne Bildänderung (Keep-Alive).
 16. Schnellhilfe direkt: Mit der App auf eine Schnellhilfe in einem anderen Netz verbinden, z. B. über einen Handy-Hotspot. Nach wenigen Sekunden sollte „Direkt“ im Sitzungsfenster stehen. **Kommt bei der Schnellhilfe eine Windows-Firewall-Abfrage?** Das sollte nicht passieren, weil sie nur antwortet und keinen Port öffnet.
+17. Konten: Auf PC A „Konto anlegen“, dann „Gerät hinzufügen“. Auf PC B „Mit Code verbinden“ und den Code eingeben.
+    - Danach muss die Geräteliste beider PCs zusammengeführt sein.
+    - Ein Gerät auf A umbenennen: Spätestens nach wenigen Sekunden muss der neue Name auf B stehen, eventuell nach erneutem Öffnen des Fensters.
+    - Ein Gerät auf B entfernen: Es muss auch auf A verschwinden.
+    - Mit Dienst auf einem der PCs wiederholen.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

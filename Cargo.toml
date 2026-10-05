@@ -42,3 +42,4 @@ opt-level = 3
 
 [profile.dev.package.ctxremote-core]
 opt-level = 3
+

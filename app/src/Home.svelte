@@ -77,6 +77,8 @@
         // The service reports its sessions with its state; resync after a reconnect.
         if (overview?.service) refresh();
       }),
+      // The address book changed through the account's sync.
+      listen("peers-changed", () => refresh()),
       listen<HostEvent>("host-event", (e) => {
         const event = e.payload;
         if (event.kind === "sessionStarted")
@@ -481,6 +483,7 @@
 
 {#if settingsOpen && overview}
   <Settings
+    account={overview.account ?? null}
     profile={overview.profile}
     server={overview.server}
     unattended={overview.unattended}

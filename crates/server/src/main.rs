@@ -10,6 +10,7 @@
 //! Client releases placed in `<data>/updates` (by `update-sign`) are handed
 //! out to clients that ask; see `docs/DEPLOY.md`.
 
+mod accounts;
 mod registry;
 mod updates;
 
@@ -20,6 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
+use ctxremote_proto::account::AccountError;
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::{
     verify_alias_claim, verify_challenge, AliasError, ClientMsg, ServerError, ServerMsg, SessionId,
@@ -33,6 +35,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
+use crate::accounts::Accounts;
 use crate::registry::Registry;
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -45,6 +48,7 @@ const PARALLEL_DOWNLOADS: usize = 8;
 
 struct Server {
     registry: Mutex<Registry>,
+    accounts: Mutex<Accounts>,
     online: Mutex<HashMap<DeviceId, mpsc::Sender<ServerMsg>>>,
     pending: Mutex<HashMap<SessionId, oneshot::Sender<Transport>>>,
     rate: Mutex<HashMap<IpAddr, (Instant, u32)>>,
@@ -84,6 +88,7 @@ async fn main() -> Result<()> {
 
     let server = Arc::new(Server {
         registry: Mutex::new(Registry::open(data.join("devices.json"))?),
+        accounts: Mutex::new(Accounts::open(data.join("accounts.json"))?),
         online: Mutex::default(),
         pending: Mutex::default(),
         rate: Mutex::default(),
@@ -183,6 +188,20 @@ impl Server {
                 }
                 let id = self.registry.lock().unwrap().resolve_alias(&alias);
                 framing::send(&mut t, &ServerMsg::AliasResolved(id)).await
+            }
+            // Rate-limited like connects: pairing codes must not be guessable quickly.
+            ClientMsg::Account { auth, op } => {
+                let result = if !self.allow_connect(peer.ip()) {
+                    Err(AccountError::RateLimited)
+                } else if !ctxremote_proto::account::verify(&auth, &nonce, &op) {
+                    Err(AccountError::BadSignature)
+                } else {
+                    self.accounts.lock().unwrap().handle(auth.public_key, op)
+                };
+                if let Err(e) = &result {
+                    debug!(%peer, "Kontoanfrage abgelehnt: {e}");
+                }
+                framing::send(&mut t, &ServerMsg::Account(result)).await
             }
             ClientMsg::UpdateCheck { platform } => {
                 let info = self.updates.latest(&platform);
