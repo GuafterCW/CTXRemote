@@ -1,6 +1,6 @@
 #[cfg(not(feature = "quick"))]
 mod account;
-#[cfg(all(target_os = "macos", not(feature = "quick")))]
+#[cfg(all(any(target_os = "macos", target_os = "linux"), not(feature = "quick")))]
 mod login_item;
 #[cfg(feature = "quick")]
 mod quick;
@@ -429,7 +429,7 @@ async fn save_settings(
         let mut config = state.config.write().unwrap();
         let changed = config.apply_settings(&server, permanent_password.as_deref()).map_err(err)?;
         config.save().map_err(err)?;
-        #[cfg(all(target_os = "macos", not(feature = "quick")))]
+        #[cfg(all(any(target_os = "macos", target_os = "linux"), not(feature = "quick")))]
         login_item::sync(config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()));
         changed
     };
@@ -1734,7 +1734,7 @@ pub fn run() {
             }
 
             // Follows the app if it was moved, and the setting if changed elsewhere.
-            #[cfg(all(target_os = "macos", not(feature = "quick")))]
+            #[cfg(all(any(target_os = "macos", target_os = "linux"), not(feature = "quick")))]
             login_item::sync(
                 app.state::<AppState>().config.read().unwrap().permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
             );

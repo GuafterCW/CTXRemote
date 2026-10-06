@@ -468,7 +468,8 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
   - Tasten über `keymap::x11_keycode` (evdev + 8).
   - Text wie bei `xdotool`: Freie Tastencodes werden blockweise mit den Zeichen belegt und erst nach einer Pause wieder freigegeben. So liest auch ein Programm, das etwas hinterherhinkt, das richtige Zeichen. Das funktioniert mit jedem Tastaturlayout, Umlaute und € eingeschlossen.
 - **Wayland:** Unter Wayland sieht und bedient der Host nur X11-Programme (XWayland). Das Hauptfenster zeigt dann einen Hinweis, beim Anmelden „Xorg“ bzw. „X11“ zu wählen (`capture::host_limitation`). Ein Wayland-Weg (PipeWire und Portal) wäre ein eigener Schritt.
-- **Noch nicht unter Linux:** Ton vom Host, Privatsphäre-Modus, Zeichnen, Sperren, unbeaufsichtigt als Systemdienst, Autostart.
+- **Autostart:** Mit festem Passwort trägt sich die App in `~/.config/autostart/info.philipp-dev.ctxremote.desktop` ein und startet mit `--tray`. Bei einem AppImage ist das die AppImage-Datei selbst. Das `Exec` ist nach der Desktop-Entry-Spezifikation doppelt maskiert. Ohne Passwort wird der Eintrag entfernt (`login_item.rs`, wie am Mac).
+- **Noch nicht unter Linux:** Ton vom Host, Privatsphäre-Modus, Zeichnen, Sperren, unbeaufsichtigt vor der Anmeldung (Systemdienst).
 - **Geprüft, hier in der Cloud mit Xvfb:**
   - `crates/core/tests/x11.rs`: Aufnahme sieht Gezeichnetes, wartet bei unverändertem Bild, Zeigerform; Maus, Tasten, „alles loslassen“; Text „aÜ€“ und Enter kommen als richtige Zeichen an.
   - `crates/server/tests/linux_host.rs`: eine ganze Sitzung über den echten Server. Der Viewer bekommt Bild und Zeigerform, seine Maus bewegt den X-Zeiger.
@@ -612,12 +613,6 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Strg+C und Strg+V vom PC aus kopieren am Mac.
     - Umlaute tippen und „Zwischenablage eintippen“.
     - Wie flüssig läuft es, und wie hoch ist die CPU-Last am Mac?
-51. Mac-Autostart: Ein festes Passwort setzen (App vorher nach „Programme“ ziehen), abmelden und wieder anmelden. CTXRemote sollte im Tray laufen und erreichbar sein. Passwort entfernen, dann startet sie beim nächsten Anmelden nicht mehr.
-52. Linux-Host: CTXRemote auf einem Linux-PC mit X11-Sitzung starten und von Windows aus verbinden.
-    - Bild und Zeigerformen kommen an.
-    - Klicken, Ziehen und Scrollen funktionieren.
-    - Tippen, auch mit Umlauten und über „Text eintippen“.
-    - Unter Wayland erscheint der Hinweis im Hauptfenster.
 50. Android-Viewer: Die APK aus dem CI-Lauf (Artefakt „CTXRemote-Android“) aufs Handy laden und installieren. Dafür muss die Installation aus unbekannten Quellen erlaubt sein.
     - Mit dem PC verbinden: Kommt das Bild?
     - Tippen klickt, langes Drücken öffnet das Kontextmenü.
@@ -627,6 +622,13 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Die Zurück-Taste von Android beendet die Sitzung.
     - Ton vom PC ist zu hören.
     - Wie flüssig läuft es?
+51. Mac-Autostart: Ein festes Passwort setzen (App vorher nach „Programme“ ziehen), abmelden und wieder anmelden. CTXRemote sollte im Tray laufen und erreichbar sein. Passwort entfernen, dann startet sie beim nächsten Anmelden nicht mehr.
+52. Linux-Host: CTXRemote auf einem Linux-PC mit X11-Sitzung starten und von Windows aus verbinden.
+    - Bild und Zeigerformen kommen an.
+    - Klicken, Ziehen und Scrollen funktionieren.
+    - Tippen, auch mit Umlauten und über „Text eintippen“.
+    - Unter Wayland erscheint der Hinweis im Hauptfenster.
+    - Festes Passwort setzen, ab- und wieder anmelden: CTXRemote läuft im Tray.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.
