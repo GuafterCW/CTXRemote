@@ -69,6 +69,10 @@ struct StoredLogin {
     /// The pending confirmation: SHA-256 of the link's token (hex) and when it expires (Unix seconds).
     #[serde(default)]
     verify: Option<(String, u64)>,
+    /// When the address was set (Unix seconds). Unconfirmed, it only holds
+    /// the address for [`VERIFY_SECS`]; then anyone may register with it.
+    #[serde(default = "unix_now")]
+    since: u64,
 }
 
 impl StoredLogin {
@@ -87,6 +91,7 @@ impl StoredLogin {
             recovery_wrapped: hex::encode(setup.recovery_wrapped),
             verified,
             verify: None,
+            since: unix_now(),
         })
     }
 
@@ -194,6 +199,31 @@ impl Accounts {
         self.commit(before)
     }
 
+    /// Who else holds `email`, if they may lose it: an address nobody
+    /// confirmed within [`VERIFY_SECS`] goes to whoever registers it next, so
+    /// a stranger cannot keep someone's address from them by signing up first.
+    fn stale_holder(&self, email: &str, me: Option<u64>) -> Result<Option<u64>, AccountError> {
+        let Some(&owner) = self.by_email.get(email) else { return Ok(None) };
+        if Some(owner) == me {
+            return Ok(None);
+        }
+        let login = self.stored.accounts.get(&owner).and_then(|a| a.login.as_ref());
+        match login {
+            Some(l) if l.verified || unix_now() < l.since + VERIFY_SECS => Err(AccountError::EmailTaken),
+            _ => Ok(Some(owner)),
+        }
+    }
+
+    /// Takes the unconfirmed login away from `owner` (see [`Self::stale_holder`]).
+    /// Its devices stay in the account.
+    fn release(&mut self, owner: Option<u64>) {
+        let Some(owner) = owner else { return };
+        if let Some(login) = self.stored.accounts.get_mut(&owner).and_then(|a| a.login.take()) {
+            self.by_email.remove(&login.email);
+            tracing::info!(account = owner, "Unbestätigte Adresse freigegeben");
+        }
+    }
+
     /// Sends the confirmation mail again, at most every few minutes.
     pub fn resend_verification(&mut self, account: u64) -> Result<(), AccountError> {
         if self.resent.get(&account).is_some_and(|at| at.elapsed() < RESEND_PAUSE) {
@@ -258,13 +288,12 @@ impl Accounts {
     /// Web sign-up: an account with a login and no devices yet.
     pub fn register_web(&mut self, login: LoginSetup) -> Result<u64, AccountError> {
         let mut login = StoredLogin::from_setup(login, false)?;
-        if self.by_email.contains_key(&login.email) {
-            return Err(AccountError::EmailTaken);
-        }
+        let stale = self.stale_holder(&login.email, None)?;
         let token = login.new_verification();
         let verify = Mail::Verify { to: login.email.clone(), token };
         let id = self.stored.next.max(1);
         let before = self.snapshot();
+        self.release(stale);
         self.stored.next = id + 1;
         self.by_email.insert(login.email.clone(), id);
         self.stored.accounts.insert(id, Account { login: Some(login), ..Default::default() });
@@ -283,14 +312,21 @@ impl Accounts {
         Ok((id, wrapped))
     }
 
-    /// Deletes `account` for good, after the password once more: devices,
-    /// login, list. Its devices find out on their next sync (`NotLinked`).
-    pub fn delete_web(&mut self, account: u64, value: &[u8; 32]) -> Result<(), AccountError> {
+    /// Checks the value derived from `account`'s current password.
+    pub fn confirm_password(&mut self, account: u64, value: &[u8; 32]) -> Result<(), AccountError> {
         let email = self.email(account).ok_or(AccountError::NotLinked)?;
         let (id, _) = self.check_login(&email, value, false)?;
         if id != account {
             return Err(AccountError::WrongPassword);
         }
+        Ok(())
+    }
+
+    /// Deletes `account` for good, after the password once more: devices,
+    /// login, list. Its devices find out on their next sync (`NotLinked`).
+    pub fn delete_web(&mut self, account: u64, value: &[u8; 32]) -> Result<(), AccountError> {
+        self.confirm_password(account, value)?;
+        let (id, email) = (account, self.email(account).ok_or(AccountError::NotLinked)?);
         let before = self.snapshot();
         let removed = self.stored.accounts.remove(&id).expect("checked above");
         for key in &removed.keys {
@@ -405,13 +441,12 @@ impl Accounts {
                     return Err(AccountError::AlreadyLinked);
                 }
                 let mut login = StoredLogin::from_setup(login, false)?;
-                if self.by_email.contains_key(&login.email) {
-                    return Err(AccountError::EmailTaken);
-                }
+                let stale = self.stale_holder(&login.email, None)?;
                 let token = login.new_verification();
                 let verify = Mail::Verify { to: login.email.clone(), token };
                 let id = self.stored.next.max(1);
                 let before = self.snapshot();
+                self.release(stale);
                 self.stored.next = id + 1;
                 let wrapped = hex::decode(&login.wrapped).unwrap_or_default();
                 self.by_email.insert(login.email.clone(), id);
@@ -426,13 +461,13 @@ impl Accounts {
                 let old = self.stored.accounts[&id].login.clone();
                 let same_address = old.as_ref().is_some_and(|o| normalize_email(&login.email).as_deref() == Some(o.email.as_str()));
                 let mut login = StoredLogin::from_setup(login, same_address && old.as_ref().is_some_and(|o| o.verified))?;
-                if self.by_email.get(&login.email).is_some_and(|owner| *owner != id) {
-                    return Err(AccountError::EmailTaken);
-                }
+                let stale = self.stale_holder(&login.email, Some(id))?;
                 let mut mails = Vec::new();
                 if same_address {
-                    // A pending confirmation stays valid with a new password.
+                    // A pending confirmation stays valid with a new password,
+                    // and so does the claim on the address.
                     login.verify = old.as_ref().and_then(|o| o.verify.clone());
+                    login.since = old.as_ref().map_or(login.since, |o| o.since);
                     mails.push(Mail::PasswordChanged { to: login.email.clone() });
                 } else {
                     let token = login.new_verification();
@@ -442,6 +477,7 @@ impl Accounts {
                     }
                 }
                 let before = self.snapshot();
+                self.release(stale);
                 if let Some(old) = &old {
                     self.by_email.remove(&old.email);
                 }
@@ -833,6 +869,27 @@ mod tests {
         assert!(matches!(next(), Some(Mail::Verify { .. })));
         assert_eq!(accounts.resend_verification(id), Err(AccountError::RateLimited));
         assert_eq!(next(), None);
+    }
+
+    #[test]
+    fn unconfirmed_addresses_go_to_the_next_after_two_days() {
+        let mut accounts = Accounts::open(temp(), [0; 32]).unwrap();
+        // A stranger signs up with someone else's address first.
+        let squatter = accounts.register_web(setup("opfer@b.de", 1)).unwrap();
+        assert_eq!(accounts.register_web(setup("opfer@b.de", 2)).err(), Some(AccountError::EmailTaken));
+        // Two days later, unconfirmed, it is free again.
+        accounts.stored.accounts.get_mut(&squatter).unwrap().login.as_mut().unwrap().since -= VERIFY_SECS + 1;
+        let owner = accounts.register_web(setup("opfer@b.de", 2)).unwrap();
+        assert_ne!(owner, squatter);
+        assert!(accounts.stored.accounts[&squatter].login.is_none());
+        assert_eq!(accounts.login_web("opfer@b.de", &[1; 32], false).err(), Some(AccountError::WrongPassword));
+        assert_eq!(accounts.login_web("opfer@b.de", &[2; 32], false).unwrap().0, owner);
+
+        // A confirmed address stays taken for good.
+        let login = accounts.stored.accounts.get_mut(&owner).unwrap().login.as_mut().unwrap();
+        login.verified = true;
+        login.since = 0;
+        assert_eq!(accounts.register_web(setup("opfer@b.de", 3)).err(), Some(AccountError::EmailTaken));
     }
 
     #[test]

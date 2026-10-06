@@ -134,3 +134,25 @@ async fn web_account_round_trip() {
     let (status, _, _) = call(&http, "POST", "/api/register", None, ORIGIN, Some(setup("web@example.org", 7))).await;
     assert_eq!(status, 200);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_older_session_needs_the_password_to_change_the_login() {
+    let (_server, _addr, http) = start_server_with_env(Some(ORIGIN), &[("CTXREMOTE_WEB_FRESH_SECS", "0")]).await;
+    let http = http.unwrap();
+    let (_, cookie, _) = call(&http, "POST", "/api/register", None, ORIGIN, Some(setup("alt@example.org", 1))).await;
+    let cookie = cookie.expect("Sitzungs-Cookie");
+
+    // A stolen cookie alone cannot take the account over.
+    let (status, _, _) = call(&http, "POST", "/api/login-setup", Some(&cookie), ORIGIN, Some(setup("dieb@example.org", 2))).await;
+    assert_eq!(status, 401);
+    let mut wrong = setup("dieb@example.org", 2);
+    wrong["current"] = json!(b64(&[9; 32]));
+    assert_eq!(call(&http, "POST", "/api/login-setup", Some(&cookie), ORIGIN, Some(wrong)).await.0, 401);
+    // The owner knows the password; the session stays valid.
+    let mut right = setup("alt@example.org", 2);
+    right["current"] = json!(b64(&[1; 32]));
+    assert_eq!(call(&http, "POST", "/api/login-setup", Some(&cookie), ORIGIN, Some(right)).await.0, 200);
+    assert_eq!(call(&http, "GET", "/api/book", Some(&cookie), ORIGIN, None).await.0, 200);
+    let login = json!({ "email": "alt@example.org", "auth": b64(&[2; 32]) });
+    assert_eq!(call(&http, "POST", "/api/login", None, ORIGIN, Some(login)).await.0, 200);
+}

@@ -85,6 +85,11 @@ pub async fn start_server() -> (Server, String) {
 /// Like [`start_server`]; with `origin`, also serves the web API on a free
 /// port (returned) and accepts that origin.
 pub async fn start_server_with_web(origin: Option<&str>) -> (Server, String, Option<String>) {
+    start_server_with_env(origin, &[]).await
+}
+
+/// Like [`start_server_with_web`], with extra environment for the server.
+pub async fn start_server_with_env(origin: Option<&str>, env: &[(&str, &str)]) -> (Server, String, Option<String>) {
     let port = free_port();
     // Fresh each time: a folder left from an earlier run with this port would
     // bring its accounts along (an address "already taken").
@@ -97,6 +102,7 @@ pub async fn start_server_with_web(origin: Option<&str>) -> (Server, String, Opt
     let http = origin.map(|_| format!("127.0.0.1:{}", free_port()));
     let mut command = Command::new(env!("CARGO_BIN_EXE_ctxremote-server"));
     command.args(["--listen", &format!("127.0.0.1:{port}"), "--data"]).arg(&data);
+    command.envs(env.iter().copied());
     match (&http, origin) {
         (Some(http), Some(origin)) => command.args(["--http", http, "--web-origin", origin]),
         _ => command.arg("--no-http"),

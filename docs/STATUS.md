@@ -86,13 +86,15 @@
 - Der Wiederherstellungscode funktioniert auch bei gesperrtem Konto.
 - Die Unit hat `LimitNOFILE` und `UMask`. Auf dem bestehenden Server muss der Nutzer das einmal per `systemctl edit` nachtragen, siehe `docs/DEPLOY.md`, „Grenzen für Verbindungen“.
 
+Danach ebenfalls umgesetzt:
+- Eine nicht bestätigte Adresse gehört ihrem Konto nur 48 Stunden (`StoredLogin::since`). Danach kann sie jemand anderes registrieren, und das alte Konto verliert die Anmeldung, behält aber seine Geräte. So kann niemand eine fremde Adresse dauerhaft blockieren. `EmailTaken` verrät weiter, dass es die Adresse gibt; das ist so gewollt.
+- Im Webinterface braucht eine Änderung von Adresse oder Passwort das aktuelle Passwort, außer in den ersten 10 Minuten nach der Anmeldung oder Wiederherstellung (`FRESH`). Im Formular gibt es dafür das Feld „Aktuelles Passwort“.
+
 Noch offen aus der Durchsicht, nach Wichtigkeit:
-1. Registrieren ohne Adressbeweis sperrt die Adresse für den echten Besitzer und verrät per `EmailTaken`, welche Adressen ein Konto haben. Lösung: die Adresse erst mit der Bestätigung binden.
-2. `SetLogin` im Webinterface verlangt nicht das alte Passwort.
-3. Kontosperre pro Konto statt pro Konto und Adresse.
-4. `devices.json` und die Konten werden bei jeder Änderung ganz neu geschrieben, unter der Sperre.
-5. Der Relay hat kein Leerlauf-Ende.
-6. Klartext-Verbindungen für alte Clients abschalten.
+1. Kontosperre pro Konto statt pro Konto und Adresse.
+2. `devices.json` und die Konten werden bei jeder Änderung ganz neu geschrieben, unter der Sperre.
+3. Der Relay hat kein Leerlauf-Ende.
+4. Klartext-Verbindungen für alte Clients abschalten.
 
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 

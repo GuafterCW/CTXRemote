@@ -31,6 +31,8 @@ const COOKIE: &str = "ctx_session";
 const IDLE: Duration = Duration::from_secs(12 * 3600);
 /// … and after this long in any case.
 const ABSOLUTE: Duration = Duration::from_secs(7 * 24 * 3600);
+/// How long after signing in the login may change without the password.
+const FRESH: Duration = Duration::from_secs(10 * 60);
 
 /// Signed-in browsers: SHA-256 of the cookie → session. In memory only, so a
 /// server restart signs everyone out of the web interface.
@@ -58,6 +60,19 @@ impl Sessions {
         sessions.retain(|_, s| now.duration_since(s.seen) < IDLE && now.duration_since(s.created) < ABSOLUTE);
         sessions.insert(Sha256::digest(token).into(), Session { account, created: now, seen: now, pad });
         (URL_SAFE_NO_PAD.encode(token), pad)
+    }
+
+    /// Whether the session began moments ago, with the password or the
+    /// recovery code; then changing the login needs no password again.
+    fn fresh(&self, headers: &HeaderMap) -> bool {
+        let Some(token) = cookie(headers).and_then(|c| URL_SAFE_NO_PAD.decode(c).ok()) else { return false };
+        let hash: [u8; 32] = Sha256::digest(token).into();
+        // Tests shorten the window instead of waiting ten minutes.
+        #[cfg(debug_assertions)]
+        let window = std::env::var("CTXREMOTE_WEB_FRESH_SECS").ok().and_then(|v| v.parse().ok()).map_or(FRESH, Duration::from_secs);
+        #[cfg(not(debug_assertions))]
+        let window = FRESH;
+        self.0.lock().unwrap().get(&hash).is_some_and(|s| s.created.elapsed() < window)
     }
 
     fn account(&self, headers: &HeaderMap) -> Option<u64> {
@@ -482,16 +497,37 @@ async fn remove_device(
     Ok(Json(json!({ "ok": true })))
 }
 
+#[derive(Deserialize)]
+struct SetLoginJson {
+    #[serde(flatten)]
+    setup: SetupJson,
+    /// The value derived from the current password (base64); needed unless
+    /// the session has just begun.
+    #[serde(default)]
+    current: Option<String>,
+}
+
 /// A new password or address: other browser sessions end, this one stays.
+/// A stolen cookie alone does not get that far: after the first minutes of
+/// a session, the current password is needed too.
 async fn set_login(
     State(api): State<Api>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    Json(body): Json<SetupJson>,
+    Json(body): Json<SetLoginJson>,
 ) -> ApiResult<Json<serde_json::Value>> {
     api.guard(&Method::POST, &headers, peer)?;
     let id = api.signed_in(&headers)?;
-    api.op(id, AccountOp::SetLogin { login: body.into() })?;
+    if !api.sessions.fresh(&headers) {
+        let current: [u8; 32] = body
+            .current
+            .as_deref()
+            .and_then(|c| B64.decode(c).ok())
+            .and_then(|c| c.try_into().ok())
+            .ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "Bitte das aktuelle Passwort angeben".into()))?;
+        api.server.accounts.lock().unwrap().confirm_password(id, &current)?;
+    }
+    api.op(id, AccountOp::SetLogin { login: body.setup.into() })?;
     api.sessions.end_all(id, Some(&headers));
     debug!(account = id, "Anmeldung im Web geändert");
     Ok(Json(json!({ "ok": true })))
