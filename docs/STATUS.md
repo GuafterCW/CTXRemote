@@ -1,6 +1,41 @@
 # Projektstand CTXRemote
 
-Stand: 4. Oktober 2026. Übergabenotiz, damit die Arbeit auf einem anderen Rechner nahtlos weitergehen kann.
+Übergabenotiz, damit die Arbeit auf einem anderen Rechner oder in einer neuen Sitzung nahtlos weitergehen kann. Die Abschnitte darunter sind chronologisch, das Neueste steht jeweils am Ende des Verlaufs.
+
+## Übergabe: Stand 6. Oktober 2026, mittags (zuerst lesen)
+
+**Wo der Code steht:**
+- Gearbeitet wurde auf dem Branch `claude/vigilant-lovelace-rvm0ax`. Die CI ist grün auf Windows, Linux (mit virtuellem Bildschirm), macOS, Android und iOS.
+- `master` = Release: Jeder Push dort liefert den Server aus, aktualisiert alle installierten Windows-Geräte automatisch und baut die Website neu (`.github/workflows/release.yml`, `docs/DEPLOY.md`). Vor einem Push nach `master` den Nutzer fragen.
+- Am 6. Oktober mittags lief eine Fehlerdurchsicht aller Änderungen des Tages. Danach sollte der Branch nach `master` (Fast-Forward). Ob das geschehen ist, zeigt `git log origin/master`.
+
+**Neu am 6. Oktober, alles nur per Build, CI und Tests geprüft, nicht an echten Geräten** (Details in den Abschnitten weiter unten):
+- **macOS:** Viewer und Host (CGDisplayStream, CGEvent, Freigaben-Karte), Autostart als LaunchAgent bei festem Passwort.
+- **Android:** Viewer mit einem Fenster, Touch-Gesten (`app/src/lib/touch.ts`, 12 Tests mit `npm test`), Bildschirmtastatur mit Sondertasten und Zwischenablage. Die CI baut eine signierte Release-APK (Artefakt „CTXRemote-Android“).
+- **iOS:** Der Code kompiliert (CI-Job `ios`). Eine installierbare App braucht ein Apple-Entwicklerkonto.
+- **Linux-Host über X11:** echt getestet auf Xvfb, inklusive einer ganzen Sitzung über den Server (`crates/server/tests/linux_host.rs`). Unter Wayland erscheint ein Hinweis. Autostart über `~/.config/autostart`.
+- **Behoben:** Gleichzeitiges Speichern der Konfiguration hat sich die Zwischendatei weggenommen (`Config::save`, mit Test).
+
+**Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
+
+**Offen beim Nutzer:**
+- **Android-Signaturschlüssel** als Secrets `ANDROID_KEYSTORE` (base64 der .jks) und `ANDROID_KEYSTORE_PASSWORD`. Ohne sie signiert die CI jede APK mit einem Wegwerf-Schlüssel, und vor jedem Update muss die alte App deinstalliert werden.
+- **Apple-Entwicklerkonto** (99 $ im Jahr): für iOS und für einen Mac-Download ohne Warnung.
+- **Code-Signatur Windows:** siehe „Offene Entscheidungen“.
+
+**Arbeitsweise mit dem Nutzer:**
+- Er schreibt Deutsch, kurz und oft vom Handy.
+- Antworten sollen kurz und ohne Fachjargon sein. Klar sagen, was getestet ist und was nicht.
+- Er testet selbst an Windows-PC, Mac, Android und Linux, sobald die Geräte da sind.
+- Er will, dass selbstständig weitergearbeitet wird, aber kein ungetesteter Stapel entsteht.
+
+**Lokal statt in der Cloud weitermachen:**
+- Windows: siehe „Entwicklungsumgebung (Windows)“ am Ende dieser Datei.
+- Ohne Windows-Rechner prüfen `scripts/check-windows.sh` und `scripts/check-macos.sh` unter Linux auf Typfehler.
+- Tests: `cargo test -p ctxremote-proto -p ctxremote-core -p ctxremote-server`. Unter Linux mit `xvfb-run -a -s "-noreset -screen 0 1280x800x24" …`, damit die X11-Tests nicht übersprungen werden.
+- Frontend: in `app/` `npm run check && npm test && npm run build`.
+- Android lokal braucht Android Studio (SDK und NDK, `NDK_HOME` setzen) und Java 17. Dann `npx tauri android init` (das erzeugt `app/src-tauri/gen`, nicht eingecheckt) und `npx tauri android dev` bzw. `build --apk`.
+- macOS lokal: `npm run tauri dev` in `app/`.
 
 ## Fertig
 
