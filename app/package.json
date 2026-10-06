@@ -8,7 +8,8 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
-    "build:quick": "tauri build --no-bundle --features quick --config src-tauri/tauri.quick.conf.json"
+    "build:quick": "tauri build --no-bundle --features quick --config src-tauri/tauri.quick.conf.json",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test src/lib/*.test.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

@@ -40,7 +40,11 @@ export class TouchControl {
   private gesture = { dist: 1, mid: { x: 0, y: 0 }, lastMid: { x: 0, y: 0 }, zoom: 1, pan: { x: 0, y: 0 }, kind: null as null | "zoom" | "scroll" };
   private wheel = { dx: 0, dy: 0 };
 
-  constructor(private target: TouchTarget) {}
+  private target: TouchTarget;
+
+  constructor(target: TouchTarget) {
+    this.target = target;
+  }
 
   /** Back to the whole screen. */
   resetView() {
