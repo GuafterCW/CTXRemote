@@ -222,7 +222,9 @@ export type InputEvent =
   | { MouseButton: { button: MouseButton; down: boolean } }
   | { Wheel: { dx: number; dy: number } }
   | { Key: { code: string; down: boolean } }
-  | "ReleaseAll";
+  | "ReleaseAll"
+  /** Typed as text, whatever the host's keyboard layout (hosts with `typeText`). */
+  | { Text: string };
 
 export type FileKind = "File" | "Dir" | "Drive" | "Place";
 

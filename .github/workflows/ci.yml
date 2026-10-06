@@ -71,6 +71,51 @@ jobs:
           path: target/release/bundle/dmg/*.dmg
           retention-days: 14
 
+  # The Android viewer as an installable debug APK (signed with the debug
+  # key: fine for trying, not for the Play Store).
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Frontend
+        working-directory: app
+        run: npm ci
+      - name: Android-Projekt anlegen
+        working-directory: app
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: npx tauri android init --ci
+      - name: APK
+        working-directory: app
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: npx tauri android build --apk --debug --target aarch64
+      - name: APK einsammeln
+        run: |
+          mkdir out
+          find app/src-tauri/gen/android -name '*.apk' -exec cp {} out/CTXRemote.apk \;
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CTXRemote-Android
+          path: out/CTXRemote.apk
+          retention-days: 14
+
   # The web interface (website/konto): types, build, and the check that the
   # browser derives the same keys as the app.
   web:

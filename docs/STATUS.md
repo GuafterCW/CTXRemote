@@ -432,6 +432,23 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
   - Zeigerformen getrennt vom Bild
 - Geprüft: nur Typprüfung (`scripts/check-macos.sh`) und Unit-Test der Tastenzuordnung.
 
+### Android-Viewer, Schritt 1 (6. Oktober, Cloud-Sitzung)
+
+- **App als Bibliothek:** `app/src-tauri/src/lib.rs` (`ctxremote_lib::run`) mit `mobile_entry_point`. `main.rs` ruft nur noch `run()` auf. Tray, Menü, Single-Instance und Minimieren gibt es nur auf dem Desktop (`#[cfg(desktop)]`).
+- **Ein Fenster:** Auf dem Handy öffnen Sitzung und Dateien kein eigenes Fenster. Das Hauptfenster wechselt die Ansicht (`show_in_main`), und die Sitzungsereignisse gehen an `main` (`session_label`). „Zurück“ beendet die Sitzung und führt zur Startseite. Androids Zurück-Taste funktioniert über `hashchange`.
+- **Zwischenablage:** `arboard` gibt es auf dem Handy nicht. Die Zwischenablage ist dort vorerst aus (Stubs in `clipboard.rs`).
+- **Konfiguration:** Sie liegt im App-Ordner (`app_config_dir`), gesetzt über `Config::use_path`.
+- **Startseite:** einspaltig mit „Fernsteuern“ und Geräteliste. „Dieses Gerät“ fehlt, weil das Handy nur Viewer ist.
+- **Touch** (`app/src/lib/touch.ts`):
+  - Tippen ist ein Klick, langes Drücken ein Rechtsklick.
+  - Ziehen hält die linke Taste.
+  - Zwei Finger scrollen, Spreizen zoomt das Bild, und im Zoom verschieben zwei Finger es.
+  - Schwebende Knöpfe: Leiste, Tastatur, ganzes Bild.
+  - Die Tastatur ist ein verstecktes Feld (Unicode-Text über `InputEvent::Text`) mit einer Leiste für Esc, Tab, Pfeile, Entf, Pos1 und Ende sowie Strg, Alt, Win und Umschalt, die bis zur nächsten Taste gehalten werden.
+- **Android-Konfiguration:** `tauri.android.conf.json` setzt die Kennung ohne Bindestrich (`info.philippdev.ctxremote`).
+- **CI:** Job `android` baut eine Debug-APK für arm64 (Artefakt „CTXRemote-Android“). Sie ist mit dem Debug-Schlüssel signiert und direkt installierbar, ist aber nicht für den Play Store.
+- Geprüft: Typprüfung für Android (`cargo check --target aarch64-linux-android` mit Ersatz-Compiler) und Screenshots der Oberfläche im Handyformat. Auf einem echten Gerät noch nicht.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -568,6 +585,15 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Strg+C und Strg+V vom PC aus kopieren am Mac.
     - Umlaute tippen und „Zwischenablage eintippen“.
     - Wie flüssig läuft es, und wie hoch ist die CPU-Last am Mac?
+50. Android-Viewer: Die APK aus dem CI-Lauf (Artefakt „CTXRemote-Android“) aufs Handy laden und installieren. Dafür muss die Installation aus unbekannten Quellen erlaubt sein.
+    - Mit dem PC verbinden: Kommt das Bild?
+    - Tippen klickt, langes Drücken öffnet das Kontextmenü.
+    - Zwei Finger scrollen, Spreizen zoomt.
+    - Tastatur-Knopf: Tippen mit Umlauten, Enter und Rücktaste.
+    - Strg in der Leiste, dann C: kopiert am PC.
+    - Die Zurück-Taste von Android beendet die Sitzung.
+    - Ton vom PC ist zu hören.
+    - Wie flüssig läuft es?
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

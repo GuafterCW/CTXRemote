@@ -724,6 +724,24 @@
     min-height: 0;
   }
 
+  /* Phones only view others: one column with the connect box and devices. */
+  :global(body.mobile) main {
+    display: block;
+    overflow-y: auto;
+  }
+
+  :global(body.mobile) .this-device {
+    display: none;
+  }
+
+  :global(body.mobile) section {
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  }
+
+  :global(body.mobile) .connect {
+    max-width: none;
+  }
+
   .this-device {
     display: flex;
     flex-direction: column;

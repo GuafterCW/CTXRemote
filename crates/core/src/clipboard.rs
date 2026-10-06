@@ -1,3 +1,4 @@
+#![cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code, unused_imports))]
 //! Clipboard synchronisation between viewer and host: text and images both
 //! ways, and on the host also files copied there (see `HostMsg::ClipboardFiles`).
 //! Images travel as PNG.
@@ -76,8 +77,20 @@ impl ClipboardSync {
         Self::start_with_files(send_initial, on_change, None, None)
     }
 
+    /// No system clipboard on phones yet.
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    pub fn start_with_files(
+        _send_initial: bool,
+        _on_change: impl Fn(String) + Send + 'static,
+        _on_files: Option<OnFiles>,
+        _on_image: Option<OnImage>,
+    ) -> Option<Self> {
+        None
+    }
+
     /// Like [`ClipboardSync::start`], and `on_files` hears of files copied
     /// here, `on_image` of images.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn start_with_files(
         send_initial: bool,
         on_change: impl Fn(String) + Send + 'static,
@@ -194,6 +207,7 @@ impl ClipboardSync {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn image_hash(image: &arboard::ImageData) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -202,6 +216,7 @@ fn image_hash(image: &arboard::ImageData) -> u64 {
     hasher.finish()
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 /// The image as PNG, if it is within the limits.
 fn encode_png(image: &arboard::ImageData) -> Option<Vec<u8>> {
     let (w, h) = (image.width, image.height);
@@ -221,6 +236,7 @@ fn encode_png(image: &arboard::ImageData) -> Option<Vec<u8>> {
     (out.len() <= MAX_IMAGE_BYTES).then_some(out)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 /// Decodes a PNG to RGBA, refusing what is beyond the limits.
 fn decode_png(data: &[u8]) -> Option<arboard::ImageData<'static>> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(data));
@@ -244,19 +260,38 @@ fn decode_png(data: &[u8]) -> Option<arboard::ImageData<'static>> {
 }
 
 /// The text on this computer's clipboard, if it holds non-empty text.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn local_text() -> Option<String> {
     arboard::Clipboard::new().and_then(|mut c| c.get_text()).ok().filter(|t| !t.is_empty())
 }
 
 /// The files on this computer's clipboard, if it holds files.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn local_files() -> Vec<PathBuf> {
     arboard::Clipboard::new().and_then(|mut c| c.get().file_list()).unwrap_or_default()
 }
 
 /// Puts files on this computer's clipboard.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn set_local_files(files: &[PathBuf]) -> anyhow::Result<()> {
     arboard::Clipboard::new()?.set().file_list(files)?;
     Ok(())
+}
+
+// Phones have no clipboard access here yet.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn local_text() -> Option<String> {
+    None
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn local_files() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn set_local_files(_: &[PathBuf]) -> anyhow::Result<()> {
+    anyhow::bail!("Auf dem Handy nicht verfügbar")
 }
 
 /// Changes with every clipboard update; `None` where the platform has no such counter.
@@ -302,6 +337,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     fn png_round_trip() {
         let bytes: Vec<u8> = (0..3 * 2 * 4).map(|i| (i * 11) as u8).collect();
         let image = arboard::ImageData { width: 3, height: 2, bytes: bytes.clone().into() };

@@ -6,6 +6,7 @@
   import FilePane from "./lib/FilePane.svelte";
   import { formatProgress } from "./lib/format";
   import Icon from "./lib/Icon.svelte";
+  import { MOBILE } from "./lib/platform";
 
   let { session }: { session: number } = $props();
 
@@ -192,6 +193,11 @@
 
 <main>
   <header>
+    {#if MOBILE}
+      <button class="btn btn-quiet" onclick={() => (location.hash = `#/session/${session}`)}>
+        <Icon name="arrowLeft" size={16} /> Zur Sitzung
+      </button>
+    {/if}
     <h1>Dateien</h1>
     {#if note}<span class="note" role="alert">{note}</span>{/if}
   </header>

@@ -27,7 +27,6 @@ openh264 = "0.9"
 openh264-sys2 = "0.9"
 directories = "6"
 whoami = "1"
-arboard = { version = "3", default-features = false, features = ["image-data"] }
 png = "0.18"
 socket2 = "0.6"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
@@ -75,6 +74,10 @@ features = [
 
 [dev-dependencies]
 tokio.workspace = true
+
+# Phones have no arboard; their clipboard comes later through the app.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+arboard = { version = "3", default-features = false, features = ["image-data"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = { version = "0.25", features = ["highsierra"] }

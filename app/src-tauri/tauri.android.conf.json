@@ -1,0 +1,12 @@
+{
+  "identifier": "info.philippdev.ctxremote",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "CTXRemote",
+        "visible": true
+      }
+    ]
+  }
+}

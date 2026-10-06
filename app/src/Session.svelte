@@ -11,6 +11,8 @@
   import { SoundPlayer } from "./lib/sound";
   import { MicSender } from "./lib/mic";
   import { readIdleMinutes } from "./lib/idle";
+  import { MOBILE, goHome } from "./lib/platform";
+  import { TouchControl } from "./lib/touch";
 
   let { session }: { session: number } = $props();
 
@@ -67,8 +69,8 @@
     reError = "";
     try {
       await api.reconnect(session, askPassword ? rePassword : undefined, askCode ? reCode : undefined);
-      // The new session has its own window.
-      await appWindow.close();
+      // The new session has its own window (on a phone it already took this one).
+      if (!MOBILE) await appWindow.close();
     } catch (err) {
       const text = errorText(err);
       if (text === CODE_NEEDED) {
@@ -369,7 +371,129 @@
     }
   }
 
+  /** Phones: the local view's zoom and offset, set by pinching. */
+  let view = $state({ zoom: 1, x: 0, y: 0 });
+  const fingers = new TouchControl({
+    toRemote: (clientX, clientY) => toRemote({ clientX, clientY } as MouseEvent),
+    send: (event) => {
+      if (streaming && !drawing) send(event);
+    },
+    view: (zoom, x, y) => (view = { zoom, x, y }),
+  });
+
+  /** Phones: the system keyboard, through a hidden field, and a row of extra keys. */
+  let keyboardOpen = $state(false);
+  let typing = $state<HTMLTextAreaElement>();
+  /** Modifiers pressed on the extra keys, held for the next key or text. */
+  let sticky = $state<Set<string>>(new Set());
+  // The field always holds this; what is added or removed is typed or deleted.
+  const SENTINEL = "\u200b";
+
+  function toggleKeyboard() {
+    keyboardOpen = !keyboardOpen;
+    if (keyboardOpen) {
+      tick().then(() => {
+        if (typing) {
+          typing.value = SENTINEL;
+          typing.focus();
+        }
+      });
+    } else {
+      typing?.blur();
+    }
+  }
+
+  /** A key with the held modifiers, which are let go afterwards. */
+  function pressKey(code: string) {
+    const mods = [...sticky];
+    for (const m of mods) send({ Key: { code: m, down: true } });
+    send({ Key: { code, down: true } });
+    send({ Key: { code, down: false } });
+    for (const m of mods.reverse()) send({ Key: { code: m, down: false } });
+    if (mods.length) sticky = new Set();
+  }
+
+  function toggleSticky(code: string) {
+    const next = new Set(sticky);
+    if (next.has(code)) next.delete(code);
+    else next.add(code);
+    sticky = next;
+  }
+
+  function typeText(text: string) {
+    if (!text) return;
+    // With Ctrl or Alt held, letters are shortcuts: send them as keys.
+    if (sticky.size > 0 && /^[a-z0-9]$/i.test(text)) {
+      pressKey(/[0-9]/.test(text) ? `Digit${text}` : `Key${text.toUpperCase()}`);
+      return;
+    }
+    if (features.typeText) {
+      send({ Text: text });
+    } else {
+      for (const c of text) {
+        if (/[a-z]/i.test(c)) pressKey(`Key${c.toUpperCase()}`);
+        else if (/[0-9]/.test(c)) pressKey(`Digit${c}`);
+        else if (c === " ") pressKey("Space");
+      }
+    }
+  }
+
+  let composing = false;
+  function onTypingInput() {
+    if (!typing || composing) return;
+    const value = typing.value;
+    if (value.length < SENTINEL.length || !value.startsWith(SENTINEL)) {
+      // The sentinel itself was deleted: Backspace.
+      const removed = Math.max(1, SENTINEL.length - value.length);
+      for (let i = 0; i < removed; i++) pressKey("Backspace");
+    } else {
+      typeText(value.slice(SENTINEL.length).replace(/\n/g, ""));
+      if (value.includes("\n")) pressKey("Enter");
+    }
+    typing.value = SENTINEL;
+  }
+
+  function onTypingKey(e: KeyboardEvent) {
+    // Keys the system keyboard reports as such (not as text).
+    if (e.key === "Enter") {
+      e.preventDefault();
+      pressKey("Enter");
+    } else if (e.key === "Backspace" && typing?.value === SENTINEL) {
+      e.preventDefault();
+      pressKey("Backspace");
+    }
+  }
+
+  const EXTRA_KEYS: [string, string][] = [
+    ["Escape", "Esc"],
+    ["Tab", "Tab"],
+    ["ArrowLeft", "←"],
+    ["ArrowUp", "↑"],
+    ["ArrowDown", "↓"],
+    ["ArrowRight", "→"],
+    ["Delete", "Entf"],
+    ["Home", "Pos1"],
+    ["End", "Ende"],
+  ];
+  const STICKY_KEYS: [string, string][] = [
+    ["ControlLeft", "Strg"],
+    ["AltLeft", "Alt"],
+    ["MetaLeft", "Win"],
+    ["ShiftLeft", "⇧"],
+  ];
+
   onMount(() => {
+    if (MOBILE && canvas) {
+      // Not passive: the page must not scroll or zoom itself under the fingers.
+      const opts = { passive: false } as const;
+      const start = (e: TouchEvent) => fingers.onStart(e);
+      const move = (e: TouchEvent) => fingers.onMove(e);
+      const end = (e: TouchEvent) => fingers.onEnd(e);
+      canvas.addEventListener("touchstart", start, opts);
+      canvas.addEventListener("touchmove", move, opts);
+      canvas.addEventListener("touchend", end, opts);
+      canvas.addEventListener("touchcancel", end, opts);
+    }
     const player = new Player(
       canvas!,
       () => api.requestKeyframe(session),
@@ -553,6 +677,8 @@
 
   function onMove(e: PointerEvent) {
     if (!streaming) return;
+    // Fingers are handled by `fingers`.
+    if (e.pointerType === "touch") return;
     if (drawing) return drawMove(e);
     if (pendingMove === null) requestAnimationFrame(flushMove);
     pendingMove = toRemote(e);
@@ -782,7 +908,17 @@
 
   async function disconnect() {
     await api.disconnect(session);
-    await appWindow.close();
+    await closeView();
+  }
+
+  /** The window on a computer; on a phone, back to the start page. */
+  async function closeView() {
+    if (MOBILE) {
+      await api.disconnect(session).catch(() => {});
+      goHome();
+    } else {
+      await appWindow.close();
+    }
   }
 
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -818,6 +954,8 @@
     style:cursor={drawing ? "crosshair" : streaming ? cursor : "default"}
     style:max-width={scaleMode === "fit" && video.width ? `${video.width / devicePixelRatio}px` : null}
     style:max-height={scaleMode === "fit" && video.height ? `${video.height / devicePixelRatio}px` : null}
+    style:transform={MOBILE && view.zoom > 1 ? `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` : null}
+    class:touch={MOBILE}
     tabindex="-1"
     onpointermove={onMove}
     onmousedown={(e) => onButton(e, true)}
@@ -847,7 +985,7 @@
           {/if}
           {#if reError}<p class="again-error">{reError}</p>{/if}
           <div class="again-actions">
-            <button type="button" class="btn btn-quiet" onclick={() => appWindow.close()}>Fenster schließen</button>
+            <button type="button" class="btn btn-quiet" onclick={closeView}>{MOBILE ? "Zurück" : "Fenster schließen"}</button>
             <button class="btn btn-primary" disabled={reconnecting}>{reconnecting ? "Verbinde …" : "Erneut verbinden"}</button>
           </div>
         </form>
@@ -1170,6 +1308,48 @@
       />
     </div>
   {/if}
+  {#if MOBILE && streaming && closed === null}
+    <div class="phone-controls">
+      <button class="phone-btn" title="Leiste" onclick={() => (toolbarVisible = !toolbarVisible)}>
+        <Icon name="sliders" size={18} />
+      </button>
+      {#if can(RIGHT.INPUT)}
+        <button class="phone-btn" class:active={keyboardOpen} title="Tastatur" onclick={toggleKeyboard}>
+          <Icon name="keyboard" size={18} />
+        </button>
+      {/if}
+      {#if view.zoom > 1}
+        <button class="phone-btn" title="Ganzes Bild" onclick={() => fingers.resetView()}>
+          <Icon name="shrink" size={18} />
+        </button>
+      {/if}
+    </div>
+    {#if keyboardOpen}
+      <textarea
+        bind:this={typing}
+        class="typing"
+        autocapitalize="off"
+        autocomplete="off"
+        spellcheck="false"
+        oninput={onTypingInput}
+        onkeydown={onTypingKey}
+        oncompositionstart={() => (composing = true)}
+        oncompositionend={() => {
+          composing = false;
+          onTypingInput();
+        }}
+        onblur={() => (keyboardOpen = false)}
+      ></textarea>
+      <div class="extra-keys" role="toolbar" aria-label="Sondertasten">
+        {#each STICKY_KEYS as [code, label] (code)}
+          <button class:held={sticky.has(code)} onpointerdown={(e) => e.preventDefault()} onclick={() => toggleSticky(code)}>{label}</button>
+        {/each}
+        {#each EXTRA_KEYS as [code, label] (code)}
+          <button onpointerdown={(e) => e.preventDefault()} onclick={() => pressKey(code)}>{label}</button>
+        {/each}
+      </div>
+    {/if}
+  {/if}
 </div>
 
 <style>
@@ -1198,6 +1378,92 @@
 
   canvas.live {
     opacity: 1;
+  }
+
+  /* Phones: fingers are handled in code; the view zooms from its corner. */
+  canvas.touch {
+    touch-action: none;
+    transform-origin: 0 0;
+  }
+
+  .phone-controls {
+    position: absolute;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .phone-btn {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border: 1px solid #2f2e2b;
+    border-radius: 50%;
+    background: rgb(24 24 22 / 0.85);
+    color: #d8d6d0;
+  }
+
+  .phone-btn.active {
+    background: #2c2c29;
+    color: #fff;
+  }
+
+  /* Off screen but focusable, so the system keyboard opens. */
+  .typing {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    border: 0;
+    padding: 0;
+    font-size: 16px;
+  }
+
+  .extra-keys {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    gap: 4px;
+    padding: 6px;
+    overflow-x: auto;
+    background: #181816;
+    border-top: 1px solid #2f2e2b;
+  }
+
+  .extra-keys button {
+    flex: none;
+    min-width: 44px;
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid #3b3a37;
+    border-radius: 6px;
+    background: #222220;
+    color: #edebe6;
+    font-size: 14px;
+  }
+
+  .extra-keys button.held {
+    background: #4fb495;
+    border-color: #4fb495;
+    color: #0b0b0a;
+  }
+
+  :global(body.mobile) .toolbar {
+    max-width: calc(100vw - 16px);
+    overflow-x: auto;
+  }
+
+  /* Room for the buttons: name only. */
+  :global(body.mobile) .toolbar .id,
+  :global(body.mobile) .toolbar .route {
+    display: none;
   }
 
   .overlay {
