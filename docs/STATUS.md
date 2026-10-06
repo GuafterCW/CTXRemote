@@ -92,7 +92,7 @@ Danach ebenfalls umgesetzt:
 
 Noch offen aus der Durchsicht, nach Wichtigkeit:
 1. Kontosperre pro Konto statt pro Konto und Adresse.
-2. `devices.json` und die Konten werden bei jeder Änderung ganz neu geschrieben, unter der Sperre.
+2. `devices.json` und die Konten werden bei jeder Änderung ganz neu geschrieben, unter der Sperre. (Die Suche nach einem Schlüssel geht inzwischen über einen Index.)
 3. Der Relay hat kein Leerlauf-Ende.
 4. Klartext-Verbindungen für alte Clients abschalten.
 
