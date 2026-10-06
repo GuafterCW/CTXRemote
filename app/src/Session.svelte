@@ -10,6 +10,7 @@
   import { Player } from "./lib/player";
   import { SoundPlayer } from "./lib/sound";
   import { MicSender } from "./lib/mic";
+  import { readIdleMinutes } from "./lib/idle";
 
   let { session }: { session: number } = $props();
 
@@ -29,7 +30,7 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false, draw: false, mic: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false, draw: false, mic: false, typeText: false });
   /** What the host allows; null from older hosts, which allow everything. */
   let rights = $state<number | null>(null);
   const can = (right: number) => rights === null || (rights & right) !== 0;
@@ -51,6 +52,41 @@
     const secs = Math.max(0, Math.floor((now - recordingSince) / 1000));
     return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   });
+
+  /** This computer's clipboard text, typed at the host key by key. */
+  async function typeClipboard() {
+    keysOpen = false;
+    try {
+      await api.typeClipboard(session);
+    } catch (e) {
+      showNotice(errorText(e));
+    }
+    canvas?.focus();
+  }
+
+  // Ends the session after the time set in Settings without input here.
+  let lastActivity = Date.now();
+  let idleWarned = false;
+  const touch = () => {
+    lastActivity = Date.now();
+    if (idleWarned) {
+      idleWarned = false;
+      notice = "";
+    }
+  };
+
+  function checkIdle() {
+    const minutes = readIdleMinutes();
+    if (!minutes || closed !== null) return;
+    const left = minutes * 60_000 - (Date.now() - lastActivity);
+    if (left <= 0) {
+      api.disconnect(session).catch(() => {});
+      closed = `Wegen ${minutes} Minuten Inaktivität getrennt.`;
+    } else if (left <= 60_000 && !idleWarned) {
+      idleWarned = true;
+      showNotice("Keine Eingabe: Die Sitzung endet in einer Minute. Maus bewegen, um sie zu halten.");
+    }
+  }
 
   /** The current picture as a PNG in the pictures folder. */
   async function screenshot() {
@@ -386,6 +422,12 @@
     window.addEventListener("pointerdown", wake);
     window.addEventListener("keydown", wake);
 
+    window.addEventListener("pointermove", touch);
+    window.addEventListener("pointerdown", touch);
+    window.addEventListener("keydown", touch);
+    window.addEventListener("wheel", touch);
+    const idleTimer = setInterval(checkIdle, 10_000);
+
     const statsTimer = setInterval(() => {
       stats = { fps: frameCount, kbps: Math.round((byteCount * 8) / 1000) };
       frameCount = 0;
@@ -394,6 +436,11 @@
 
     return () => {
       clearInterval(statsTimer);
+      clearInterval(idleTimer);
+      window.removeEventListener("pointermove", touch);
+      window.removeEventListener("pointerdown", touch);
+      window.removeEventListener("keydown", touch);
+      window.removeEventListener("wheel", touch);
       player.close();
       sound?.close();
       mic?.stop();
@@ -799,6 +846,11 @@
             <button role="menuitem" onclick={() => combo("AltLeft", "Tab")}>Alt + Tab</button>
             <button role="menuitem" onclick={() => combo("ControlLeft", "ShiftLeft", "Escape")}>Task-Manager</button>
             <button role="menuitem" onclick={lockScreen}>Sperren</button>
+            {#if features.typeText}
+              <button role="menuitem" title="Für Stellen, an denen Einfügen nicht geht, z. B. die Anmeldung" onclick={typeClipboard}>
+                Zwischenablage eintippen
+              </button>
+            {/if}
             <button role="menuitemcheckbox" aria-checked={lockOnEnd} onclick={toggleLockOnEnd}>
               <span class="mark">{#if lockOnEnd}<Icon name="check" size={14} />{/if}</span>
               <span class="item-label">Beim Trennen sperren</span>

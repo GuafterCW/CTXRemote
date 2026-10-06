@@ -177,6 +177,7 @@ export interface HostFeatures {
   draw: boolean;
   /** Plays this computer's microphone. */
   mic: boolean;
+  typeText: boolean;
 }
 
 /** Mirrors `SystemInfo` in crates/proto/src/session.rs. */
@@ -322,6 +323,7 @@ export const api = {
   requestKeyframe: (session: number) => invoke<void>("request_keyframe", { session }),
   sendSas: (session: number) => invoke<void>("send_sas", { session }),
   lockScreen: (session: number) => invoke<void>("lock_screen", { session }),
+  typeClipboard: (session: number) => invoke<void>("type_clipboard", { session }),
   setLockOnEnd: (session: number, on: boolean) => invoke<void>("set_lock_on_end", { session, on }),
   /** Saves a PNG into the pictures folder; returns the file. */
   saveScreenshot: (session: number, png: ArrayBuffer) =>

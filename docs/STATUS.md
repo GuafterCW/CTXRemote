@@ -392,6 +392,12 @@ Der Nutzer hat bestätigt: Privatsphäre-Modus, Rechte und Zeichnen funktioniere
 - **Bildschirmfoto:** Kamera-Knopf im Sitzungsfenster. Das aktuelle Bild wird als PNG in `Bilder\CTXRemote` gespeichert.
 - **Beim Trennen sperren:** Eintrag im Tastenmenü, je Gerät gemerkt (`Config::lock_on_end`). Beim Ende der Sitzung schickt der Viewer `LockScreen` vor `Bye`. Das braucht das Recht „Maus und Tastatur“.
 
+### Eintippen, Trennen bei Inaktivität, Fehler bei „Dateien einfügen“ (6. Oktober, Cloud-Sitzung)
+
+- **Zwischenablage eintippen** (Tastenmenü): Der Text aus der lokalen Zwischenablage wird am Gerät Zeichen für Zeichen getippt (`InputEvent::Text`, Fähigkeit `TYPE_TEXT`, `KEYEVENTF_UNICODE`, also unabhängig vom Tastaturlayout). Gedacht für Anmeldebildschirm, UAC und alles, wo Einfügen nicht geht. Zeilenumbrüche und Tabs werden zu Enter und Tab. Höchstens 4096 Zeichen. Es gilt das Recht „Maus und Tastatur“.
+- **Bei Inaktivität trennen:** Neue Einstellung „Ihre Sitzungen“ mit Nie, 15, 30 oder 60 Minuten. Sie gilt für diesen Computer und wird im Browser-Speicher der App abgelegt. Eine Minute vorher erscheint ein Hinweis, und eine Mausbewegung hält die Sitzung.
+- **Fehler behoben:** Die App meldete die Fähigkeiten des Geräts mit `file_paste`, die Oberfläche fragte `filePaste` ab. Deshalb griff Strg+V mit Dateien in der Sitzung nie, und der Hinweis „… am Gerät kopiert“ fehlte. Jetzt werden die Namen in camelCase übertragen. Testpunkt 27 bitte wiederholen.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -510,6 +516,8 @@ Der Nutzer hat bestätigt: Privatsphäre-Modus, Rechte und Zeichnen funktioniere
 42. Zeichnen erneut: Sind die Linien am Gerät glatt? Ruckelt etwas bei schnellem Zeichnen auf einem 4K-Bildschirm? Kann man weiter durch die Linien klicken?
 43. Verbindungsdaten und „Nur ansehen“ im Bild-Menü: Die Zahlen unten links müssen plausibel sein. Mit „Nur ansehen“ darf am Gerät keine Maus- oder Tastatureingabe ankommen.
 41. „Beim Trennen sperren“ im Tastenmenü an, dann trennen: Das Gerät muss gesperrt sein. Beim nächsten Verbinden zum selben Gerät ist der Haken noch gesetzt.
+44. Zwischenablage eintippen: Lokal ein Passwort kopieren. Am gesperrten Gerät im Tastenmenü „Zwischenablage eintippen“ wählen: Das Passwort steht im Feld, auch mit Sonderzeichen und Umlauten und bei anderem Tastaturlayout am Gerät.
+45. Bei Inaktivität trennen: In den Einstellungen 15 Minuten wählen. Eine Sitzung offen lassen ohne Eingabe: Nach 14 Minuten kommt der Hinweis, nach 15 ist die Sitzung getrennt. Eine Mausbewegung nach dem Hinweis hält sie.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

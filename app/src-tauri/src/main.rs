@@ -810,6 +810,7 @@ struct PrivacyUpdate {
 
 /// The host's capabilities by name, for the session window.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Features {
     files: bool,
     restart: bool,
@@ -823,6 +824,7 @@ struct Features {
     tunnel: bool,
     draw: bool,
     mic: bool,
+    type_text: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -841,6 +843,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             tunnel: f.has(F::TUNNEL),
             draw: f.has(F::DRAW),
             mic: f.has(F::MIC),
+            type_text: f.has(F::TYPE_TEXT),
         }
     }
 }
@@ -879,6 +882,20 @@ fn attach(
         privacy: link.privacy,
         lock_on_end: viewer.lock_on_end,
     })
+}
+
+/// Types the text on this computer's clipboard at the host, key by key, for
+/// places where pasting does not work (sign-in screen, UAC prompt).
+#[tauri::command]
+fn type_clipboard(state: State<AppState>, session: u32) -> CmdResult<()> {
+    let text = ctxremote_core::clipboard::local_text().ok_or("In der Zwischenablage ist kein Text")?;
+    let viewers = state.viewers.lock().unwrap();
+    let viewer = viewers.get(&session).ok_or("Die Sitzung ist beendet")?;
+    if !viewer.session.features.has(ctxremote_core::proto::session::Features::TYPE_TEXT) {
+        return Err("Das Gerät hat eine ältere Version, die das nicht kann".into());
+    }
+    viewer.session.send(ViewerMsg::Input(InputEvent::Text(text)));
+    Ok(())
 }
 
 /// Lock the host's screen when this session ends, and next time for this device, too.
@@ -1391,6 +1408,7 @@ macro_rules! handlers {
             send_sas,
             lock_screen,
             set_lock_on_end,
+            type_clipboard,
             save_screenshot,
             restart_host,
             send_chat,

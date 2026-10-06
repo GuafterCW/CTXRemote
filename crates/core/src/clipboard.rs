@@ -243,6 +243,11 @@ fn decode_png(data: &[u8]) -> Option<arboard::ImageData<'static>> {
     (rgba.len() == w * h * 4).then(|| arboard::ImageData { width: w, height: h, bytes: rgba.into() })
 }
 
+/// The text on this computer's clipboard, if it holds non-empty text.
+pub fn local_text() -> Option<String> {
+    arboard::Clipboard::new().and_then(|mut c| c.get_text()).ok().filter(|t| !t.is_empty())
+}
+
 /// The files on this computer's clipboard, if it holds files.
 pub fn local_files() -> Vec<PathBuf> {
     arboard::Clipboard::new().and_then(|mut c| c.get().file_list()).unwrap_or_default()

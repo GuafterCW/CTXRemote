@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
-use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, MemberProof, Permissions, SystemInfo, TunnelMsg, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, InputEvent, MemberProof, Permissions, SystemInfo, TunnelMsg, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
@@ -153,6 +153,7 @@ impl ViewerSession {
                             ViewerMsg::Draw(_) => features.has(Features::DRAW),
                             ViewerMsg::Mic(_) => features.has(Features::MIC),
                             ViewerMsg::ClipboardImage(_) => features.has(Features::CLIPBOARD_IMAGE),
+                            ViewerMsg::Input(InputEvent::Text(_)) => features.has(Features::TYPE_TEXT),
                             ViewerMsg::Restart => features.has(Features::RESTART),
                             ViewerMsg::SetQuality(_) => features.has(Features::QUALITY),
                             ViewerMsg::Chat(_) => features.has(Features::CHAT),

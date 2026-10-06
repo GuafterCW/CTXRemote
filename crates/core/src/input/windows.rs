@@ -10,7 +10,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
     MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
     MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT,
-    MOUSE_EVENT_FLAGS, VIRTUAL_KEY,
+    MOUSE_EVENT_FLAGS, VIRTUAL_KEY, KEYEVENTF_UNICODE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
@@ -65,6 +65,7 @@ impl Injector {
                 key(code, *down);
             }
             InputEvent::ReleaseAll => self.release_all(),
+            InputEvent::Text(text) => type_text(text),
         }
     }
 
@@ -151,6 +152,46 @@ fn key(code: &str, down: bool) {
         },
     };
     send(&input);
+}
+
+/// Longer texts are cut; typing is meant for passwords and short snippets.
+const MAX_TYPED_CHARS: usize = 4096;
+
+/// Types each character as itself (`KEYEVENTF_UNICODE`), so the host's
+/// keyboard layout does not matter. Line breaks and tabs become their keys.
+fn type_text(text: &str) {
+    let mut last_cr = false;
+    for c in text.chars().take(MAX_TYPED_CHARS) {
+        match c {
+            // \r\n is one line break.
+            '\n' if last_cr => {}
+            '\r' | '\n' => {
+                key("Enter", true);
+                key("Enter", false);
+            }
+            '\t' => {
+                key("Tab", true);
+                key("Tab", false);
+            }
+            c if c.is_control() => {}
+            c => {
+                let mut units = [0u16; 2];
+                for &unit in c.encode_utf16(&mut units).iter() {
+                    for up in [false, true] {
+                        let flags = if up { KEYEVENTF_UNICODE | KEYEVENTF_KEYUP } else { KEYEVENTF_UNICODE };
+                        let input = INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: INPUT_0 {
+                                ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0), wScan: unit, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+                            },
+                        };
+                        send(&input);
+                    }
+                }
+            }
+        }
+        last_cr = c == '\r';
+    }
 }
 
 fn send(input: &INPUT) {

@@ -3,6 +3,7 @@
   import { api, errorText, RIGHT, type DirectSettings, type Profile } from "./lib/api";
   import Icon from "./lib/Icon.svelte";
   import ProfileCard from "./lib/ProfileCard.svelte";
+  import { IDLE_KEY, readIdleMinutes } from "./lib/idle";
 
   let {
     profile: initialProfile,
@@ -210,6 +211,18 @@
       saving = false;
     }
   }
+
+  // Kept in this computer's browser storage, read by each session window.
+  let idleMinutes = $state(readIdleMinutes());
+
+  function setIdleMinutes(minutes: number) {
+    idleMinutes = minutes;
+    try {
+      localStorage.setItem(IDLE_KEY, String(minutes));
+    } catch {
+      // Not remembered.
+    }
+  }
 </script>
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && onclose()} />
@@ -390,6 +403,23 @@
       {#if directError}
         <p class="error">{directError}</p>
       {/if}
+    </section>
+
+    <section class="group section">
+      <h3>Ihre Sitzungen</h3>
+      <label class="group">
+        <span class="name">Bei Inaktivität trennen</span>
+        <select class="field" value={idleMinutes} onchange={(e) => setIdleMinutes(Number(e.currentTarget.value))}>
+          <option value={0}>Nie</option>
+          <option value={15}>Nach 15 Minuten</option>
+          <option value={30}>Nach 30 Minuten</option>
+          <option value={60}>Nach 1 Stunde</option>
+        </select>
+        <span class="note">
+          Beendet eine Sitzung, in der Sie so lange nichts eingegeben haben. Eine Minute vorher kommt ein Hinweis.
+          Gilt sofort für alle Sitzungen auf diesem Computer.
+        </span>
+      </label>
     </section>
 
     <section class="group section">

@@ -201,6 +201,8 @@ impl Features {
     pub const MIC: u32 = 1 << 18;
     /// Takes and sends `ClipboardImage`.
     pub const CLIPBOARD_IMAGE: u32 = 1 << 19;
+    /// Types `InputEvent::Text`.
+    pub const TYPE_TEXT: u32 = 1 << 20;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -223,7 +225,8 @@ impl Features {
             | Self::TUNNEL
             | Self::DRAW
             | Self::MIC
-            | Self::CLIPBOARD_IMAGE,
+            | Self::CLIPBOARD_IMAGE
+            | Self::TYPE_TEXT,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -575,6 +578,10 @@ pub enum InputEvent {
     Key { code: String, down: bool },
     /// Releases every key and button the viewer may still hold, e.g. on focus loss.
     ReleaseAll,
+    /// Text typed character by character, whatever the host's keyboard
+    /// layout (e.g. a password from the clipboard on the sign-in screen);
+    /// only to hosts with [`Features::TYPE_TEXT`].
+    Text(String),
 }
 
 #[cfg(test)]
