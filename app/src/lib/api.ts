@@ -331,6 +331,9 @@ export const api = {
   restartHost: (session: number) => invoke<void>("restart_host", { session }),
   setQuality: (session: number, quality: Quality) => invoke<void>("set_quality", { session, quality }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
+  /** macOS only: whether screen recording and control are allowed; null elsewhere. */
+  hostPermissions: () => invoke<{ screen: boolean; input: boolean } | null>("host_permissions"),
+  requestHostPermission: (kind: "screen" | "input") => invoke<void>("request_host_permission", { kind }),
   /** Connects again to an ended session's device; opens a new window. */
   reconnect: (session: number, password?: string, code?: string) =>
     invoke<number>("reconnect", { session, password: password ?? null, code: code ?? null }),

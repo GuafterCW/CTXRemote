@@ -75,3 +75,8 @@ features = [
 
 [dev-dependencies]
 tokio.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = { version = "0.25", features = ["highsierra"] }
+core-foundation = "0.10"
+block2 = "0.6"

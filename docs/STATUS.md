@@ -412,6 +412,26 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
 - **Tastatur im Sitzungsfenster am Mac:** Cmd wirkt am Windows-Gerät als Strg und Strg als Windows-Taste. Strg+V mit Dateien heißt am Mac Cmd+V. macOS meldet kein Loslassen von Tasten, solange Cmd gedrückt ist. Deshalb löst das Loslassen von Cmd alle mitgedrückten Tasten, sonst blieben sie am Gerät hängen.
 - Updates sind am Mac aus (`update::PLATFORM` kennt nur Windows), ebenso der Host-Teil (`HOST_SUPPORTED`).
 
+### macOS-Host, Schritt 1 (6. Oktober, Cloud-Sitzung)
+
+- **Bild:** `capture/macos.rs` nutzt `CGDisplayStream` wie RustDesk. Das Bild kommt als BGRA in einer IOSurface, die jeweils neueste wird kodiert. Der Mauszeiger ist Teil des Bildes. Der Viewer bekommt deshalb einmal eine durchsichtige Zeigerform, damit kein zweiter Zeiger erscheint. Positionen in `Display` sind am Mac in Punkten, Größen in Pixeln.
+- **Eingabe:** `input/macos.rs` nutzt `CGEvent`:
+  - Bewegen und Ziehen, Doppel- und Dreifachklick (Klickzähler)
+  - mittlere Taste, Zurück und Vor
+  - Scrollen in Zeilen
+  - Tasten über `keymap::mac_keycode` mit Modifier-Flags
+  - Text als Unicode
+  - Strg vom Viewer wird am Mac zu Cmd, die Windows-Taste zu Ctrl. So kopiert Strg+C von einem PC aus. Ein Mac-Viewer schickt Cmd als Strg, also kommt es als Cmd an.
+- **Freigaben:** Bildschirmaufnahme und Bedienungshilfen. Das Hauptfenster zeigt am Mac eine Karte mit Knöpfen, die die passende Seite der Systemeinstellungen öffnen (`host_permissions`, `request_host_permission`). Nach der Freigabe der Bildschirmaufnahme muss die App neu starten.
+- `Info.plist` hat `NSMicrophoneUsageDescription`, für das Mikrofon im Viewer.
+- **Noch nicht am Mac:**
+  - Ton vom Mac
+  - Privatsphäre-Modus und Zeichnen (beides Windows-Overlays)
+  - Sperren und Strg+Alt+Entf
+  - unbeaufsichtigter Zugriff ohne angemeldeten Benutzer (LaunchDaemon)
+  - Zeigerformen getrennt vom Bild
+- Geprüft: nur Typprüfung (`scripts/check-macos.sh`) und Unit-Test der Tastenzuordnung.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -541,6 +561,13 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Die Zwischenablage zwischen Mac und PC geht in beide Richtungen.
     - Dateien lassen sich übertragen.
     - Wie sieht die App im Dark Mode aus, und erscheint das Menüleisten-Symbol?
+49. Mac als Host:
+    - CTXRemote am Mac starten: Die Karte für die Freigaben erscheint. Beide freigeben und die App neu starten.
+    - Vom Windows-PC verbinden. Kommt das Bild, und ist es scharf (Retina)? Liegt die Maus genau unter dem Zeiger, auch auf einem zweiten Monitor?
+    - Doppelklick, Rechtsklick, Ziehen und Scrollen.
+    - Strg+C und Strg+V vom PC aus kopieren am Mac.
+    - Umlaute tippen und „Zwischenablage eintippen“.
+    - Wie flüssig läuft es, und wie hoch ist die CPU-Last am Mac?
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

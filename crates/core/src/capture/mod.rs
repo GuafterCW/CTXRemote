@@ -5,15 +5,22 @@ mod windows;
 #[cfg(windows)]
 pub use self::windows::{displays, Capturer};
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub(crate) use self::macos::display_geometry;
+#[cfg(target_os = "macos")]
+pub use self::macos::{displays, screen_permission, Capturer};
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod unsupported;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub use self::unsupported::{displays, Capturer};
 
 /// Whether this platform can be controlled remotely (it can always view).
-pub const HOST_SUPPORTED: bool = cfg!(windows);
+pub const HOST_SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 const UNSUPPORTED: &str = "Dieses Betriebssystem kann noch nicht ferngesteuert werden";
 
 /// A monitor in virtual-desktop coordinates (physical pixels).

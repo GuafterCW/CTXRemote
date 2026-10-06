@@ -903,6 +903,55 @@ fn type_clipboard(state: State<AppState>, session: u32) -> CmdResult<()> {
     Ok(())
 }
 
+/// What macOS still has to allow before this Mac can be controlled.
+#[derive(Serialize)]
+struct MacPermissions {
+    screen: bool,
+    input: bool,
+}
+
+/// `None` where no permissions are needed (everything but macOS).
+#[tauri::command]
+fn host_permissions() -> Option<MacPermissions> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(MacPermissions {
+            screen: ctxremote_core::capture::screen_permission(false),
+            input: ctxremote_core::input::accessibility_permission(false),
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Asks macOS for a permission (`screen` or `input`) and opens the matching
+/// page of System Settings, where the user switches it on.
+#[tauri::command]
+fn request_host_permission(kind: String) -> CmdResult<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let pane = if kind == "screen" {
+            ctxremote_core::capture::screen_permission(true);
+            "Privacy_ScreenCapture"
+        } else {
+            ctxremote_core::input::accessibility_permission(true);
+            "Privacy_Accessibility"
+        };
+        std::process::Command::new("open")
+            .arg(format!("x-apple.systempreferences:com.apple.preference.security?{pane}"))
+            .spawn()
+            .map(|_| ())
+            .map_err(err)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = kind;
+        Ok(())
+    }
+}
+
 /// Connects again to the device of an ended session, with the same password
 /// unless `password` is given; opens a new session window.
 #[tauri::command]
@@ -1429,6 +1478,8 @@ macro_rules! handlers {
             lock_screen,
             set_lock_on_end,
             reconnect,
+            host_permissions,
+            request_host_permission,
             type_clipboard,
             save_screenshot,
             restart_host,

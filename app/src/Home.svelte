@@ -78,7 +78,25 @@
     hosted = overview.hosted;
   }
 
+  /** macOS: what still has to be allowed before this Mac can be controlled. */
+  let permissions = $state<{ screen: boolean; input: boolean } | null>(null);
+  const checkPermissions = () =>
+    api
+      .hostPermissions()
+      .then((p) => (permissions = p))
+      .catch(() => {});
+
+  async function askPermission(kind: "screen" | "input") {
+    await api.requestHostPermission(kind).catch(() => {});
+    setTimeout(checkPermissions, 1500);
+  }
+
   onMount(() => {
+    checkPermissions();
+    // Coming back from System Settings: show the new state.
+    const onFocus = () => checkPermissions();
+    window.addEventListener("focus", onFocus);
+    const unlistenFocus = () => window.removeEventListener("focus", onFocus);
     refresh();
     const subscriptions = [
       listen<string>("update-available", () => refresh()),
@@ -122,7 +140,10 @@
         if (event.kind === "passwordChanged") refresh();
       }),
     ];
-    return () => subscriptions.forEach((s) => s.then((unlisten) => unlisten()));
+    return () => {
+      unlistenFocus();
+      subscriptions.forEach((s) => s.then((unlisten) => unlisten()));
+    };
   });
 
   // Public alias: shown under the ID, edited in place.
@@ -415,6 +436,21 @@
           {/if}
         {/if}
       </div>
+
+      {#if permissions && (!permissions.screen || !permissions.input)}
+        <div class="permissions">
+          <strong>Damit dieser Mac ferngesteuert werden kann</strong>
+          <p>macOS verlangt zwei Freigaben. Nach der Freigabe der Bildschirmaufnahme CTXRemote einmal neu starten.</p>
+          <div class="permission-row">
+            <span class:ok={permissions.screen}>{permissions.screen ? "✓" : "•"} Bildschirmaufnahme</span>
+            {#if !permissions.screen}<button class="link-btn" onclick={() => askPermission("screen")}>Freigeben …</button>{/if}
+          </div>
+          <div class="permission-row">
+            <span class:ok={permissions.input}>{permissions.input ? "✓" : "•"} Bedienungshilfen (Maus und Tastatur)</span>
+            {#if !permissions.input}<button class="link-btn" onclick={() => askPermission("input")}>Freigeben …</button>{/if}
+          </div>
+        </div>
+      {/if}
 
       {#if overview && !overview.hostSupported}
         <p class="unsupported">
@@ -893,6 +929,34 @@
     gap: 8px;
     margin-top: 16px;
     min-height: 0;
+  }
+
+  .permissions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+    font-size: 13px;
+  }
+
+  .permissions p {
+    margin: 0;
+    color: var(--ink-2);
+  }
+
+  .permission-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .permission-row .ok {
+    color: var(--accent);
   }
 
   .unsupported {
