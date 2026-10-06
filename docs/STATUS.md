@@ -11,6 +11,8 @@
   - Server auf dem VPS
   - signiertes Windows-Update; installierte Geräte aktualisieren sich selbst
   - Website mit erstmals einem Mac-Download (ad-hoc signiert, Rechtsklick → Öffnen)
+- **Linux-Download (6. Oktober, nachmittags):** Das Release baut jetzt auch ein AppImage und ein `.deb` (Job `client-linux` auf Ubuntu 22.04, damit es auch auf älteren Systemen läuft; `tauri.linux.conf.json`). Beides steht als „Vorschau“ auf der Download-Seite. Hier geprüft: Das AppImage startet auf Xvfb, meldet sich beim Server an und zeigt „Bereit“ mit ID. An einem echten Linux-Desktop ist es noch nicht getestet (Testpunkt 52).
+- Die Website-Texte zum Mac sind korrigiert: Der Mac kann auch selbst ferngesteuert werden.
 - Am Gerät noch nicht geprüft: ob sich die installierten Windows-Geräte tatsächlich auf 0.1.40 aktualisiert haben. Das ist der erste Punkt beim nächsten Windows-Termin.
 
 **Neu am 6. Oktober, alles nur per Build, CI und Tests geprüft, nicht an echten Geräten** (Details in den Abschnitten weiter unten):
