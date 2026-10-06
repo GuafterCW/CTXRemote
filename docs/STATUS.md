@@ -565,6 +565,24 @@ Die Testliste oben hat dafür die Punkte 24 bis 35. Offen für Gleichstand mit A
 
 Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
 
+**Plattformen, Entscheidung des Nutzers (6. Oktober):**
+- Android und iOS nur als **Viewer**. Ein Host auf dem Handy ist nicht geplant.
+- macOS als **Viewer und Host**.
+
+**Weg dorthin:**
+- **macOS-Viewer:** Tauri baut für macOS, Viewer und Sitzungen sind plattformneutral. Zu tun: CI-Job auf `macos-latest`, Fensterdetails und Tastenkürzel, wobei Cmd am Mac auf Strg am Windows-Gerät abgebildet wird.
+- **macOS-Host:** neue Backends neben `capture/windows.rs` und `input/windows.rs`:
+  - Bild über ScreenCaptureKit, Kodierung mit VideoToolbox oder dem vorhandenen openh264
+  - Eingaben über CGEvent
+  - Ton über ScreenCaptureKit
+  - Zwischenablage gibt es schon (arboard)
+  - Freigaben für Bildschirmaufnahme und Bedienungshilfen mit Anleitung in der App
+  - Unbeaufsichtigt als LaunchAgent/LaunchDaemon statt Windows-Dienst
+  - Zum Testen nötig: ein Mac. Zum Verteilen ohne Warnung: Apple-Entwicklerkonto (99 $ im Jahr) für Signatur und Notarisierung.
+- **Android-Viewer:** Tauri 2 Mobile. Neu sind Touch-Bedienung (Tippen als Klick, Wischen mit zwei Fingern zum Scrollen, Zoomen), die Bildschirmtastatur und eine Leiste mit Sondertasten. Die APK baut die CI, verteilt wird zuerst direkt, später über den Play Store (25 $ einmalig).
+- **iOS-Viewer:** wie Android, braucht aber Mac-Runner und Apple-Entwicklerkonto.
+- **Reihenfolge:** zuerst die Windows-Testliste abschließen. Danach Android-Viewer und macOS-Viewer, dann den macOS-Host, sobald ein Mac zum Testen da ist.
+
 Weitere Roadmap: Remote-Mauszeiger, Adressbuch auf dem Server.
 
 ## Ideen für später
