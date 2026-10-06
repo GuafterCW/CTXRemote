@@ -32,7 +32,9 @@ impl Screen {
         let (conn, number) = x11rb::connect(None).context("keine X11-Sitzung (DISPLAY)")?;
         let screen = &conn.setup().roots[number];
         let (root, width, height) = (screen.root, screen.width_in_pixels, screen.height_in_pixels);
-        if screen.root_depth < 24 {
+        // The picture is read as 8-bit BGRX, 4 bytes per pixel.
+        let bits = conn.setup().pixmap_formats.iter().find(|f| f.depth == screen.root_depth).map(|f| f.bits_per_pixel);
+        if !matches!(screen.root_depth, 24 | 32) || bits != Some(32) {
             bail!("Farbtiefe {} wird nicht unterstützt", screen.root_depth);
         }
         Ok(Self { conn, root, width, height })

@@ -176,3 +176,48 @@ fn text_arrives_as_characters() {
     // a, Ü (Latin-1), € (Unicode keysym), Enter (its real key: Return).
     assert_eq!(typed, vec![0x61, 0xdc, 0x0100_20ac, 0xff0d]);
 }
+
+#[test]
+fn wheel_scrolls_the_right_way() {
+    let Some((conn, root)) = x() else { return };
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let display = displays().unwrap().remove(0);
+    let window = conn.generate_id().unwrap();
+    conn.create_window(
+        x11rb::COPY_DEPTH_FROM_PARENT,
+        window,
+        root,
+        0,
+        0,
+        200,
+        100,
+        0,
+        WindowClass::INPUT_OUTPUT,
+        x11rb::COPY_FROM_PARENT,
+        &CreateWindowAux::new().event_mask(EventMask::BUTTON_PRESS),
+    )
+    .unwrap();
+    conn.map_window(window).unwrap();
+    conn.sync().unwrap();
+
+    let mut injector = Injector::new(&display);
+    injector.apply(&InputEvent::MouseMove { x: display.left.max(0) as i32 + 50, y: display.top.max(0) as i32 + 50 });
+    // One notch each: up, down, right, left.
+    for (dx, dy) in [(0, 120), (0, -120), (120, 0), (-120, 0)] {
+        injector.apply(&InputEvent::Wheel { dx, dy });
+    }
+    conn.sync().unwrap();
+    let mut buttons = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while buttons.len() < 4 && Instant::now() < deadline {
+        match conn.poll_for_event().unwrap() {
+            Some(Event::ButtonPress(e)) => buttons.push(e.detail),
+            Some(_) => {}
+            None => std::thread::sleep(Duration::from_millis(1)),
+        }
+    }
+    conn.destroy_window(window).unwrap();
+    conn.sync().unwrap();
+    // X: 4 up, 5 down, 6 left, 7 right.
+    assert_eq!(buttons, vec![4, 5, 7, 6]);
+}

@@ -205,25 +205,31 @@ impl FileClient {
         let single = std::fs::metadata(&local).ok().filter(|m| m.is_file()).map(|m| m.len());
         let name = local.file_name().map(|n| n.to_string_lossy().into_owned());
         if let (true, Some(size), Some(name)) = (self.resume.load(Ordering::Relaxed), single, name) {
-            let op = FileOp::UploadFrom { id, dir: remote_dir, name, size };
-            let have = match self.request(op).await {
-                Ok(FileReply::Offset(have)) => have,
-                Ok(_) => 0,
+            let op = FileOp::UploadFrom { id, dir: remote_dir.clone(), name, size };
+            let (have, check) = match self.request(op).await {
+                Ok(FileReply::Offset { at, check }) => (at, check),
+                Ok(_) => (0, 0),
                 Err(e) => {
                     self.waiters.lock().unwrap().remove(&id);
                     return Err(e);
                 }
             };
-            let opened = tokio::task::spawn_blocking(move || Outgoing::open_from(&local, have, size)).await?;
-            return match opened {
-                // The host expects exactly the rest; a changed file fails there.
-                Ok((outgoing, _)) => self.run_upload(id, outgoing),
+            let source = local.clone();
+            let opened = tokio::task::spawn_blocking(move || Outgoing::open_from(&source, have, size, check)).await?;
+            match opened {
+                // The host expects exactly the rest.
+                Ok((outgoing, from)) if from == have => return self.run_upload(id, outgoing),
+                // The host's piece is of another file (or this one changed):
+                // that attempt ends, and the file goes again from the start.
+                Ok(_) => {
+                    let _ = self.outbox.send(ViewerMsg::Transfer { id, msg: Transfer::Failed("Datei geändert".into()) });
+                }
                 Err(e) => {
                     let _ = self.outbox.send(ViewerMsg::Transfer { id, msg: Transfer::Failed(format!("{e:#}")) });
                     self.waiters.lock().unwrap().remove(&id);
-                    Err(e)
+                    return Err(e);
                 }
-            };
+            }
         }
         let opened = tokio::task::spawn_blocking(move || Outgoing::open(&local)).await?;
         let outgoing = match opened {
@@ -347,8 +353,10 @@ impl FileClient {
         // Registered first: content arriving before the answer waits in the channel.
         let (tx, rx) = std_mpsc::channel();
         self.downloads.lock().unwrap().insert(id, tx);
-        let from = match self.request(FileOp::DownloadFrom { id, path: remote, offset: have, size }).await {
-            Ok(FileReply::Offset(from)) => from,
+        let part = local_dir.join(super::part_name(&name, size));
+        let check = super::tail_check(&part, have).unwrap_or(0);
+        let from = match self.request(FileOp::DownloadFrom { id, path: remote, offset: have, size, check }).await {
+            Ok(FileReply::Offset { at, .. }) => at,
             Ok(_) => 0,
             Err(e) => {
                 self.downloads.lock().unwrap().remove(&id);

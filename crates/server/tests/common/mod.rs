@@ -51,11 +51,14 @@ impl ScreenSource for Echo {
     }
 }
 
-pub struct Server(pub Child);
+/// A test server; its data folder goes with it.
+pub struct Server(pub Child, pub std::path::PathBuf);
 
 impl Drop for Server {
     fn drop(&mut self) {
         let _ = self.0.kill();
+        let _ = self.0.wait();
+        let _ = std::fs::remove_dir_all(&self.1);
     }
 }
 
@@ -83,7 +86,10 @@ pub async fn start_server() -> (Server, String) {
 /// port (returned) and accepts that origin.
 pub async fn start_server_with_web(origin: Option<&str>) -> (Server, String, Option<String>) {
     let port = free_port();
+    // Fresh each time: a folder left from an earlier run with this port would
+    // bring its accounts along (an address "already taken").
     let data = std::env::temp_dir().join(format!("ctxremote-test-server-{port}"));
+    let _ = std::fs::remove_dir_all(&data);
     std::fs::create_dir_all(&data).unwrap();
     std::fs::write(data.join("tunnel.key"), hex::encode(TUNNEL_KEY)).unwrap();
     let public = ctxremote_core::proto::tunnel::public_key(&x25519_dalek::StaticSecret::from(TUNNEL_KEY));
@@ -111,7 +117,7 @@ pub async fn start_server_with_web(origin: Option<&str>) -> (Server, String, Opt
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
-    (Server(child), addr, http)
+    (Server(child, data), addr, http)
 }
 
 pub async fn start_host(server: &str, direct: bool) -> (Host, DeviceId) {

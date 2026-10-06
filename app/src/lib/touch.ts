@@ -1,4 +1,7 @@
 /**
+ * Only fingers on the picture count (`targetTouches`): one on a button
+ * meanwhile neither ends a drag nor makes a two-finger gesture.
+ *
  * Touch control of the remote screen on a phone or tablet:
  * - tap: left click where the finger was
  * - long press: right click
@@ -16,6 +19,8 @@ export interface TouchTarget {
   /** Remote pixel position of a point on the screen. */
   toRemote(clientX: number, clientY: number): Point;
   send(event: InputEvent): void;
+  /** Where the view's top-left corner is on the screen now (with zoom and pan). */
+  origin?(): Point;
   /** The local view's zoom (1 = fit) and offset in CSS pixels. */
   view(zoom: number, panX: number, panY: number): void;
 }
@@ -37,7 +42,7 @@ export class TouchControl {
   private longTimer: ReturnType<typeof setTimeout> | undefined;
   private zoom = 1;
   private pan = { x: 0, y: 0 };
-  private gesture = { dist: 1, mid: { x: 0, y: 0 }, lastMid: { x: 0, y: 0 }, zoom: 1, pan: { x: 0, y: 0 }, kind: null as null | "zoom" | "scroll" };
+  private gesture = { dist: 1, mid: { x: 0, y: 0 }, lastMid: { x: 0, y: 0 }, zoom: 1, pan: { x: 0, y: 0 }, base: { x: 0, y: 0 }, kind: null as null | "zoom" | "scroll" };
   private wheel = { dx: 0, dy: 0 };
 
   private target: TouchTarget;
@@ -56,8 +61,8 @@ export class TouchControl {
   onStart(e: TouchEvent) {
     // No emulated mouse events afterwards: everything is handled here.
     e.preventDefault();
-    if (e.touches.length === 1 && this.mode === "idle") {
-      const t = e.touches[0];
+    if (e.targetTouches.length === 1 && this.mode === "idle") {
+      const t = e.targetTouches[0];
       const p = this.target.toRemote(t.clientX, t.clientY);
       this.start = { ...p, clientX: t.clientX, clientY: t.clientY };
       this.mode = "pending";
@@ -68,12 +73,15 @@ export class TouchControl {
         this.mode = "ignore";
         navigator.vibrate?.(15);
       }, LONG_PRESS_MS);
-    } else if (e.touches.length === 2) {
+    } else if (e.targetTouches.length === 2) {
       clearTimeout(this.longTimer);
       if (this.mode === "drag") this.target.send({ MouseButton: { button: "Left", down: false } });
-      const [a, b] = [e.touches[0], e.touches[1]];
+      const [a, b] = [e.targetTouches[0], e.targetTouches[1]];
       const mid = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
-      this.gesture = { dist: distance(a, b), mid, lastMid: mid, zoom: this.zoom, pan: { ...this.pan }, kind: null };
+      // The view's corner without pan: zoom and pan are relative to it.
+      const at = this.target.origin?.() ?? this.pan;
+      const base = { x: at.x - this.pan.x, y: at.y - this.pan.y };
+      this.gesture = { dist: distance(a, b), mid, lastMid: mid, zoom: this.zoom, pan: { ...this.pan }, base, kind: null };
       this.mode = "two";
     } else {
       this.mode = "ignore";
@@ -83,7 +91,7 @@ export class TouchControl {
   onMove(e: TouchEvent) {
     e.preventDefault();
     if (this.mode === "pending" || this.mode === "drag") {
-      const t = e.touches[0];
+      const t = e.targetTouches[0];
       if (!t) return;
       if (this.mode === "pending") {
         if (Math.hypot(t.clientX - this.start.clientX, t.clientY - this.start.clientY) < SLOP) return;
@@ -93,8 +101,8 @@ export class TouchControl {
         this.target.send({ MouseButton: { button: "Left", down: true } });
       }
       this.target.send({ MouseMove: this.target.toRemote(t.clientX, t.clientY) });
-    } else if (this.mode === "two" && e.touches.length >= 2) {
-      const [a, b] = [e.touches[0], e.touches[1]];
+    } else if (this.mode === "two" && e.targetTouches.length >= 2) {
+      const [a, b] = [e.targetTouches[0], e.targetTouches[1]];
       const mid = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
       const ratio = distance(a, b) / this.gesture.dist;
       const g = this.gesture;
@@ -107,7 +115,11 @@ export class TouchControl {
         // The point under the fingers stays under them.
         const scale = zoom / g.zoom;
         this.zoom = zoom;
-        this.pan = zoom === 1 ? { x: 0, y: 0 } : { x: mid.x - (g.mid.x - g.pan.x) * scale, y: mid.y - (g.mid.y - g.pan.y) * scale };
+        const o = g.base;
+        this.pan =
+          zoom === 1
+            ? { x: 0, y: 0 }
+            : { x: mid.x - o.x - (g.mid.x - o.x - g.pan.x) * scale, y: mid.y - o.y - (g.mid.y - o.y - g.pan.y) * scale };
         this.target.view(this.zoom, this.pan.x, this.pan.y);
       } else if (g.kind === "scroll") {
         // Fingers moving down scroll up, as on a touch screen.
@@ -126,7 +138,7 @@ export class TouchControl {
 
   onEnd(e: TouchEvent) {
     e.preventDefault();
-    if (e.touches.length > 0) {
+    if (e.targetTouches.length > 0) {
       // One of two fingers lifted: wait until all are gone.
       if (this.mode === "two") this.mode = "ignore";
       return;

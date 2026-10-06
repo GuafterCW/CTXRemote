@@ -57,6 +57,8 @@ extern "C" {
 #[link(name = "IOSurface", kind = "framework")]
 extern "C" {
     fn IOSurfaceLock(surface: IOSurfaceRef, options: u32, seed: *mut u32) -> i32;
+    fn IOSurfaceIncrementUseCount(surface: IOSurfaceRef);
+    fn IOSurfaceDecrementUseCount(surface: IOSurfaceRef);
     fn IOSurfaceUnlock(surface: IOSurfaceRef, options: u32, seed: *mut u32) -> i32;
     fn IOSurfaceGetBaseAddress(surface: IOSurfaceRef) -> *mut c_void;
     fn IOSurfaceGetBytesPerRow(surface: IOSurfaceRef) -> usize;
@@ -103,10 +105,29 @@ pub(crate) fn display_geometry(index: u8) -> Option<(u32, core_graphics::geometr
     Some((id, CGDisplay::new(id).bounds()))
 }
 
-/// The newest picture, retained until taken.
+/// The newest picture, held until taken.
 struct Latest {
     surface: Option<usize>,
     stopped: bool,
+    /// The capturer is gone: late frames are not held any more.
+    closed: bool,
+}
+
+/// Keeps a surface: retained, and marked in use so the stream does not draw
+/// the next picture into it while it is read (as OBS does).
+///
+/// SAFETY: `surface` must be valid.
+unsafe fn hold(surface: IOSurfaceRef) {
+    CFRetain(surface as *const c_void);
+    IOSurfaceIncrementUseCount(surface);
+}
+
+/// Undoes [`hold`].
+///
+/// SAFETY: `surface` must have been passed to `hold`.
+unsafe fn let_go(surface: IOSurfaceRef) {
+    IOSurfaceDecrementUseCount(surface);
+    CFRelease(surface as *const c_void);
 }
 
 struct Shared {
@@ -136,18 +157,18 @@ impl Capturer {
         }
         let display = displays()?.into_iter().find(|d| d.index == index).context("Bildschirm nicht gefunden")?;
         let (id, _) = display_geometry(index).context("Bildschirm nicht gefunden")?;
-        let shared = Arc::new(Shared { latest: Mutex::new(Latest { surface: None, stopped: false }), fresh: Condvar::new() });
+        let shared = Arc::new(Shared { latest: Mutex::new(Latest { surface: None, stopped: false, closed: false }), fresh: Condvar::new() });
         let handler = {
             let shared = shared.clone();
             RcBlock::new(move |status: i32, _time: u64, surface: IOSurfaceRef, _update: *const c_void| {
                 let mut latest = shared.latest.lock().unwrap_or_else(|e| e.into_inner());
                 match status {
-                    FRAME_COMPLETE if !surface.is_null() => {
-                        // SAFETY: the surface is valid during the call; retained
-                        // here and released when replaced or taken.
-                        unsafe { CFRetain(surface as *const c_void) };
+                    FRAME_COMPLETE if !surface.is_null() && !latest.closed => {
+                        // SAFETY: the surface is valid during the call; held
+                        // here and let go when replaced or taken.
+                        unsafe { hold(surface) };
                         if let Some(old) = latest.surface.replace(surface as usize) {
-                            unsafe { CFRelease(old as *const c_void) };
+                            unsafe { let_go(old as IOSurfaceRef) };
                         }
                         shared.fresh.notify_one();
                     }
@@ -231,7 +252,7 @@ impl Capturer {
                 }
                 IOSurfaceUnlock(surface, LOCK_READ_ONLY, std::ptr::null_mut());
             }
-            CFRelease(surface as *const c_void);
+            let_go(surface);
             Ok(locked)
         }
     }
@@ -249,16 +270,19 @@ impl Capturer {
 
 impl Drop for Capturer {
     fn drop(&mut self) {
-        // SAFETY: stream and queue from `new`; stopping first ends the handler calls.
+        // Stopping is asynchronous: a frame arriving after this is not held.
+        let mut latest = self.shared.latest.lock().unwrap_or_else(|e| e.into_inner());
+        latest.closed = true;
+        if let Some(surface) = latest.surface.take() {
+            // SAFETY: held by the handler.
+            unsafe { let_go(surface as IOSurfaceRef) };
+        }
+        drop(latest);
+        // SAFETY: stream and queue from `new`.
         unsafe {
             CGDisplayStreamStop(self.stream);
             CFRelease(self.stream as *const c_void);
             dispatch_release(self.queue);
-        }
-        let mut latest = self.shared.latest.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(surface) = latest.surface.take() {
-            // SAFETY: retained by the handler.
-            unsafe { CFRelease(surface as *const c_void) };
         }
     }
 }

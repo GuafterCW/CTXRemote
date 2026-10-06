@@ -130,23 +130,26 @@ impl State {
                 self.uploads.insert(id, incoming);
                 FileReply::Done
             }
-            FileOp::DownloadFrom { id, path, offset, size } => {
-                let (outgoing, from) = Outgoing::open_from(Path::new(&path), offset, size)?;
+            FileOp::DownloadFrom { id, path, offset, size, check } => {
+                let (outgoing, from) = Outgoing::open_from(Path::new(&path), offset, size, check)?;
                 info!(%path, from, bytes = outgoing.total(), "Download fortgesetzt");
                 self.downloads.push((id, outgoing));
-                FileReply::Offset(from)
+                FileReply::Offset { at: from, check: 0 }
             }
             FileOp::UploadFrom { id, dir, name, size } => {
                 super::valid_name(&name)?;
                 let mut incoming = Incoming::new(Path::new(&dir))?;
-                let have = std::fs::metadata(Path::new(&dir).join(super::part_name(&name, size)))
+                let part = Path::new(&dir).join(super::part_name(&name, size));
+                // A copy another upload writes right now is not continued.
+                let have = std::fs::metadata(&part)
                     .ok()
-                    .filter(|m| m.is_file() && m.len() < size)
+                    .filter(|m| m.is_file() && m.len() < size && !super::part_active(&part))
                     .map_or(0, |m| m.len());
+                let check = if have > 0 { super::tail_check(&part, have).unwrap_or(0) } else { 0 };
                 incoming.resume_at(have);
                 self.uploads.insert(id, incoming);
                 self.resumable.insert(id);
-                FileReply::Offset(have)
+                FileReply::Offset { at: have, check }
             }
             // Created with the user's rights, so the pasted copies are the user's.
             FileOp::PasteDir => FileReply::Path(super::paste_dir(&user.paste_root())?.to_string_lossy().into_owned()),

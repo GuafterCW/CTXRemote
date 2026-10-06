@@ -15,11 +15,42 @@ pub fn part_name(name: &str, size: u64) -> String {
     format!("{name}.{size}.ctxpart")
 }
 
+/// Partial copies being written right now: not to be continued by a second
+/// transfer of the same file, which would write into them as well.
+static ACTIVE: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Whether a transfer is writing `path` right now.
+pub fn part_active(path: &Path) -> bool {
+    ACTIVE.lock().unwrap().contains(path)
+}
+
+/// Bytes before the point of continuing that both sides compare.
+const CHECK_BYTES: u64 = 64 * 1024;
+
+/// A fingerprint of the bytes of `path` just before `len` (up to 64 KiB):
+/// a continued copy must match its source there, or it starts over. Catches
+/// another file of the same name and size, and one rewritten in between.
+pub fn tail_check(path: &Path, len: u64) -> Result<u64> {
+    use sha2::Digest;
+    let mut file = File::open(path)?;
+    let start = len.saturating_sub(CHECK_BYTES);
+    file.seek(SeekFrom::Start(start))?;
+    let mut buf = vec![0; (len - start) as usize];
+    file.read_exact(&mut buf)?;
+    let mut hash = sha2::Sha256::new();
+    hash.update(len.to_le_bytes());
+    hash.update(&buf);
+    Ok(u64::from_le_bytes(hash.finalize()[..8].try_into().expect("8 bytes")))
+}
+
 /// Finds an interrupted copy of `name` in `dir`: its total size and the bytes
-/// already there.
+/// already there. One that a running transfer writes does not count.
 pub fn find_part(dir: &Path, name: &str) -> Option<(u64, u64)> {
     let prefix = format!("{name}.");
     std::fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
+        if part_active(&entry.path()) {
+            return None;
+        }
         let file = entry.file_name().to_string_lossy().into_owned();
         let size: u64 = file.strip_prefix(&prefix)?.strip_suffix(".ctxpart")?.parse().ok()?;
         let have = entry.metadata().ok().filter(|m| m.is_file())?.len();
@@ -46,12 +77,13 @@ pub struct Outgoing {
 
 impl Outgoing {
     /// Like [`Outgoing::open`], but a single file continues at `offset` when
-    /// it is `size` bytes long, as the receiver's interrupted copy was.
-    /// Returns where it continues: `offset`, or 0 if the file changed.
-    pub fn open_from(path: &Path, offset: u64, size: u64) -> Result<(Self, u64)> {
+    /// it is `size` bytes long and its bytes before `offset` match `check`
+    /// ([`tail_check`]), as the receiver's interrupted copy was.
+    /// Returns where it continues: `offset`, or 0 if the file differs.
+    pub fn open_from(path: &Path, offset: u64, size: u64, check: u64) -> Result<(Self, u64)> {
         let mut out = Self::open(path)?;
         let single = matches!(out.items.as_slice(), [Item::File { size: s, .. }] if *s == size);
-        if single && offset > 0 && offset < size {
+        if single && offset > 0 && offset < size && tail_check(path, offset).ok() == Some(check) {
             out.skip = offset;
             out.total -= offset;
             Ok((out, offset))
@@ -265,6 +297,7 @@ impl Incoming {
                         .with_context(|| format!("{} kann nicht geschrieben werden", path.display()))?
                 };
                 if self.top.is_none() {
+                    ACTIVE.lock().unwrap().insert(path.clone());
                     self.top = Some(Top::File { temp: path.clone(), name: self.sent_top.clone().unwrap_or_default() });
                 }
                 self.current = Some((file, size - resume));
@@ -283,6 +316,7 @@ impl Incoming {
                 let done = match self.top.take() {
                     Some(Top::Dir { path }) => path,
                     Some(Top::File { temp, name }) => {
+                        ACTIVE.lock().unwrap().remove(&temp);
                         let path = self.dest.join(free_name(&self.dest, &name));
                         std::fs::rename(&temp, &path).context("Datei konnte nicht umbenannt werden")?;
                         path
@@ -331,6 +365,9 @@ impl Incoming {
 impl Drop for Incoming {
     fn drop(&mut self) {
         self.current = None;
+        if let Some(Top::File { temp, .. }) = &self.top {
+            ACTIVE.lock().unwrap().remove(temp);
+        }
         // Only what this transfer created itself, under the name it picked.
         let _ = match self.top.take() {
             Some(Top::Dir { path }) => std::fs::remove_dir_all(path),
@@ -440,8 +477,28 @@ mod tests {
         let (part_size, have) = find_part(&dst, "gross.bin").expect("Teil bleibt liegen");
         assert_eq!((part_size, have), (size, CHUNK as u64));
 
+        // While a transfer writes a piece, nobody else continues it.
+        let part = dst.join(part_name("gross.bin", size));
+        let mut busy = Incoming::new(&dst).unwrap();
+        busy.resume_at(have);
+        let mut probe = Outgoing::open_from(&file, have, part_size, tail_check(&part, have).unwrap()).unwrap().0;
+        busy.apply(probe.next_msg().unwrap().unwrap()).unwrap();
+        busy.apply(probe.next_msg().unwrap().unwrap()).unwrap();
+        assert!(find_part(&dst, "gross.bin").is_none(), "wird gerade geschrieben");
+        busy.keep_partial();
+        drop(busy);
+        assert_eq!(find_part(&dst, "gross.bin"), Some((size, have)));
+
+        // Another file of the same name and size does not continue it.
+        let other = src.join("anders.bin");
+        let mut changed = data.clone();
+        changed[CHUNK - 1] ^= 0xff;
+        std::fs::write(&other, &changed).unwrap();
+        let check = tail_check(&part, have).unwrap();
+        assert_eq!(Outgoing::open_from(&other, have, part_size, check).unwrap().1, 0);
+
         // Continued where it stopped; only the rest travels.
-        let (mut out, offset) = Outgoing::open_from(&file, have, part_size).unwrap();
+        let (mut out, offset) = Outgoing::open_from(&file, have, part_size, check).unwrap();
         assert_eq!(offset, have);
         assert_eq!(out.total(), size - have);
         let mut inc = Incoming::new(&dst).unwrap();
@@ -460,7 +517,7 @@ mod tests {
         assert!(find_part(&dst, "gross.bin").is_none());
 
         // A changed file starts over.
-        let (_, offset) = Outgoing::open_from(&file, 10, size + 1).unwrap();
+        let (_, offset) = Outgoing::open_from(&file, 10, size + 1, 0).unwrap();
         assert_eq!(offset, 0);
         std::fs::remove_dir_all(&src).unwrap();
         std::fs::remove_dir_all(&dst).unwrap();

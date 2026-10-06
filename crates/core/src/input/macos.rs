@@ -95,16 +95,20 @@ impl Injector {
                 let y = (*y as f64 / self.scale).clamp(0.0, self.size.1 - 1.0);
                 self.position = CGPoint::new(self.origin.0 + x, self.origin.1 + y);
                 // With a button held, macOS expects drags, or nothing moves along.
-                let (kind, button) = if self.buttons.contains(&MouseButton::Left) {
-                    (CGEventType::LeftMouseDragged, CGMouseButton::Left)
+                let (kind, button, number) = if self.buttons.contains(&MouseButton::Left) {
+                    (CGEventType::LeftMouseDragged, CGMouseButton::Left, None)
                 } else if self.buttons.contains(&MouseButton::Right) {
-                    (CGEventType::RightMouseDragged, CGMouseButton::Right)
-                } else if !self.buttons.is_empty() {
-                    (CGEventType::OtherMouseDragged, CGMouseButton::Center)
+                    (CGEventType::RightMouseDragged, CGMouseButton::Right, None)
+                } else if self.buttons.contains(&MouseButton::Middle) {
+                    (CGEventType::OtherMouseDragged, CGMouseButton::Center, Some(2))
+                } else if self.buttons.contains(&MouseButton::Back) {
+                    (CGEventType::OtherMouseDragged, CGMouseButton::Center, Some(3))
+                } else if self.buttons.contains(&MouseButton::Forward) {
+                    (CGEventType::OtherMouseDragged, CGMouseButton::Center, Some(4))
                 } else {
-                    (CGEventType::MouseMoved, CGMouseButton::Left)
+                    (CGEventType::MouseMoved, CGMouseButton::Left, None)
                 };
-                self.mouse(kind, button, None, None);
+                self.mouse(kind, button, number, None);
             }
             InputEvent::MouseButton { button, down } => {
                 if *down {

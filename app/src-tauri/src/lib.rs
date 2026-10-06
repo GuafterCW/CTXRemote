@@ -786,6 +786,13 @@ async fn connect(
     };
     poke_sync(&app);
     let lock_on_end = state.config.read().unwrap().lock_on_end.contains(&target);
+    // A phone shows one session: any earlier one left behind ends here, so
+    // its events (which all go to the one window) cannot mix into this one.
+    #[cfg(mobile)]
+    {
+        state.viewers.lock().unwrap().clear();
+        state.logins.lock().unwrap().clear();
+    }
     state.viewers.lock().unwrap().insert(number, Viewer { session, target, link, lock_on_end });
     state.logins.lock().unwrap().insert(number, login);
 
@@ -823,7 +830,8 @@ fn session_label(number: u32) -> String {
 fn show_in_main(app: &AppHandle, hash: &str) -> CmdResult<()> {
     let window = app.get_webview_window("main").ok_or("Kein Fenster")?;
     window
-        .eval(&format!("location.hash = {}; location.reload();", serde_json::to_string(hash).map_err(err)?))
+        // The page reloads itself on the hash change (main.ts).
+        .eval(&format!("location.hash = {};", serde_json::to_string(hash).map_err(err)?))
         .map_err(err)
 }
 
@@ -1437,6 +1445,9 @@ fn reveal(path: String) -> CmdResult<()> {
 fn disconnect(state: State<AppState>, session: u32) {
     // Dropping the session sends `Bye`.
     state.viewers.lock().unwrap().remove(&session);
+    // Phones go back to the start page: there is no "connect again" to keep it for.
+    #[cfg(mobile)]
+    state.logins.lock().unwrap().remove(&session);
 }
 
 #[tauri::command]

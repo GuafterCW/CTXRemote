@@ -458,7 +458,9 @@ pub enum FileOp {
     /// where the viewer's interrupted copy ends. Answered with `Offset`: where
     /// the host continues (0 if the file changed). Only to hosts with
     /// [`Features::RESUME`].
-    DownloadFrom { id: u32, path: String, offset: u64, size: u64 },
+    /// `check` fingerprints the viewer's copy before `offset` (`tail_check`): the
+    /// host continues only if its file has the same bytes there.
+    DownloadFrom { id: u32, path: String, offset: u64, size: u64, check: u64 },
     /// Like `Upload` for a single file `name` of `size` bytes; the host answers
     /// with `Offset`, the bytes of an interrupted copy it already has, and the
     /// viewer sends the rest. Only to hosts with [`Features::RESUME`].
@@ -472,7 +474,9 @@ pub enum FileReply {
     /// A folder on the host, after `PasteDir`.
     Path(String),
     /// Where a continued transfer starts, after `DownloadFrom` or `UploadFrom`.
-    Offset(u64),
+    /// `check` fingerprints the bytes before `at` on the answering side, so the
+    /// other side continues only if its file matches there.
+    Offset { at: u64, check: u64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -586,7 +590,8 @@ pub enum InputEvent {
     /// Pixel position within the active display.
     MouseMove { x: i32, y: i32 },
     MouseButton { button: MouseButton, down: bool },
-    /// Wheel deltas in Windows units, 120 per notch.
+    /// Wheel deltas in Windows units, 120 per notch: `dy` positive scrolls up,
+    /// `dx` positive scrolls right (as `WHEEL_DELTA` and `HWHEEL` on Windows).
     Wheel { dx: i32, dy: i32 },
     /// A physical key, identified by its DOM `KeyboardEvent.code`.
     Key { code: String, down: bool },

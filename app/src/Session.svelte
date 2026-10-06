@@ -91,7 +91,14 @@
   async function typeClipboard() {
     keysOpen = false;
     try {
-      await api.typeClipboard(session);
+      if (MOBILE) {
+        // The app's clipboard reader has no phone clipboard: the page reads it.
+        const text = await readText();
+        if (!text) throw "In der Zwischenablage ist kein Text";
+        send({ Text: text });
+      } else {
+        await api.typeClipboard(session);
+      }
     } catch (e) {
       showNotice(errorText(e));
     }
@@ -376,6 +383,10 @@
   let view = $state({ zoom: 1, x: 0, y: 0 });
   const fingers = new TouchControl({
     toRemote: (clientX, clientY) => toRemote({ clientX, clientY } as MouseEvent),
+    origin: () => {
+      const rect = canvas?.getBoundingClientRect();
+      return { x: rect?.left ?? 0, y: rect?.top ?? 0 };
+    },
     send: (event) => {
       if (streaming && !drawing) send(event);
     },
@@ -401,6 +412,7 @@
       });
     } else {
       typing?.blur();
+      sticky = new Set();
     }
   }
 
@@ -428,14 +440,22 @@
       pressKey(/[0-9]/.test(text) ? `Digit${text}` : `Key${text.toUpperCase()}`);
       return;
     }
+    // Anything else goes as text: the held modifiers do not apply to it.
+    sticky = new Set();
     if (features.typeText) {
       send({ Text: text });
     } else {
+      // Older hosts know keys only: letters (with Shift for capitals), digits, space.
+      let dropped = false;
       for (const c of text) {
-        if (/[a-z]/i.test(c)) pressKey(`Key${c.toUpperCase()}`);
-        else if (/[0-9]/.test(c)) pressKey(`Digit${c}`);
+        if (/[a-z]/i.test(c)) {
+          if (c !== c.toLowerCase()) sticky = new Set(["ShiftLeft"]);
+          pressKey(`Key${c.toUpperCase()}`);
+        } else if (/[0-9]/.test(c)) pressKey(`Digit${c}`);
         else if (c === " ") pressKey("Space");
+        else dropped = true;
       }
+      if (dropped) showNotice("Dieses Gerät nimmt nur Buchstaben, Ziffern und Leerzeichen an");
     }
   }
 
@@ -697,8 +717,8 @@
 
   function onMove(e: PointerEvent) {
     if (!streaming) return;
-    // Fingers are handled by `fingers`.
-    if (e.pointerType === "touch") return;
+    // Fingers are handled by `fingers` on phones.
+    if (MOBILE && e.pointerType === "touch") return;
     if (drawing) return drawMove(e);
     if (pendingMove === null) requestAnimationFrame(flushMove);
     pendingMove = toRemote(e);
@@ -1334,7 +1354,13 @@
         <Icon name="sliders" size={18} />
       </button>
       {#if can(RIGHT.INPUT)}
-        <button class="phone-btn" class:active={keyboardOpen} title="Tastatur" onclick={toggleKeyboard}>
+        <button
+          class="phone-btn"
+          class:active={keyboardOpen}
+          title="Tastatur"
+          onpointerdown={(e) => e.preventDefault()}
+          onclick={toggleKeyboard}
+        >
           <Icon name="keyboard" size={18} />
         </button>
       {/if}
@@ -1363,7 +1389,10 @@
           composing = false;
           onTypingInput();
         }}
-        onblur={() => (keyboardOpen = false)}
+        onblur={() => {
+          keyboardOpen = false;
+          sticky = new Set();
+        }}
       ></textarea>
       <div class="extra-keys" role="toolbar" aria-label="Sondertasten">
         {#each STICKY_KEYS as [code, label] (code)}

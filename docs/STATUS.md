@@ -16,6 +16,19 @@
 - **Linux-Host über X11:** echt getestet auf Xvfb, inklusive einer ganzen Sitzung über den Server (`crates/server/tests/linux_host.rs`). Unter Wayland erscheint ein Hinweis. Autostart über `~/.config/autostart`.
 - **Behoben:** Gleichzeitiges Speichern der Konfiguration hat sich die Zwischendatei weggenommen (`Config::save`, mit Test).
 
+**Fehlerdurchsicht am 6. Oktober (drei Prüfer, Funde nachgeprüft und behoben, mit Tests wo möglich):**
+- Android: Die Zurück-Taste beendet die Sitzung jetzt wirklich (`main.ts`, `hashchange`). Eine neue Sitzung räumt alte auf, sodass sich Ereignisse nicht mehr mischen. Behoben sind außerdem: „Zwischenablage eintippen“, Tastatur-Knopf schließt, Strg/Alt lösen sich, Großbuchstaben bei alten Hosts, kein doppelter Reload, Zoom hält den Punkt unter den Fingern auch bei zentriertem Bild, ein Finger auf einem Knopf hält die Maustaste nicht fest.
+- Linux: Seitwärtsscrollen war spiegelverkehrt. Konvention jetzt im Protokoll: `dx` positiv = rechts, `dy` positiv = hoch. Die Farbtiefe wird genauer geprüft.
+- Dateiübertragung fortsetzen: Eine Prüfsumme über die letzten 64 KiB vor der Fortsetzungsstelle (`tail_check`) stellt sicher, dass nur dieselbe Datei weitergeschrieben wird. Laufende Teildateien werden nicht von einer zweiten Übertragung fortgesetzt. Protokoll: `DownloadFrom` hat `check`, `FileReply::Offset { at, check }`. Beides war noch nicht ausgeliefert.
+- Windows: Eintippen bricht beim ersten blockierten Zeichen ab, statt tausendfach den Desktop zu wechseln. Abgelehnte Nachrichten erscheinen im Log ohne Inhalt, also ohne Passwörter.
+- Mac: Bildpuffer werden als „in Benutzung“ markiert (wie OBS), es gibt kein Leck mehr beim Beenden, und das Ziehen mit den Seitentasten der Maus nutzt die richtige Taste.
+- Tests: Test-Server räumen ihr Datenverzeichnis auf. Alte Verzeichnisse mit gleichem Port ließen den Konto-Test gelegentlich scheitern („Adresse vergeben“).
+- **Bewusst offen, beim Gerätetest prüfen:**
+  - Mac: Caps Lock wird beim Tippen vom Viewer womöglich ignoriert (eigene Flag-Maske). Die Rad-Richtung bei „Natürliches Scrollen“ ist unklar.
+  - Windows: Die Marke für versteckte Zeiger im Privatsphäre-Modus gilt pro Benutzer, nicht pro Prozess. Bei einem überlappenden Neustart des Agents kann der Zeiger kurz sichtbar werden.
+  - Android: Ob Bildschirmfoto und Aufnahme einen beschreibbaren Ordner finden, ist unklar. Gboard schickt Wörter erst am Ende des Worts.
+  - Linux: Die 20 ms Pause beim Eintippen sind für träge Programme unter Last eventuell knapp.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**

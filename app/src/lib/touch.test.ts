@@ -10,10 +10,12 @@ type Finger = { clientX: number; clientY: number };
 let sent: unknown[];
 let views: [number, number, number][];
 let touch: TouchControl;
+/** Where the view's corner is on the screen, as the page would report it. */
+let corner = { x: 0, y: 0 };
 
 /** A touch event with these fingers still on the screen. */
 function ev(...fingers: Finger[]) {
-  return { touches: fingers, preventDefault() {} } as unknown as TouchEvent;
+  return { targetTouches: fingers, touches: fingers, preventDefault() {} } as unknown as TouchEvent;
 }
 const at = (x: number, y: number): Finger => ({ clientX: x, clientY: y });
 
@@ -25,7 +27,9 @@ beforeEach(() => {
   mock.timers.enable({ apis: ["setTimeout"] });
   sent = [];
   views = [];
+  corner = { x: 0, y: 0 };
   touch = new TouchControl({
+    origin: () => corner,
     // Remote pixels are screen pixels here.
     toRemote: (x, y) => ({ x, y }),
     send: (e) => sent.push(e),
@@ -144,4 +148,33 @@ test("after a gesture, the next tap works again", () => {
   touch.onStart(ev(at(30, 40)));
   touch.onEnd(ev());
   assert.deepEqual(sent, [move(30, 40), down("Left"), up("Left")]);
+});
+
+test("zooming keeps the point under the fingers also for a centred picture", () => {
+  // The picture's box starts at (100, 40) on the screen.
+  corner = { x: 100, y: 40 };
+  touch.onStart(ev(at(200, 140), at(300, 140)));
+  touch.onMove(ev(at(150, 140), at(350, 140)));
+  touch.onEnd(ev());
+  const [zoom, x, y] = views.at(-1)!;
+  // Box point (150, 100) was under the midpoint (250, 140); it stays there.
+  assert.equal(100 + x + 150 * zoom, 250);
+  assert.equal(40 + y + 100 * zoom, 140);
+  // A second pinch starts from the zoomed view, whose corner moved by the pan.
+  corner = { x: 100 + x, y: 40 + y };
+  touch.onStart(ev(at(240, 140), at(260, 140)));
+  touch.onMove(ev(at(230, 140), at(270, 140)));
+  const [zoom2, x2, y2] = views.at(-1)!;
+  const px = (250 - 100 - x) / zoom;
+  assert.ok(Math.abs(100 + x2 + px * zoom2 - 250) < 1e-9);
+  assert.ok(Math.abs(40 + y2 + 100 * zoom2 - 140) < 1e-9);
+});
+
+test("a finger on a button meanwhile does not hold the mouse button down", () => {
+  touch.onStart(ev(at(10, 10)));
+  touch.onMove(ev(at(60, 10)));
+  // The other finger is on a button: not on the picture, so not in targetTouches.
+  const lifted = { targetTouches: [], touches: [at(500, 500)], preventDefault() {} } as unknown as TouchEvent;
+  touch.onEnd(lifted);
+  assert.deepEqual(sent.at(-1), up("Left"));
 });

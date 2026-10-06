@@ -185,7 +185,11 @@ fn type_text(text: &str) {
                                 ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0), wScan: unit, dwFlags: flags, time: 0, dwExtraInfo: 0 },
                             },
                         };
-                        send(&input);
+                        // Blocked (UIPI, a changed desktop): the rest would be too,
+                        // and each try costs a desktop switch.
+                        if !send(&input) {
+                            return;
+                        }
                     }
                 }
             }
@@ -194,7 +198,8 @@ fn type_text(text: &str) {
     }
 }
 
-fn send(input: &INPUT) {
+/// Whether Windows took the input.
+fn send(input: &INPUT) -> bool {
     let inject = || unsafe { SendInput(std::slice::from_ref(input), size_of::<INPUT>() as i32) };
     let mut sent = inject();
     // The input desktop may have changed (lock screen, UAC); follow it and retry once.
@@ -205,4 +210,5 @@ fn send(input: &INPUT) {
         // Typically UIPI: the foreground window runs with higher integrity than we do.
         tracing::trace!("SendInput wurde blockiert");
     }
+    sent != 0
 }

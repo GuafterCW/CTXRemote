@@ -903,7 +903,7 @@ async fn run_session(
                             let error = Some("Der Privatsphäre-Modus ist in dieser Sitzung nicht erlaubt".to_string());
                             tx.send(&HostMsg::Privacy { on: false, error }).await?;
                         }
-                        other => debug!("Nicht erlaubt in dieser Sitzung: {other:?}"),
+                        other => debug!("Nicht erlaubt in dieser Sitzung: {}", refused_kind(&other)),
                     },
                     Some(ViewerMsg::Tunnel(msg)) => tunnels.handle(msg),
                     // Only shown here; recording itself happens at the viewer.
@@ -1004,3 +1004,19 @@ async fn reopen(screen: &dyn ScreenSource, stop: &Notify) -> Option<ScreenChanne
     }
     None
 }
+
+/// What a refused message was, for the log: typed text, clipboard contents
+/// and images stay out of it.
+fn refused_kind(msg: &ViewerMsg) -> String {
+    match msg {
+        ViewerMsg::Input(ctxremote_proto::session::InputEvent::Text(_)) => "Input(Text)".into(),
+        ViewerMsg::Clipboard(_) => "Clipboard".into(),
+        ViewerMsg::ClipboardImage(_) => "ClipboardImage".into(),
+        other => {
+            let mut text = format!("{other:?}");
+            text.truncate(text.floor_char_boundary(200));
+            text
+        }
+    }
+}
+

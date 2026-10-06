@@ -120,8 +120,8 @@ impl Injector {
         ry += dy;
         let (nx, ny) = (rx / NOTCH, ry / NOTCH);
         self.wheel_rest = (rx - nx * NOTCH, ry - ny * NOTCH);
-        // Positive is up and left, as on Windows.
-        let clicks = [(ny, 4u8, 5u8), (nx, 6, 7)];
+        // As on Windows: dy positive is up (button 4), dx positive is right (button 7).
+        let clicks = [(ny, 4u8, 5u8), (nx, 7, 6)];
         for (count, positive, negative) in clicks {
             let button = if count > 0 { positive } else { negative };
             for _ in 0..count.unsigned_abs().min(20) {
