@@ -60,6 +60,7 @@ fn capture_sees_what_is_drawn() {
     paint(&conn, root, Rectangle { x: 0, y: 0, width: display.width as u16, height: display.height as u16 }, 0x000000);
     let mut capturer = Capturer::new(0).expect("Aufnahme");
     let mut first = Vec::new();
+    let started = Instant::now();
     assert!(capturer
         .next_frame(10, |data, pitch, w, h| {
             assert_eq!((w, h), (display.width, display.height));
@@ -69,10 +70,9 @@ fn capture_sees_what_is_drawn() {
         .unwrap());
     assert!(first.iter().all(|&b| b == 0 || b == 0xff), "schwarz");
 
-    // Nothing drawn: no new picture, after waiting about one frame.
-    let started = Instant::now();
+    // Nothing drawn: no new picture, and not before a frame's time after the last one.
     assert!(!capturer.next_frame(40, |_, _, _, _| panic!("unverändert")).unwrap());
-    assert!(started.elapsed() >= Duration::from_millis(30), "wartet statt leer zu drehen");
+    assert!(started.elapsed() >= Duration::from_millis(40), "wartet statt leer zu drehen");
 
     // A red square at (100, 50): BGRA in the picture.
     paint(&conn, root, Rectangle { x: 100, y: 50, width: 20, height: 20 }, 0xff0000);

@@ -191,11 +191,20 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<()> {
-        let path = Self::path()?;
+        self.save_to(&Self::path()?)
+    }
+
+    fn save_to(&self, path: &std::path::Path) -> Result<()> {
         std::fs::create_dir_all(path.parent().expect("config path has a parent"))?;
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(self)?)?;
-        std::fs::rename(tmp, path)?;
+        // A temporary file per save: two saves at once (say the account sync
+        // and the settings) must not rename each other's file away.
+        static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
+        if let Err(e) = std::fs::write(&tmp, serde_json::to_string_pretty(self)?).and_then(|()| std::fs::rename(&tmp, path)) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.into());
+        }
         Ok(())
     }
 
@@ -413,6 +422,28 @@ pub fn generate_password() -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn saves_at_the_same_time_do_not_collide() {
+        let dir = std::env::temp_dir().join(format!("ctxremote-save-{}", std::process::id()));
+        let path = dir.join("config.json");
+        let config = std::sync::Arc::new(Config::default());
+        let threads: Vec<_> = (0..16)
+            .map(|_| {
+                let (config, path) = (config.clone(), path.clone());
+                std::thread::spawn(move || (0..20).try_for_each(|_| config.save_to(&path)))
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap().expect("gespeichert");
+        }
+        let saved: Config = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.device_key, config.device_key);
+        // No temporary files left behind.
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     fn id(n: u32) -> DeviceId {
