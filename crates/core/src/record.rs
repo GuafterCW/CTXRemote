@@ -158,7 +158,7 @@ impl Recorder {
 /// media folders without a permission (Android 11 and later); the gallery
 /// lists them.
 #[cfg(target_os = "android")]
-const ANDROID_STORAGE: &str = "/storage/emulated/0";
+pub(crate) const ANDROID_STORAGE: &str = "/storage/emulated/0";
 
 /// Where recordings go by default: the user's video folder.
 #[cfg(target_os = "android")]

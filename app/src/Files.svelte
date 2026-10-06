@@ -35,6 +35,8 @@
   let transfers = $state<Transfer[]>([]);
   let collapsed = $state(false);
   let note = $state("");
+  /** On a phone only one side fits: which one is shown. */
+  let side = $state<"local" | "remote">("remote");
   const early = new Map<number, TransferUpdate[]>();
 
   const ENDED = "Die Sitzung ist beendet.";
@@ -202,12 +204,23 @@
     {#if note}<span class="note" role="alert">{note}</span>{/if}
   </header>
 
-  <div class="panes">
+  {#if MOBILE}
+    <div class="sides" role="tablist">
+      <button role="tab" aria-selected={side === "remote"} class:on={side === "remote"} onclick={() => (side = "remote")}>
+        Ferngesteuertes Gerät
+      </button>
+      <button role="tab" aria-selected={side === "local"} class:on={side === "local"} onclick={() => (side = "local")}>
+        Dieses Handy
+      </button>
+    </div>
+  {/if}
+
+  <div class="panes" class:show-local={side === "local"} class:show-remote={side === "remote"}>
     {#if start !== null}
       <FilePane
         bind:this={local}
         bind:path={localDir}
-        title="Dieser Computer"
+        title={MOBILE ? "Dieses Handy" : "Dieser Computer"}
         {start}
         list={api.localList}
         createDir={api.localCreateDir}
@@ -220,10 +233,10 @@
     {/if}
 
     <div class="actions">
-      <button class="btn btn-primary" disabled={!canUpload} onclick={() => upload()} title="Auswahl links in den aktuellen Ordner rechts laden">
+      <button class="btn btn-primary up" disabled={!canUpload} onclick={() => upload()} title="Auswahl links in den aktuellen Ordner rechts laden">
         Hochladen <Icon name="arrowRight" size={16} />
       </button>
-      <button class="btn btn-quiet" disabled={!canDownload} onclick={() => download()} title="Auswahl rechts in den aktuellen Ordner links laden">
+      <button class="btn btn-quiet down" disabled={!canDownload} onclick={() => download()} title="Auswahl rechts in den aktuellen Ordner links laden">
         <Icon name="arrowLeft" size={16} /> Herunterladen
       </button>
     </div>
@@ -285,7 +298,7 @@
               <span class="end">
                 {#if t.status === "running"}
                   <button class="tool" onclick={() => cancel(t)}>Abbrechen</button>
-                {:else if t.status === "done" && !t.up && t.saved}
+                {:else if t.status === "done" && !t.up && t.saved && !MOBILE}
                   <button class="tool" onclick={() => api.reveal(t.saved!).catch((e) => (note = errorText(e)))}>Im Ordner zeigen</button>
                 {/if}
               </span>
@@ -482,5 +495,101 @@
     display: flex;
     justify-content: flex-end;
     white-space: nowrap;
+  }
+
+  /* Phones: one side at a time, the action for it below. */
+  .sides {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  .sides button {
+    height: 34px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+
+  .sides button.on {
+    background: color-mix(in srgb, var(--ink) 9%, transparent);
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  :global(body.mobile) main {
+    padding: 8px 4px 4px;
+  }
+
+  :global(body.mobile) header {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+  }
+
+  :global(body.mobile) .note {
+    flex-basis: 100%;
+  }
+
+  :global(body.mobile) .panes {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  :global(body.mobile) .panes > :global(*) {
+    flex: 1;
+    min-height: 0;
+  }
+
+  :global(body.mobile) .panes.show-local > :global(:last-child),
+  :global(body.mobile) .panes.show-remote > :global(:first-child) {
+    display: none;
+  }
+
+  :global(body.mobile) .actions {
+    flex: none;
+    order: 1;
+  }
+
+  :global(body.mobile) .actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  :global(body.mobile) .show-local .down,
+  :global(body.mobile) .show-remote .up {
+    display: none;
+  }
+
+  :global(body.mobile) li {
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    gap: 4px 10px;
+    padding: 8px 12px;
+  }
+
+  :global(body.mobile) .track {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+
+  :global(body.mobile) .status {
+    grid-column: 2 / 4;
+    grid-row: 3;
+  }
+
+  :global(body.mobile) .end {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  :global(body.mobile) ul {
+    max-height: 30vh;
   }
 </style>
