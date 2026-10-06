@@ -1,13 +1,31 @@
 //! Reading a file or folder tree into [`Transfer`] messages and writing them back.
 
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use ctxremote_proto::session::Transfer;
 
 use super::{free_name, join_relative, valid_name, CHUNK};
+
+/// The temporary name of a single file while it is received, with its size,
+/// so an interrupted copy can be continued only by the same file.
+pub fn part_name(name: &str, size: u64) -> String {
+    format!("{name}.{size}.ctxpart")
+}
+
+/// Finds an interrupted copy of `name` in `dir`: its total size and the bytes
+/// already there.
+pub fn find_part(dir: &Path, name: &str) -> Option<(u64, u64)> {
+    let prefix = format!("{name}.");
+    std::fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
+        let file = entry.file_name().to_string_lossy().into_owned();
+        let size: u64 = file.strip_prefix(&prefix)?.strip_suffix(".ctxpart")?.parse().ok()?;
+        let have = entry.metadata().ok().filter(|m| m.is_file())?.len();
+        (have > 0 && have < size).then_some((size, have))
+    })
+}
 
 enum Item {
     Dir { rel: String },
@@ -22,9 +40,26 @@ pub struct Outgoing {
     ended: bool,
     current: Option<(File, u64)>,
     buffer: Vec<u8>,
+    /// Bytes of the single file the receiver already has.
+    skip: u64,
 }
 
 impl Outgoing {
+    /// Like [`Outgoing::open`], but a single file continues at `offset` when
+    /// it is `size` bytes long, as the receiver's interrupted copy was.
+    /// Returns where it continues: `offset`, or 0 if the file changed.
+    pub fn open_from(path: &Path, offset: u64, size: u64) -> Result<(Self, u64)> {
+        let mut out = Self::open(path)?;
+        let single = matches!(out.items.as_slice(), [Item::File { size: s, .. }] if *s == size);
+        if single && offset > 0 && offset < size {
+            out.skip = offset;
+            out.total -= offset;
+            Ok((out, offset))
+        } else {
+            Ok((out, 0))
+        }
+    }
+
     /// Collects `path` (a file, or a folder with everything below it). Links are
     /// skipped so a loop cannot make the transfer endless.
     pub fn open(path: &Path) -> Result<Self> {
@@ -42,7 +77,7 @@ impl Outgoing {
             items.push(Item::File { rel: name, path: path.to_path_buf(), size: meta.len() });
         }
         let total = items.iter().map(|i| if let Item::File { size, .. } = i { *size } else { 0 }).sum();
-        Ok(Self { items: items.into_iter(), total, started: false, ended: false, current: None, buffer: Vec::new() })
+        Ok(Self { items: items.into_iter(), total, started: false, ended: false, current: None, buffer: Vec::new(), skip: 0 })
     }
 
     pub fn total(&self) -> u64 {
@@ -71,8 +106,13 @@ impl Outgoing {
         match self.items.next() {
             Some(Item::Dir { rel }) => Ok(Some(Transfer::Dir { rel })),
             Some(Item::File { rel, path, size }) => {
-                let file = File::open(&path).with_context(|| format!("{} kann nicht gelesen werden", path.display()))?;
-                self.current = Some((file, size));
+                let mut file = File::open(&path).with_context(|| format!("{} kann nicht gelesen werden", path.display()))?;
+                // Only a single file is ever continued, so `skip` is its own.
+                let skip = std::mem::take(&mut self.skip);
+                if skip > 0 {
+                    file.seek(SeekFrom::Start(skip))?;
+                }
+                self.current = Some((file, size - skip));
                 Ok(Some(Transfer::File { rel, size }))
             }
             None if !self.ended => {
@@ -124,9 +164,25 @@ pub struct Incoming {
     total: u64,
     written: u64,
     finished: Option<PathBuf>,
+    /// Bytes of an interrupted copy to continue (see [`Incoming::resume_at`]).
+    resume: u64,
+    /// Keep a single file's partial copy when dropped (connection lost).
+    keep: bool,
 }
 
 impl Incoming {
+    /// Continues the interrupted copy of the single file that follows, which
+    /// has `offset` bytes; the sender starts there.
+    pub fn resume_at(&mut self, offset: u64) {
+        self.resume = offset;
+    }
+
+    /// Dropped from now on, a single file's partial copy stays for a later
+    /// [`Incoming::resume_at`]. For a lost connection, not for a cancel.
+    pub fn keep_partial(&mut self) {
+        self.keep = true;
+    }
+
     pub fn new(dest: &Path) -> Result<Self> {
         if !dest.is_dir() {
             bail!("Zielordner {} nicht gefunden", dest.display());
@@ -139,6 +195,8 @@ impl Incoming {
             total: 0,
             written: 0,
             finished: None,
+            resume: 0,
+            keep: false,
         })
     }
 
@@ -179,21 +237,37 @@ impl Incoming {
             }
             Transfer::File { rel, size } => {
                 self.close_file()?;
-                let path = match self.place(&rel)? {
-                    Some(path) => path,
+                let (path, resume) = match self.place(&rel)? {
+                    Some(path) => (path, 0),
                     None => {
                         let name = self.sent_top.clone().unwrap_or_default();
-                        let temp = self.dest.join(free_name(&self.dest, &format!("{name}.ctxpart")));
-                        self.top = Some(Top::File { temp: temp.clone(), name });
-                        temp
+                        let part = part_name(&name, size);
+                        let resume = std::mem::take(&mut self.resume);
+                        // A leftover copy that is not continued keeps its name.
+                        let temp = if resume > 0 { self.dest.join(part) } else { self.dest.join(free_name(&self.dest, &part)) };
+                        (temp, resume)
                     }
                 };
-                let file = File::options()
-                    .write(true)
-                    .create_new(true)
-                    .open(&path)
-                    .with_context(|| format!("{} kann nicht geschrieben werden", path.display()))?;
-                self.current = Some((file, size));
+                let file = if resume > 0 {
+                    let file = File::options()
+                        .append(true)
+                        .open(&path)
+                        .with_context(|| format!("{} kann nicht fortgesetzt werden", path.display()))?;
+                    if file.metadata()?.len() != resume || resume >= size {
+                        bail!("Die angefangene Datei passt nicht mehr");
+                    }
+                    file
+                } else {
+                    File::options()
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)
+                        .with_context(|| format!("{} kann nicht geschrieben werden", path.display()))?
+                };
+                if self.top.is_none() {
+                    self.top = Some(Top::File { temp: path.clone(), name: self.sent_top.clone().unwrap_or_default() });
+                }
+                self.current = Some((file, size - resume));
             }
             Transfer::Data(data) => {
                 let Some((file, remaining)) = &mut self.current else { bail!("Daten ohne Datei") };
@@ -260,6 +334,8 @@ impl Drop for Incoming {
         // Only what this transfer created itself, under the name it picked.
         let _ = match self.top.take() {
             Some(Top::Dir { path }) => std::fs::remove_dir_all(path),
+            // Something to continue later, if the connection was lost.
+            Some(Top::File { temp, .. }) if self.keep && std::fs::metadata(&temp).is_ok_and(|m| m.len() > 0) => Ok(()),
             Some(Top::File { temp, .. }) => std::fs::remove_file(temp),
             None => Ok(()),
         };
@@ -341,6 +417,72 @@ mod tests {
         inc.apply(Transfer::File { rel: "/etc/passwd".into(), size: 0 }).unwrap_err();
         inc.apply(Transfer::File { rel: "..".into(), size: 0 }).unwrap_err();
         drop(inc);
+        std::fs::remove_dir_all(&dst).unwrap();
+    }
+
+    #[test]
+    fn an_interrupted_file_continues() {
+        let src = temp_dir("resume-src");
+        let data: Vec<u8> = (0..(CHUNK * 3 + 5)).map(|i| (i % 253) as u8).collect();
+        let file = src.join("gross.bin");
+        std::fs::write(&file, &data).unwrap();
+        let size = data.len() as u64;
+        let dst = temp_dir("resume-dst");
+
+        // The connection drops after the first chunk.
+        let mut out = Outgoing::open(&file).unwrap();
+        let mut inc = Incoming::new(&dst).unwrap();
+        for _ in 0..3 {
+            inc.apply(out.next_msg().unwrap().unwrap()).unwrap();
+        }
+        inc.keep_partial();
+        drop(inc);
+        let (part_size, have) = find_part(&dst, "gross.bin").expect("Teil bleibt liegen");
+        assert_eq!((part_size, have), (size, CHUNK as u64));
+
+        // Continued where it stopped; only the rest travels.
+        let (mut out, offset) = Outgoing::open_from(&file, have, part_size).unwrap();
+        assert_eq!(offset, have);
+        assert_eq!(out.total(), size - have);
+        let mut inc = Incoming::new(&dst).unwrap();
+        inc.resume_at(offset);
+        let mut sent = 0;
+        while let Some(msg) = out.next_msg().unwrap() {
+            if let Transfer::Data(d) = &msg {
+                sent += d.len() as u64;
+            }
+            if inc.apply(msg).unwrap() {
+                break;
+            }
+        }
+        assert_eq!(sent, size - have);
+        assert_eq!(std::fs::read(dst.join("gross.bin")).unwrap(), data);
+        assert!(find_part(&dst, "gross.bin").is_none());
+
+        // A changed file starts over.
+        let (_, offset) = Outgoing::open_from(&file, 10, size + 1).unwrap();
+        assert_eq!(offset, 0);
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&dst).unwrap();
+    }
+
+    #[test]
+    fn a_cancelled_file_leaves_nothing() {
+        let dst = temp_dir("cancel");
+        let mut inc = Incoming::new(&dst).unwrap();
+        inc.apply(Transfer::File { rel: "f".into(), size: 5 }).unwrap();
+        inc.apply(Transfer::Data(vec![1, 2])).unwrap();
+        drop(inc);
+        assert_eq!(std::fs::read_dir(&dst).unwrap().count(), 0);
+        // A wrong offset is refused instead of corrupting the file.
+        let mut inc = Incoming::new(&dst).unwrap();
+        inc.apply(Transfer::File { rel: "g".into(), size: 5 }).unwrap();
+        inc.apply(Transfer::Data(vec![1, 2])).unwrap();
+        inc.keep_partial();
+        drop(inc);
+        let mut inc = Incoming::new(&dst).unwrap();
+        inc.resume_at(3);
+        assert!(inc.apply(Transfer::File { rel: "g".into(), size: 5 }).is_err());
         std::fs::remove_dir_all(&dst).unwrap();
     }
 

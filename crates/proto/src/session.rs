@@ -203,6 +203,8 @@ impl Features {
     pub const CLIPBOARD_IMAGE: u32 = 1 << 19;
     /// Types `InputEvent::Text`.
     pub const TYPE_TEXT: u32 = 1 << 20;
+    /// Continues interrupted single-file transfers (`DownloadFrom`, `UploadFrom`).
+    pub const RESUME: u32 = 1 << 21;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -226,7 +228,8 @@ impl Features {
             | Self::DRAW
             | Self::MIC
             | Self::CLIPBOARD_IMAGE
-            | Self::TYPE_TEXT,
+            | Self::TYPE_TEXT
+            | Self::RESUME,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -451,6 +454,15 @@ pub enum FileOp {
     /// Puts everything in `dir` (from `PasteDir`) on the host's clipboard as
     /// files, ready for Ctrl+V there.
     ClipboardFromDir { dir: String },
+    /// Like `Download`, continuing a single file of `size` bytes at `offset`,
+    /// where the viewer's interrupted copy ends. Answered with `Offset`: where
+    /// the host continues (0 if the file changed). Only to hosts with
+    /// [`Features::RESUME`].
+    DownloadFrom { id: u32, path: String, offset: u64, size: u64 },
+    /// Like `Upload` for a single file `name` of `size` bytes; the host answers
+    /// with `Offset`, the bytes of an interrupted copy it already has, and the
+    /// viewer sends the rest. Only to hosts with [`Features::RESUME`].
+    UploadFrom { id: u32, dir: String, name: String, size: u64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -459,6 +471,8 @@ pub enum FileReply {
     Done,
     /// A folder on the host, after `PasteDir`.
     Path(String),
+    /// Where a continued transfer starts, after `DownloadFrom` or `UploadFrom`.
+    Offset(u64),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

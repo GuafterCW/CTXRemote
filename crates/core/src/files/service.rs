@@ -42,10 +42,22 @@ struct State {
     user: Option<UserContext>,
     downloads: Vec<(u32, Outgoing)>,
     uploads: HashMap<u32, Incoming>,
+    /// Uploads begun with `UploadFrom`: their viewer can continue them later.
+    resumable: std::collections::HashSet<u32>,
 }
 
 fn run(inbox: std_mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<HostMsg>) {
-    let mut state = State { outbox, user: None, downloads: Vec::new(), uploads: HashMap::new() };
+    let mut state = State { outbox, user: None, downloads: Vec::new(), uploads: HashMap::new(), resumable: Default::default() };
+    serve(&mut state, inbox);
+    // The session is gone: uploads still running can be continued later.
+    for (id, upload) in state.uploads.iter_mut() {
+        if state.resumable.contains(id) {
+            upload.keep_partial();
+        }
+    }
+}
+
+fn serve(state: &mut State, inbox: std_mpsc::Receiver<ViewerMsg>) {
     loop {
         // Requests first; with nothing to send, wait for the next one.
         let msg = if state.downloads.is_empty() {
@@ -117,6 +129,24 @@ impl State {
                 let incoming = Incoming::new(Path::new(&dir))?;
                 self.uploads.insert(id, incoming);
                 FileReply::Done
+            }
+            FileOp::DownloadFrom { id, path, offset, size } => {
+                let (outgoing, from) = Outgoing::open_from(Path::new(&path), offset, size)?;
+                info!(%path, from, bytes = outgoing.total(), "Download fortgesetzt");
+                self.downloads.push((id, outgoing));
+                FileReply::Offset(from)
+            }
+            FileOp::UploadFrom { id, dir, name, size } => {
+                super::valid_name(&name)?;
+                let mut incoming = Incoming::new(Path::new(&dir))?;
+                let have = std::fs::metadata(Path::new(&dir).join(super::part_name(&name, size)))
+                    .ok()
+                    .filter(|m| m.is_file() && m.len() < size)
+                    .map_or(0, |m| m.len());
+                incoming.resume_at(have);
+                self.uploads.insert(id, incoming);
+                self.resumable.insert(id);
+                FileReply::Offset(have)
             }
             // Created with the user's rights, so the pasted copies are the user's.
             FileOp::PasteDir => FileReply::Path(super::paste_dir(&user.paste_root())?.to_string_lossy().into_owned()),

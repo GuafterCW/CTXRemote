@@ -399,6 +399,10 @@ Der Nutzer hat bestätigt: Privatsphäre-Modus, Rechte und Zeichnen funktioniere
 - **Erneut verbinden:** Die Karte „Sitzung beendet“ hat einen Knopf dafür. Die App merkt sich Ziel und Passwort jedes Sitzungsfensters nur im Arbeitsspeicher, bis es geschlossen wird. Ein Klick genügt also nach einem Abbruch oder einem Neustart des Geräts. Klappt das nicht (Einmal-Passwort verbraucht, Passwort geändert), fragt die Karte nach dem Passwort und bei Bedarf nach dem Bestätigungscode. Die neue Sitzung öffnet ein eigenes Fenster, das alte schließt sich.
 - **Fehler behoben:** Die App meldete die Fähigkeiten des Geräts mit `file_paste`, die Oberfläche fragte `filePaste` ab. Deshalb griff Strg+V mit Dateien in der Sitzung nie, und der Hinweis „… am Gerät kopiert“ fehlte. Jetzt werden die Namen in camelCase übertragen. Testpunkt 27 bitte wiederholen.
 
+### Dateiübertragung fortsetzen (6. Oktober, Cloud-Sitzung)
+
+Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt die nächste Übertragung derselben Datei an der Stelle fort, in beide Richtungen (Fähigkeit `RESUME`). Einzelheiten stehen in `docs/FILE-TRANSFER.md`. Unter Linux mit Ende-zu-Ende-Tests geprüft.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -520,6 +524,7 @@ Der Nutzer hat bestätigt: Privatsphäre-Modus, Rechte und Zeichnen funktioniere
 44. Zwischenablage eintippen: Lokal ein Passwort kopieren. Am gesperrten Gerät im Tastenmenü „Zwischenablage eintippen“ wählen: Das Passwort steht im Feld, auch mit Sonderzeichen und Umlauten und bei anderem Tastaturlayout am Gerät.
 45. Bei Inaktivität trennen: In den Einstellungen 15 Minuten wählen. Eine Sitzung offen lassen ohne Eingabe: Nach 14 Minuten kommt der Hinweis, nach 15 ist die Sitzung getrennt. Eine Mausbewegung nach dem Hinweis hält sie.
 46. Erneut verbinden: Mit festem Passwort verbinden, „Neu starten …“ wählen. Nach dem Neustart auf „Erneut verbinden“ klicken: Die Sitzung läuft wieder ohne Passworteingabe. Mit Einmal-Passwort: Nach dem Trennen fragt die Karte nach dem neuen Passwort.
+47. Fortsetzen: Eine große Datei (mehrere GB) herunterladen und in der Mitte das Netzwerkkabel ziehen oder die Sitzung trennen. Im Downloads-Ordner liegt `Name.<Größe>.ctxpart`. Neu verbinden und dieselbe Datei erneut herunterladen: Der Fortschritt beginnt beim Rest, und die fertige Datei ist identisch (z. B. per `certutil -hashfile`). Dasselbe beim Hochladen.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

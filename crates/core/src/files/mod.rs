@@ -17,7 +17,7 @@ use std::time::UNIX_EPOCH;
 use anyhow::{bail, Context, Result};
 use ctxremote_proto::session::{EntryKind, FileEntry, Listing};
 
-pub use stream::{Incoming, Outgoing};
+pub use stream::{find_part, part_name, Incoming, Outgoing};
 pub use user::UserContext;
 
 /// Bytes per `Transfer::Data` message: small enough not to hold up video and

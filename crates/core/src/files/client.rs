@@ -56,6 +56,10 @@ pub struct FileClient {
     events: EventSink,
     /// Transfers someone awaits: the local path of a download, or an error.
     waiters: Mutex<HashMap<u32, oneshot::Sender<Result<Option<String>, String>>>>,
+    /// The host continues interrupted transfers (`Features::RESUME`).
+    resume: AtomicBool,
+    /// The session ended; downloads keep their partial copies.
+    ended: AtomicBool,
 }
 
 impl FileClient {
@@ -68,7 +72,14 @@ impl FileClient {
             downloads: Mutex::default(),
             events,
             waiters: Mutex::default(),
+            resume: AtomicBool::new(false),
+            ended: AtomicBool::new(false),
         })
+    }
+
+    /// Whether the host continues interrupted transfers.
+    pub fn set_resume(&self, on: bool) {
+        self.resume.store(on, Ordering::Relaxed);
     }
 
     fn number(&self) -> u32 {
@@ -190,14 +201,47 @@ impl FileClient {
     }
 
     async fn start_upload(self: &Arc<Self>, id: u32, local: PathBuf, remote_dir: String) -> Result<()> {
+        // A single file asks the host first how much of it is already there.
+        let single = std::fs::metadata(&local).ok().filter(|m| m.is_file()).map(|m| m.len());
+        let name = local.file_name().map(|n| n.to_string_lossy().into_owned());
+        if let (true, Some(size), Some(name)) = (self.resume.load(Ordering::Relaxed), single, name) {
+            let op = FileOp::UploadFrom { id, dir: remote_dir, name, size };
+            let have = match self.request(op).await {
+                Ok(FileReply::Offset(have)) => have,
+                Ok(_) => 0,
+                Err(e) => {
+                    self.waiters.lock().unwrap().remove(&id);
+                    return Err(e);
+                }
+            };
+            let opened = tokio::task::spawn_blocking(move || Outgoing::open_from(&local, have, size)).await?;
+            return match opened {
+                // The host expects exactly the rest; a changed file fails there.
+                Ok((outgoing, _)) => self.run_upload(id, outgoing),
+                Err(e) => {
+                    let _ = self.outbox.send(ViewerMsg::Transfer { id, msg: Transfer::Failed(format!("{e:#}")) });
+                    self.waiters.lock().unwrap().remove(&id);
+                    Err(e)
+                }
+            };
+        }
         let opened = tokio::task::spawn_blocking(move || Outgoing::open(&local)).await?;
-        let mut outgoing = match opened {
+        let outgoing = match opened {
             Ok(outgoing) => outgoing,
             Err(e) => {
                 self.waiters.lock().unwrap().remove(&id);
                 return Err(e);
             }
         };
+        if let Err(e) = self.done(FileOp::Upload { id, dir: remote_dir }).await {
+            self.waiters.lock().unwrap().remove(&id);
+            return Err(e);
+        }
+        self.run_upload(id, outgoing)
+    }
+
+    /// Sends an announced upload on a thread of its own.
+    fn run_upload(self: &Arc<Self>, id: u32, mut outgoing: Outgoing) -> Result<()> {
         let upload = Arc::new(Upload {
             acked: Mutex::new(0),
             wake: Condvar::new(),
@@ -206,11 +250,6 @@ impl FileClient {
             reported: Mutex::new(Instant::now()),
         });
         self.uploads.lock().unwrap().insert(id, upload.clone());
-        if let Err(e) = self.done(FileOp::Upload { id, dir: remote_dir }).await {
-            self.uploads.lock().unwrap().remove(&id);
-            self.waiters.lock().unwrap().remove(&id);
-            return Err(e);
-        }
         let this = self.clone();
         std::thread::Builder::new().name("ctxremote-upload".into()).spawn(move || {
             if let Err(e) = this.send_upload(id, &upload, &mut outgoing) {
@@ -261,6 +300,12 @@ impl FileClient {
     }
 
     async fn start_download(self: &Arc<Self>, id: u32, remote: String, local_dir: PathBuf) -> Result<()> {
+        // An interrupted copy of the same name here: ask the host to continue it.
+        let name = remote.rsplit(['/', '\\']).next().unwrap_or_default().to_string();
+        let part = if self.resume.load(Ordering::Relaxed) && !name.is_empty() { super::find_part(&local_dir, &name) } else { None };
+        if let Some((size, have)) = part {
+            return self.continue_download(id, remote, local_dir, name, size, have).await;
+        }
         let incoming = match Incoming::new(&local_dir) {
             Ok(incoming) => incoming,
             Err(e) => {
@@ -283,15 +328,63 @@ impl FileClient {
         Ok(())
     }
 
+    async fn continue_download(
+        self: &Arc<Self>,
+        id: u32,
+        remote: String,
+        local_dir: PathBuf,
+        name: String,
+        size: u64,
+        have: u64,
+    ) -> Result<()> {
+        let mut incoming = match Incoming::new(&local_dir) {
+            Ok(incoming) => incoming,
+            Err(e) => {
+                self.waiters.lock().unwrap().remove(&id);
+                return Err(e);
+            }
+        };
+        // Registered first: content arriving before the answer waits in the channel.
+        let (tx, rx) = std_mpsc::channel();
+        self.downloads.lock().unwrap().insert(id, tx);
+        let from = match self.request(FileOp::DownloadFrom { id, path: remote, offset: have, size }).await {
+            Ok(FileReply::Offset(from)) => from,
+            Ok(_) => 0,
+            Err(e) => {
+                self.downloads.lock().unwrap().remove(&id);
+                self.waiters.lock().unwrap().remove(&id);
+                return Err(e);
+            }
+        };
+        if from > 0 {
+            incoming.resume_at(from);
+        } else {
+            // The file there changed: the old piece is of no use.
+            let _ = std::fs::remove_file(local_dir.join(super::part_name(&name, size)));
+        }
+        let this = self.clone();
+        std::thread::Builder::new()
+            .name("ctxremote-download".into())
+            .spawn(move || this.receive_download(id, incoming, rx))?;
+        Ok(())
+    }
+
     fn receive_download(&self, id: u32, mut incoming: Incoming, rx: std_mpsc::Receiver<Transfer>) {
         let mut reported = Instant::now();
         loop {
             let Ok(msg) = rx.recv() else {
-                // Cancelled or the session ended; dropping `incoming` removes the partial copy.
+                // Cancelled or the session ended. A cancel removes the partial
+                // copy; a lost session keeps it to continue later.
+                if self.ended.load(Ordering::SeqCst) && self.resume.load(Ordering::Relaxed) {
+                    incoming.keep_partial();
+                }
                 return;
             };
             // Messages still queued after a cancel are not applied.
             if !self.downloads.lock().unwrap().contains_key(&id) {
+                if self.ended.load(Ordering::SeqCst) && self.resume.load(Ordering::Relaxed) {
+                    incoming.keep_partial();
+                }
                 return;
             }
             match incoming.apply(msg) {
@@ -378,17 +471,23 @@ impl FileClient {
 
     /// The session ended: every running transfer fails.
     pub fn closed(&self) {
+        self.ended.store(true, Ordering::SeqCst);
         for (_, tx) in self.pending.lock().unwrap().drain() {
             let _ = tx.send(Err("Die Sitzung ist beendet".into()));
         }
         let uploads: Vec<_> = self.uploads.lock().unwrap().drain().collect();
         let downloads: Vec<_> = self.downloads.lock().unwrap().drain().map(|(id, _)| id).collect();
+        let message = if self.resume.load(Ordering::Relaxed) {
+            "Verbindung getrennt. Eine einzelne Datei wird beim nächsten Übertragen an dieser Stelle fortgesetzt."
+        } else {
+            "Verbindung getrennt"
+        };
         for (id, upload) in uploads {
             upload.stop();
-            self.fail(id, "Verbindung getrennt".into());
+            self.fail(id, message.into());
         }
         for id in downloads {
-            self.fail(id, "Verbindung getrennt".into());
+            self.fail(id, message.into());
         }
     }
 
@@ -414,6 +513,7 @@ mod tests {
 
     use ctxremote_proto::session::{EntryKind, HostMsg};
 
+    use super::super::find_part;
     use super::super::service::FileService;
     use super::*;
 
@@ -693,6 +793,71 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert!(is_empty(&dst), "partial upload remains: {:?}", std::fs::read_dir(&dst).unwrap().collect::<Vec<_>>());
 
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&dst).unwrap();
+    }
+
+    /// A download cut off by an earlier session continues: only the rest travels.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_interrupted_download_continues() {
+        let src = temp_dir("resume-src");
+        let dst = temp_dir("resume-dst");
+        let data = pattern(5 * 1024 * 1024 + 77, 3);
+        std::fs::write(src.join("film.bin"), &data).unwrap();
+        let size = data.len() as u64;
+        let have = 2 * 1024 * 1024 + 5;
+        // What the earlier session left behind.
+        std::fs::write(dst.join(super::super::part_name("film.bin", size)), &data[..have as usize]).unwrap();
+
+        let mut rig = rig();
+        rig.client.set_resume(true);
+        let id = rig.client.download(s(&src.join("film.bin")), dst.clone()).await.unwrap();
+        let mut total = None;
+        let outcome = tokio::time::timeout(WAIT, async {
+            loop {
+                match rig.events.recv().await.unwrap() {
+                    TransferEvent::Progress { id: i, total: t, .. } if i == id => total = Some(t),
+                    e @ (TransferEvent::Finished { id: i, .. } | TransferEvent::Failed { id: i, .. }) if i == id => return e,
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(matches!(outcome, TransferEvent::Finished { .. }), "{outcome:?}");
+        assert_eq!(total, Some(size - have));
+        assert_eq!(std::fs::read(dst.join("film.bin")).unwrap(), data);
+        assert!(find_part(&dst, "film.bin").is_none());
+
+        // The host's file changed meanwhile: the old piece goes, it starts over.
+        let changed = pattern(3 * 1024 * 1024, 4);
+        std::fs::write(src.join("neu.bin"), &changed).unwrap();
+        std::fs::write(dst.join(super::super::part_name("neu.bin", 999_999_999)), b"alt").unwrap();
+        let id = rig.client.download(s(&src.join("neu.bin")), dst.clone()).await.unwrap();
+        assert!(matches!(rig.outcome(id).await, TransferEvent::Finished { .. }));
+        assert_eq!(std::fs::read(dst.join("neu.bin")).unwrap(), changed);
+        assert!(find_part(&dst, "neu.bin").is_none());
+
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&dst).unwrap();
+    }
+
+    /// An upload continues the host's interrupted copy.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_interrupted_upload_continues() {
+        let src = temp_dir("resume-up-src");
+        let dst = temp_dir("resume-up-dst");
+        let data = pattern(4 * 1024 * 1024 + 3, 5);
+        std::fs::write(src.join("backup.zip"), &data).unwrap();
+        let size = data.len() as u64;
+        std::fs::write(dst.join(super::super::part_name("backup.zip", size)), &data[..1_000_000]).unwrap();
+
+        let mut rig = rig();
+        rig.client.set_resume(true);
+        let id = rig.client.upload(src.join("backup.zip"), s(&dst)).await.unwrap();
+        assert!(matches!(rig.outcome(id).await, TransferEvent::Finished { .. }));
+        assert_eq!(std::fs::read(dst.join("backup.zip")).unwrap(), data);
+        assert!(find_part(&dst, "backup.zip").is_none());
         std::fs::remove_dir_all(&src).unwrap();
         std::fs::remove_dir_all(&dst).unwrap();
     }

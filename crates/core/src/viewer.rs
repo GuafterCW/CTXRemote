@@ -135,6 +135,7 @@ impl ViewerSession {
             let on_event = on_event.clone();
             Arc::new(move |event| on_event(ViewerEvent::Transfer(event)))
         });
+        files.set_resume(features.has(Features::RESUME));
         // The receiving task hands over the direct connection's writing half here.
         let (reroute, mut rerouted) = mpsc::unbounded_channel::<TransportSink>();
         let gate = files.clone();
@@ -147,6 +148,9 @@ impl ViewerSession {
                         let supported = match &msg {
                             ViewerMsg::File { op: FileOp::PasteDir | FileOp::ClipboardFromDir { .. }, .. } => {
                                 features.has(Features::FILE_PASTE)
+                            }
+                            ViewerMsg::File { op: FileOp::DownloadFrom { .. } | FileOp::UploadFrom { .. }, .. } => {
+                                features.has(Features::RESUME)
                             }
                             ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => features.has(Features::FILES),
                             ViewerMsg::Tunnel(_) => features.has(Features::TUNNEL),
