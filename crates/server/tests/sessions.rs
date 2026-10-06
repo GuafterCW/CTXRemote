@@ -339,7 +339,9 @@ async fn host_sees_that_the_viewer_records() {
     let number = host.sessions()[0].0;
     session.set_recording(true);
     // A clipboard echo afterwards shows the host has read the message.
-    tokio::task::spawn_blocking(move || {
+    // The session is kept until after the check: dropping it says goodbye,
+    // and the host would forget the session (and its recording) at once.
+    let _session = tokio::task::spawn_blocking(move || {
         echo(&session, &events, "danach");
         session
     })
