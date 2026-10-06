@@ -42,6 +42,32 @@
   - Android: Ob Bildschirmfoto und Aufnahme einen beschreibbaren Ordner finden, ist unklar. Gboard schickt Wörter erst am Ende des Worts.
   - Linux: Die 20 ms Pause beim Eintippen sind für träge Programme unter Last eventuell knapp.
 
+**Rückmeldungen aus dem Test am 6. Oktober, nachmittags (noch offen, Reihenfolge = Plan):**
+- Windows:
+  - Fehlermeldungen im Dateibrowser werden abgeschnitten.
+  - In den Systeminfos steht „SYSTEM“ als Benutzer (Dienst) statt des angemeldeten Benutzers.
+  - Port-Tunnel: Eingabe geht jetzt, aber „Öffnen“ lässt sich nicht klicken.
+- Mac: Der Privatsphäre-Knopf erscheint, obwohl es die Funktion dort nicht gibt; das Bild ruckelt mehr als unter Windows.
+- Bestätigt: „Zwischenablage eintippen“, alle Downloads der Website, Mac im Großen und Ganzen.
+- Android (erster Test am echten Gerät):
+  - Kopfzeile verschwindet unter der Statusleiste, Ränder zu Bildschirmkanten fehlen (Safe Area).
+  - Zeichnen, Tastenkombinationen und Bild-Einstellungen öffnen sich nicht.
+  - Bildschirmfoto: „Erwartet Rohdaten“.
+  - Sieht sonst „ganz okay“ aus.
+
+**Darauf umgesetzt (6. Oktober, abends; Builds für alle Plattformen und alle Tests grün, am Gerät noch nicht geprüft):**
+- Android:
+  - Sichere Ränder (`viewport-fit=cover`, `--safe-*` in `styles.css`, mit Mindestabstand oben, falls die WebView keine Werte meldet).
+  - Die Werkzeugleiste bricht um statt zu scrollen, sodass die Menüs nicht mehr abgeschnitten werden; Menüs sind auf dem Handy fest positioniert.
+  - Zeichnen mit einem Finger im Zeichenmodus.
+  - Bildschirmfoto und Mikrofon: Bytes als Zahlenliste (`raw_body` nimmt beides). Fotos in `Pictures/CTXRemote`, Aufnahmen in `Movies/CTXRemote`.
+- Windows:
+  - Dateibrowser: Fehlermeldungen brechen um, mit vollem Text als Tooltip.
+  - Systeminfo: der Konsolen-Benutzer (WTS) statt SYSTEM.
+  - Port-Tunnel: „Öffnen“ klickbar, ohne Port kommt ein Hinweis.
+- Mac/Linux: Der Host meldet nur, was er kann (`ScreenSource::features`, `platform_features`). Kein Knopf für Privatsphäre, Zeichnen, Ton vom Host und Neustart.
+- Mac-Ruckeln: noch offen; Verbindungsdaten vom Nutzer erfragt.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**

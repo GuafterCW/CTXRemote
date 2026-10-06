@@ -649,12 +649,33 @@ pub type ScreenChannels = (mpsc::Sender<ViewerMsg>, mpsc::Receiver<HostMsg>);
 /// Provides the screen side (capture, input, clipboard) for each session.
 pub trait ScreenSource: Send + Sync + 'static {
     fn open(&self) -> BoxFuture<'static, Result<ScreenChannels>>;
+
+    /// What the viewer is told this host can do; its buttons follow.
+    fn features(&self) -> Features {
+        Features::CURRENT
+    }
+}
+
+/// What a host on this computer can do: the protocol's features, less those
+/// without a backend here yet (privacy mode, drawing, the host's sound and
+/// restart exist on Windows only), so the viewer shows no dead buttons.
+pub fn platform_features() -> Features {
+    let missing = if cfg!(windows) {
+        0
+    } else {
+        Features::PRIVACY | Features::DRAW | Features::AUDIO | Features::RESTART
+    };
+    Features(Features::CURRENT.0 & !missing)
 }
 
 /// Runs [`agent::run`] as a task in this process.
 pub struct InProcess;
 
 impl ScreenSource for InProcess {
+    fn features(&self) -> Features {
+        platform_features()
+    }
+
     fn open(&self) -> BoxFuture<'static, Result<ScreenChannels>> {
         let (to_agent, inbox) = mpsc::channel::<ViewerMsg>(64);
         // Small, so a slow link throttles capture instead of queueing frames.
@@ -745,6 +766,7 @@ async fn run_session(
     screen: &dyn ScreenSource,
     mut route: Route,
 ) -> Result<()> {
+    let advertised = screen.features();
     let (mut to_agent, mut from_agent) = match screen.open().await {
         Ok(channels) => channels,
         Err(e) => {
@@ -795,7 +817,7 @@ async fn run_session(
                     }
                     Some(msg @ HostMsg::Welcome(_)) => {
                         // Older viewers ignore the trailer; newer ones learn what we support.
-                        tx.send_with_trailer(&msg, &Features::CURRENT).await?;
+                        tx.send_with_trailer(&msg, &advertised).await?;
                         if route.features.has(Features::RIGHTS) {
                             tx.send(&HostMsg::Rights(rights)).await?;
                         }

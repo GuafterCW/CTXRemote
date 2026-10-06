@@ -269,7 +269,7 @@
               >
                 <div class="fill" class:bad={t.status === "failed" || t.status === "cancelled"} style:width="{percent(t)}%"></div>
               </div>
-              <span class="status" class:err={t.status === "failed"}>
+              <span class="status" class:err={t.status === "failed"} title={t.status === "failed" ? t.message : undefined}>
                 {#if t.status === "failed"}
                   {t.message || "Fehlgeschlagen"}
                 {:else if t.status === "cancelled"}
@@ -322,8 +322,11 @@
   }
 
   .note {
+    flex: 1;
+    min-width: 0;
     color: var(--bad);
     font-size: 12.5px;
+    overflow-wrap: anywhere;
   }
 
   .panes {
@@ -467,8 +470,12 @@
     white-space: nowrap;
   }
 
+  /* An error is read in full: it wraps instead of being cut off. */
   .status.err {
     color: var(--bad);
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .end {

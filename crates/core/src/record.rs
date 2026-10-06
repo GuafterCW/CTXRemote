@@ -154,7 +154,26 @@ impl Recorder {
     }
 }
 
+/// Android's shared storage, where apps may create files in the standard
+/// media folders without a permission (Android 11 and later); the gallery
+/// lists them.
+#[cfg(target_os = "android")]
+const ANDROID_STORAGE: &str = "/storage/emulated/0";
+
 /// Where recordings go by default: the user's video folder.
+#[cfg(target_os = "android")]
+pub fn default_dir() -> PathBuf {
+    Path::new(ANDROID_STORAGE).join("Movies").join("CTXRemote")
+}
+
+/// Where screenshots of sessions go.
+#[cfg(target_os = "android")]
+pub fn pictures_dir() -> PathBuf {
+    Path::new(ANDROID_STORAGE).join("Pictures").join("CTXRemote")
+}
+
+/// Where recordings go by default: the user's video folder.
+#[cfg(not(target_os = "android"))]
 pub fn default_dir() -> PathBuf {
     directories::UserDirs::new()
         .and_then(|d| d.video_dir().map(Path::to_path_buf).or_else(|| Some(d.home_dir().join("Videos"))))
@@ -163,6 +182,7 @@ pub fn default_dir() -> PathBuf {
 }
 
 /// Where screenshots of sessions go.
+#[cfg(not(target_os = "android"))]
 pub fn pictures_dir() -> PathBuf {
     directories::UserDirs::new()
         .and_then(|d| d.picture_dir().map(Path::to_path_buf).or_else(|| Some(d.home_dir().join("Pictures"))))
