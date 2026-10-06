@@ -11,14 +11,21 @@
 <body>
   <header class="top">
     <div class="wrap">
-      <a class="brand" href="/"><svg width="22" height="22" viewBox="0 0 20 20" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="7.5" width="12" height="9" rx="2" fill="var(--accent)"/></svg><span>CTXRemote</span></a>
+      <a class="brand" href="/"><svg width="24" height="24" viewBox="0 0 20 20" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="7.5" width="12" height="9" rx="2" fill="var(--accent)"/></svg><span>CTXRemote</span></a>
       <nav class="nav" aria-label="Hauptmenü">
         <a href="/">Start</a>
         <a href="/download.html">Download</a>
         <a href="/preise.html">Preise</a>
         <a href="/konto/">Konto</a>
+        <a class="btn btn-primary" href="/download.html">Herunterladen</a>
       </nav>
     </div>
+    <nav class="subnav" aria-label="Seiten">
+      <a href="/">Start</a>
+      <a href="/download.html">Download</a>
+      <a href="/preise.html">Preise</a>
+      <a href="/konto/">Konto</a>
+    </nav>
   </header>
   <main>
     <section class="hero">
@@ -62,9 +69,28 @@
   </main>
   <footer class="foot">
     <div class="wrap">
-      <span>© 2026 CTXRemote</span>
-      <a href="/impressum.html">Impressum</a>
-      <a href="/datenschutz.html">Datenschutz</a>
+      <div class="foot-grid">
+        <div>
+          <a class="brand" href="/"><svg width="24" height="24" viewBox="0 0 20 20" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="7.5" width="12" height="9" rx="2" fill="#4fb495"/></svg><span>CTXRemote</span></a>
+          <p>Fernwartung für Windows, Mac und Linux. Ende-zu-Ende verschlüsselt, Schnellhilfe ohne Installation.</p>
+        </div>
+        <div>
+          <h4>Produkt</h4>
+          <ul>
+            <li><a href="/download.html">Download</a></li>
+            <li><a href="/preise.html">Preise</a></li>
+            <li><a href="/konto/">Konto</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Rechtliches</h4>
+          <ul>
+            <li><a href="/impressum.html">Impressum</a></li>
+            <li><a href="/datenschutz.html">Datenschutz</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot-bottom">© 2026 CTXRemote</div>
     </div>
   </footer>
 </body>

@@ -13,6 +13,12 @@
   - Website mit erstmals einem Mac-Download (ad-hoc signiert, Rechtsklick → Öffnen)
 - **Linux-Download (6. Oktober, nachmittags):** Das Release baut jetzt auch ein AppImage und ein `.deb` (Job `client-linux` auf Ubuntu 22.04, damit es auch auf älteren Systemen läuft; `tauri.linux.conf.json`). Beides steht als „Vorschau“ auf der Download-Seite. Hier geprüft: Das AppImage startet auf Xvfb, meldet sich beim Server an und zeigt „Bereit“ mit ID. An einem echten Linux-Desktop ist es noch nicht getestet (Testpunkt 52).
 - Die Website-Texte zum Mac sind korrigiert: Der Mac kann auch selbst ferngesteuert werden.
+- **Website neu gestaltet (6. Oktober, nachmittags):** Auf Wunsch des Nutzers lehnt sie sich an den Aufbau von anydesk.com an. Die Seite selbst war aus der Cloud nicht erreichbar, weil die Netzwerkregel sie sperrt; gebaut wurde nach bekanntem Muster:
+  - Kopfzeile (sticky) mit Download-Knopf, auf dem Handy Links in einer Zeile darunter
+  - großer Einstieg mit Systemen, Leiste mit Kernfakten, Funktionskarten
+  - dunkler Sicherheitsblock, Plattform-Kacheln, Schritte, grünes Abschlussband, dunkle Fußzeile in Spalten
+  - Farben bleiben unsere (Grün), nicht das AnyDesk-Rot; Hell- und Dunkelmodus
+  - Geprüft per Screenshots am Rechner und am Handy, hell und dunkel.
 - Am Gerät noch nicht geprüft: ob sich die installierten Windows-Geräte tatsächlich auf 0.1.40 aktualisiert haben. Das ist der erste Punkt beim nächsten Windows-Termin.
 
 **Neu am 6. Oktober, alles nur per Build, CI und Tests geprüft, nicht an echten Geräten** (Details in den Abschnitten weiter unten):
