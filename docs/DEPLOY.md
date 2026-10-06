@@ -27,7 +27,7 @@ Ohne die Einstellungen unten laufen die Builds trotzdem. Installer und Schnellhi
   - Sie installieren nur Signiertes und nur Versionen, die neuer sind als die eigene.
   - Ein gekaperter Server kann deshalb kein eigenes Programm verteilen.
 - **Mit Dienst** (normale Installation):
-  - Der Dienst prüft 2 Minuten nach dem Start und danach alle 6 Stunden.
+  - Der Dienst prüft 2 Minuten nach dem Start, danach stündlich. Weil ein Release den Server neu startet, prüft er außerdem 30 Sekunden bis 3,5 Minuten nachdem er wieder mit dem Server verbunden ist (zufällig verteilt, damit nicht alle Geräte gleichzeitig laden).
   - Er lädt nach `C:\ProgramData\CTXRemote\updates`. Dort dürfen nur SYSTEM und Administratoren schreiben.
   - Er installiert still, aber nur, solange niemand verbunden ist.
   - Der Installer stoppt den Dienst, ersetzt die Dateien und startet ihn wieder.
@@ -206,7 +206,7 @@ Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb je
 ### Schritt 13: Automatisches Update prüfen
 
 1. Eine kleine Änderung nach `master` pushen und warten, bis der neue Release-Lauf grün ist.
-2. Auf einem Gerät mit Dienst (PowerShell als Administrator) den Dienst neu starten. Er prüft dann nach 2 Minuten statt erst nach bis zu 6 Stunden:
+2. Auf einem Gerät mit Dienst (PowerShell als Administrator) den Dienst neu starten. Er prüft dann nach 2 Minuten statt erst nach bis zu einer Stunde (normalerweise ist das nicht nötig, siehe oben):
 
    ```powershell
    PS> Restart-Service CTXRemote

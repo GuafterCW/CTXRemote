@@ -70,7 +70,8 @@
 - Mac: Feststelltaste am Host wird bei eingegebenen Tasten mitgeschickt (`CGEventSourceFlagsState`), sonst kamen Kleinbuchstaben trotz Caps Lock.
 - Windows-Privatsphäre: Die Merkdatei für den versteckten Mauszeiger enthält die Prozess-ID. Ein zweiter Agent stellt den Zeiger nicht mehr zurück, solange der erste noch läuft.
 - Tests: Das Verbindungsprotokoll wird jetzt vor der Ablehnung geschrieben (vorher wackelte `account_devices_connect_without_a_password`). Testhosts starten nacheinander und ohne alten Verlauf.
-- Diese letzten vier Punkte sind auf Linux gebaut und für Mac/Windows nur typgeprüft; sie gehen mit dem nächsten Release raus (vor dem Push nach `master` fragen).
+- Windows-Updates: Der Dienst prüft jetzt stündlich (vorher alle 6 Stunden) und zusätzlich kurz nachdem er sich nach einem Server-Neustart wieder verbunden hat. Ein Release startet den Server neu, also kommt das Update dann nach wenigen Minuten ohne Dienst-Neustart. Greift erst ab dem Release danach, weil die Geräte bis dahin den alten Dienst haben.
+- Diese letzten fünf Punkte sind auf Linux gebaut und für Mac/Windows nur typgeprüft; sie gehen mit dem nächsten Release raus (vor dem Push nach `master` fragen).
 
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
