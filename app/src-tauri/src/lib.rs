@@ -1,5 +1,7 @@
 #[cfg(not(feature = "quick"))]
 mod account;
+#[cfg(all(target_os = "macos", not(feature = "quick")))]
+mod login_item;
 #[cfg(feature = "quick")]
 mod quick;
 #[cfg(not(feature = "quick"))]
@@ -424,6 +426,8 @@ async fn save_settings(
         let mut config = state.config.write().unwrap();
         let changed = config.apply_settings(&server, permanent_password.as_deref()).map_err(err)?;
         config.save().map_err(err)?;
+        #[cfg(all(target_os = "macos", not(feature = "quick")))]
+        login_item::sync(config.permanent_password.as_deref().is_some_and(|p| !p.is_empty()));
         changed
     };
     if server_changed {
@@ -1726,7 +1730,13 @@ pub fn run() {
                 watch_updates(app.handle());
             }
 
-            // `--tray`: started by the service after an update; stay in the tray.
+            // Follows the app if it was moved, and the setting if changed elsewhere.
+            #[cfg(all(target_os = "macos", not(feature = "quick")))]
+            login_item::sync(
+                app.state::<AppState>().config.read().unwrap().permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
+            );
+            // `--tray`: started by the service after an update, or at login on a
+            // Mac; stay in the tray.
             if !std::env::args().any(|a| a == "--tray") {
                 show_main(app.handle());
             }

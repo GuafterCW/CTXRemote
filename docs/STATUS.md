@@ -428,7 +428,7 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
   - Ton vom Mac
   - Privatsphäre-Modus und Zeichnen (beides Windows-Overlays)
   - Sperren und Strg+Alt+Entf
-  - unbeaufsichtigter Zugriff ohne angemeldeten Benutzer (LaunchDaemon)
+  - unbeaufsichtigter Zugriff ohne angemeldeten Benutzer (LaunchDaemon). Mit festem Passwort startet die App aber beim Anmelden von selbst (LaunchAgent `~/Library/LaunchAgents/info.philipp-dev.ctxremote.plist`, mit `--tray`, siehe `login_item.rs`). Liegt die App noch auf dem Disk-Image (`/Volumes/…`), wird sie nicht eingetragen.
   - Zeigerformen getrennt vom Bild
 - Geprüft: nur Typprüfung (`scripts/check-macos.sh`) und Unit-Test der Tastenzuordnung.
 
@@ -592,6 +592,7 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Strg+C und Strg+V vom PC aus kopieren am Mac.
     - Umlaute tippen und „Zwischenablage eintippen“.
     - Wie flüssig läuft es, und wie hoch ist die CPU-Last am Mac?
+51. Mac-Autostart: Ein festes Passwort setzen (App vorher nach „Programme“ ziehen), abmelden und wieder anmelden. CTXRemote sollte im Tray laufen und erreichbar sein. Passwort entfernen, dann startet sie beim nächsten Anmelden nicht mehr.
 50. Android-Viewer: Die APK aus dem CI-Lauf (Artefakt „CTXRemote-Android“) aufs Handy laden und installieren. Dafür muss die Installation aus unbekannten Quellen erlaubt sein.
     - Mit dem PC verbinden: Kommt das Bild?
     - Tippen klickt, langes Drücken öffnet das Kontextmenü.
