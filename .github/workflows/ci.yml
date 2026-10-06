@@ -71,6 +71,31 @@ jobs:
           path: target/release/bundle/dmg/*.dmg
           retention-days: 14
 
+  # The iOS viewer, type-checked only: an installable build needs an Apple
+  # developer account for signing.
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Frontend
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+      - name: Typprüfung für iOS
+        run: cargo check --locked --target aarch64-apple-ios -p ctxremote
+
   # The Android viewer as an installable, optimised APK. Signed with the key in
   # the secrets ANDROID_KEYSTORE (base64) and ANDROID_KEYSTORE_PASSWORD, else
   # with a throwaway key (then an update needs the old app removed first).
