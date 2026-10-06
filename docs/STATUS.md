@@ -7,7 +7,11 @@
 **Wo der Code steht:**
 - Gearbeitet wurde auf dem Branch `claude/vigilant-lovelace-rvm0ax`. Die CI ist grün auf Windows, Linux (mit virtuellem Bildschirm), macOS, Android und iOS.
 - `master` = Release: Jeder Push dort liefert den Server aus, aktualisiert alle installierten Windows-Geräte automatisch und baut die Website neu (`.github/workflows/release.yml`, `docs/DEPLOY.md`). Vor einem Push nach `master` den Nutzer fragen.
-- Am 6. Oktober mittags lief eine Fehlerdurchsicht aller Änderungen des Tages. Danach sollte der Branch nach `master` (Fast-Forward). Ob das geschehen ist, zeigt `git log origin/master`.
+- **Ausgeliefert:** Am 6. Oktober um 13:15 Uhr ist der Branch nach der Fehlerdurchsicht per Fast-Forward nach `master` gegangen (Commit `7c4a83b`). Release #40 (Version 0.1.40) ist durchgelaufen:
+  - Server auf dem VPS
+  - signiertes Windows-Update; installierte Geräte aktualisieren sich selbst
+  - Website mit erstmals einem Mac-Download (ad-hoc signiert, Rechtsklick → Öffnen)
+- Am Gerät noch nicht geprüft: ob sich die installierten Windows-Geräte tatsächlich auf 0.1.40 aktualisiert haben. Das ist der erste Punkt beim nächsten Windows-Termin.
 
 **Neu am 6. Oktober, alles nur per Build, CI und Tests geprüft, nicht an echten Geräten** (Details in den Abschnitten weiter unten):
 - **macOS:** Viewer und Host (CGDisplayStream, CGEvent, Freigaben-Karte), Autostart als LaunchAgent bei festem Passwort.
