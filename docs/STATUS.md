@@ -19,6 +19,7 @@
   - dunkler Sicherheitsblock, Plattform-Kacheln, Schritte, grünes Abschlussband, dunkle Fußzeile in Spalten
   - Farben bleiben unsere (Grün), nicht das AnyDesk-Rot; Hell- und Dunkelmodus
   - Geprüft per Screenshots am Rechner und am Handy, hell und dunkel.
+- **Release #42 (Version 0.1.42, 6. Oktober, 14:50 Uhr) ausgeliefert:** neue Website, Linux-Download (AppImage, `.deb`), Mac-Texte, Windows-Update. Alle Jobs grün, auch `client-linux` und `deploy`. Release #41 davor scheiterte an einem Testfehler (`host_sees_that_the_viewer_records` ließ die Sitzung zu früh fallen) und lieferte nichts aus.
 - Am Gerät noch nicht geprüft: ob sich die installierten Windows-Geräte tatsächlich auf 0.1.40 aktualisiert haben. Das ist der erste Punkt beim nächsten Windows-Termin.
 
 **Neu am 6. Oktober, alles nur per Build, CI und Tests geprüft, nicht an echten Geräten** (Details in den Abschnitten weiter unten):
