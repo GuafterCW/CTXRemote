@@ -20,7 +20,7 @@ Stand: 4. Oktober 2026. Der Code liegt in `crates/core/src/files/`, die Oberflä
 | `HostMsg::TransferAck { id, bytes }` | H → V | geschriebene Bytes eines Uploads |
 
 - Eine Übertragung umfasst genau eine Datei oder einen Ordnerbaum. Pfade darin sind relativ, mit `/` getrennt, ohne `..`. Der Empfänger prüft jeden Teil mit `join_relative` und schreibt nur unterhalb des Zielordners.
-- Einzeldateien entstehen zunächst als `*.ctxpart` und werden am Ende umbenannt. Bei Abbruch oder Fehler löscht der Empfänger alles, was er für diese Übertragung angelegt hat (`Drop for Incoming`).
+- Einzeldateien entstehen zunächst als `Name.<Größe>.ctxpart` und werden am Ende umbenannt. Bei Abbruch oder Fehler löscht der Empfänger alles, was er für diese Übertragung angelegt hat (`Drop for Incoming`). Nur eine beim Sitzungsende unterbrochene Einzeldatei bleibt zum Fortsetzen liegen (siehe unten).
 - Flusskontrolle beim Upload: Höchstens `WINDOW` = 1 MiB darf unbestätigt unterwegs sein, weil Eingaben sich dahinter anstellen. Downloads bremst der Host über den kleinen Ausgangskanal des Agents.
 - Die neuen Varianten sind **angehängt**, `PROTOCOL_VERSION` bleibt 1. Ein alter Host, der eine Dateinachricht bekommt, beendet die Sitzung mit „ungültige Nachricht“. Beide Seiten müssen also aktualisiert sein.
 
