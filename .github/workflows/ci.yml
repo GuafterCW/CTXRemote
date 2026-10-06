@@ -95,15 +95,14 @@ jobs:
       - name: Frontend
         working-directory: app
         run: npm ci
+      # The runner's NDK path is a shell variable, not part of the `env` context.
+      - name: NDK
+        run: echo "NDK_HOME=${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}" >> "$GITHUB_ENV"
       - name: Android-Projekt anlegen
         working-directory: app
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
         run: npx tauri android init --ci
       - name: APK
         working-directory: app
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
         run: npx tauri android build --apk --debug --target aarch64
       - name: APK einsammeln
         run: |
