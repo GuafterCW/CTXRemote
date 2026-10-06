@@ -458,6 +458,9 @@
           Betriebssystem noch nicht.
         </p>
       {:else}
+      {#if overview?.hostLimitation}
+        <p class="unsupported">{overview.hostLimitation}</p>
+      {/if}
       <div class="secret">
         <div class="secret-head">Einmal-Passwort</div>
         <div class="secret-row">

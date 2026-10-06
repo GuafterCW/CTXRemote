@@ -126,6 +126,21 @@ pub async fn start_host_with(server: &str, adjust: impl FnOnce(&mut Config)) -> 
 
 /// Like [`start_host_with`], plus the host's config to change it while it runs.
 pub async fn start_host_shared(server: &str, adjust: impl FnOnce(&mut Config)) -> (Host, DeviceId, Arc<RwLock<Config>>) {
+    start_host_on(server, adjust, |config| Host::start_with(config, Arc::new(Echo))).await
+}
+
+/// A host on this computer's real screen and input (not the echo stand-in).
+#[allow(dead_code)]
+pub async fn start_real_host(server: &str) -> (Host, DeviceId) {
+    let (host, id, _) = start_host_on(server, |_| {}, Host::start).await;
+    (host, id)
+}
+
+async fn start_host_on(
+    server: &str,
+    adjust: impl FnOnce(&mut Config),
+    start: impl FnOnce(Arc<RwLock<Config>>) -> Host,
+) -> (Host, DeviceId, Arc<RwLock<Config>>) {
     let config_path = std::env::temp_dir().join(format!("ctxremote-test-host-{}.json", free_port()));
     std::env::set_var("CTXREMOTE_CONFIG", &config_path);
     let mut config = Config {
@@ -135,7 +150,7 @@ pub async fn start_host_shared(server: &str, adjust: impl FnOnce(&mut Config)) -
     };
     adjust(&mut config);
     let config = Arc::new(RwLock::new(config));
-    let host = Host::start_with(config.clone(), Arc::new(Echo));
+    let host = start(config.clone());
     let mut presence = host.presence();
     let id = tokio::time::timeout(Duration::from_secs(10), async {
         loop {

@@ -1058,6 +1058,7 @@ dependencies = [
  "hex",
  "hkdf",
  "hmac",
+ "libc",
  "openh264",
  "openh264-sys2",
  "opus-rs",
@@ -1079,6 +1080,7 @@ dependencies = [
  "tracing",
  "whoami",
  "windows",
+ "x11rb",
 ]
 
 [[package]]
@@ -1123,6 +1125,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "x11rb",
  "x25519-dalek",
 ]
 

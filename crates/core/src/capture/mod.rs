@@ -12,15 +12,31 @@ pub(crate) use self::macos::display_geometry;
 #[cfg(target_os = "macos")]
 pub use self::macos::{displays, screen_permission, Capturer};
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(target_os = "linux")]
+pub(crate) mod x11;
+#[cfg(target_os = "linux")]
+pub use self::x11::{displays, Capturer};
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 mod unsupported;
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub use self::unsupported::{displays, Capturer};
 
-/// Whether this platform can be controlled remotely (it can always view).
-pub const HOST_SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
+/// Why remote control is limited here, for a note in the main window: a
+/// Wayland session only lets X11 programs be seen and controlled.
+pub fn host_limitation() -> Option<&'static str> {
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
+        || std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t.eq_ignore_ascii_case("wayland"));
+    (cfg!(target_os = "linux") && wayland).then_some(
+        "Dieser Desktop läuft mit Wayland. Von hier aus sind nur X11-Programme zu sehen und zu \
+         bedienen. Für volle Fernsteuerung beim Anmelden „Xorg“ bzw. „X11“ wählen.",
+    )
+}
 
-#[cfg(not(any(windows, target_os = "macos")))]
+/// Whether this platform can be controlled remotely (it can always view).
+pub const HOST_SUPPORTED: bool = cfg!(any(windows, target_os = "macos", target_os = "linux"));
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 const UNSUPPORTED: &str = "Dieses Betriebssystem kann noch nicht ferngesteuert werden";
 
 /// A monitor in virtual-desktop coordinates (physical pixels).

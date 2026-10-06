@@ -95,6 +95,8 @@ export interface Overview {
   /** The installed Windows service hosts this device. */
   service: boolean;
   hostSupported: boolean;
+  /** Why remote control is limited here (Linux with Wayland), shown as a note. */
+  hostLimitation: string | null;
   peers: Peer[];
   hosted: Hosted[];
   version: string;

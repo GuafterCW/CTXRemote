@@ -27,3 +27,7 @@ lettre = { version = "0.11.23", default-features = false, features = ["builder",
 [dev-dependencies]
 ctxremote-core.workspace = true
 serde_json.workspace = true
+
+# The Linux host test (tests/linux_host.rs) checks the pointer on the X server.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = "0.13"

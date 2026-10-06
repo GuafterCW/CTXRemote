@@ -230,6 +230,8 @@ struct Overview {
     direct_active: bool,
     service: bool,
     host_supported: bool,
+    /// A limit on remote control here (Wayland), shown as a note.
+    host_limitation: Option<&'static str>,
     peers: Vec<PeerView>,
     hosted: Vec<Hosted>,
     version: &'static str,
@@ -326,6 +328,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
         direct_active,
         service,
         host_supported: ctxremote_core::capture::HOST_SUPPORTED,
+        host_limitation: ctxremote_core::capture::host_limitation(),
         peers: config
             .peers
             .iter()

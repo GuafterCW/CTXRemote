@@ -456,6 +456,26 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Fehlen die Secrets, signiert die CI mit einem Wegwerf-Schlüssel. Dann muss die alte App vor jedem Update deinstalliert werden.
     - Den festen Schlüssel einmal erzeugen und gut aufheben, denn er gilt auch später für den Play Store: `keytool -genkeypair -keystore ctxremote.jks -alias ctxremote -keyalg RSA -keysize 3072 -validity 10000`, dann `base64 -w0 ctxremote.jks` als Secret.
 
+### Linux-Host über X11 (6. Oktober, Cloud-Sitzung)
+
+- **Bild:** `capture/x11.rs`
+  - Bildschirme über RandR (ohne RandR der ganze Bildschirm als einer).
+  - Bild über MIT-SHM; wo das fehlt oder scheitert, `GetImage`.
+  - X meldet keine Änderungen (ohne Damage), deshalb wird jedes Bild mit dem letzten verglichen. `next_frame` wartet bis zum nächsten Takt statt leer zu drehen.
+  - Der Mauszeiger ist nicht im Bild. Die Zeigerform kommt über XFixes, bei jeder Änderung einmal.
+- **Eingabe:** `input/x11.rs` über XTest:
+  - Maus, Tasten 1 bis 9 (Mausrad als Tasten 4 bis 7, Zurück und Vor als 8 und 9).
+  - Tasten über `keymap::x11_keycode` (evdev + 8).
+  - Text wie bei `xdotool`: Freie Tastencodes werden blockweise mit den Zeichen belegt und erst nach einer Pause wieder freigegeben. So liest auch ein Programm, das etwas hinterherhinkt, das richtige Zeichen. Das funktioniert mit jedem Tastaturlayout, Umlaute und € eingeschlossen.
+- **Wayland:** Unter Wayland sieht und bedient der Host nur X11-Programme (XWayland). Das Hauptfenster zeigt dann einen Hinweis, beim Anmelden „Xorg“ bzw. „X11“ zu wählen (`capture::host_limitation`). Ein Wayland-Weg (PipeWire und Portal) wäre ein eigener Schritt.
+- **Noch nicht unter Linux:** Ton vom Host, Privatsphäre-Modus, Zeichnen, Sperren, unbeaufsichtigt als Systemdienst, Autostart.
+- **Geprüft, hier in der Cloud mit Xvfb:**
+  - `crates/core/tests/x11.rs`: Aufnahme sieht Gezeichnetes, wartet bei unverändertem Bild, Zeigerform; Maus, Tasten, „alles loslassen“; Text „aÜ€“ und Enter kommen als richtige Zeichen an.
+  - `crates/server/tests/linux_host.rs`: eine ganze Sitzung über den echten Server. Der Viewer bekommt Bild und Zeigerform, seine Maus bewegt den X-Zeiger.
+  - Die CI führt die Linux-Tests mit `xvfb-run` aus.
+- Lokal: `xvfb-run -a -s "-noreset -screen 0 1280x800x24" cargo test -p ctxremote-core -p ctxremote-server`.
+- **Noch offen:** ein Test an einem echten Linux-Desktop mit Fenstern, Zeigerformen und Tastaturlayout.
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -593,6 +613,11 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Umlaute tippen und „Zwischenablage eintippen“.
     - Wie flüssig läuft es, und wie hoch ist die CPU-Last am Mac?
 51. Mac-Autostart: Ein festes Passwort setzen (App vorher nach „Programme“ ziehen), abmelden und wieder anmelden. CTXRemote sollte im Tray laufen und erreichbar sein. Passwort entfernen, dann startet sie beim nächsten Anmelden nicht mehr.
+52. Linux-Host: CTXRemote auf einem Linux-PC mit X11-Sitzung starten und von Windows aus verbinden.
+    - Bild und Zeigerformen kommen an.
+    - Klicken, Ziehen und Scrollen funktionieren.
+    - Tippen, auch mit Umlauten und über „Text eintippen“.
+    - Unter Wayland erscheint der Hinweis im Hauptfenster.
 50. Android-Viewer: Die APK aus dem CI-Lauf (Artefakt „CTXRemote-Android“) aufs Handy laden und installieren. Dafür muss die Installation aus unbekannten Quellen erlaubt sein.
     - Mit dem PC verbinden: Kommt das Bild?
     - Tippen klickt, langes Drücken öffnet das Kontextmenü.
@@ -640,7 +665,7 @@ Die Testliste oben hat dafür die Punkte 24 bis 35. Offen für Gleichstand mit A
     - **Website:** Den Download auf den Store-Link umstellen. Die Schnellhilfe bleibt eine einzelne EXE und behält die Warnung, außer sie wird ebenfalls signiert.
 4. Bezahlte Pläne nach `docs/PLANS.md`. Erst wenn es eine Firma gibt. Schritt 1 (Konten und Adressbuch) ginge auch vorher schon. Konten gehören auf die Website (ctxremote.ctx.ink), später mit Stripe.
 
-Der Linux-Host (X11, später Wayland) ist zurückgestellt und kommt später.
+Der Linux-Host läuft unter X11 (siehe „Linux-Host über X11“). Wayland kommt später.
 
 **Plattformen, Entscheidung des Nutzers (6. Oktober):**
 - Android und iOS nur als **Viewer**. Ein Host auf dem Handy ist nicht geplant.

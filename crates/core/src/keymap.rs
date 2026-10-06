@@ -282,8 +282,92 @@ pub fn mac_keycode(code: &str) -> Option<u16> {
     })
 }
 
+/// Maps a DOM `KeyboardEvent.code` value to an X11 keycode (the Linux evdev
+/// code plus 8), for a Linux host.
+pub fn x11_keycode(code: &str) -> Option<u8> {
+    let evdev: u16 = match code {
+        // Where the Set-1 code differs from evdev or is Windows-specific.
+        "NumLock" => 69,
+        "Pause" => 119,
+        "NumpadEqual" => 117,
+        "F13" => 183,
+        "F14" => 184,
+        "F15" => 185,
+        "F16" => 186,
+        "F17" => 187,
+        "F18" => 188,
+        "F19" => 189,
+        "F20" => 190,
+        "F21" => 191,
+        "F22" => 192,
+        "F23" => 193,
+        "F24" => 194,
+        "KanaMode" => 93,
+        "Lang1" => 122,
+        "Lang2" => 123,
+        "IntlRo" => 89,
+        "Convert" => 92,
+        "NonConvert" => 94,
+        "IntlYen" => 124,
+        "NumpadComma" => 121,
+        _ => {
+            let sc = scancode_for(code)?;
+            if !sc.extended {
+                // Up to F12, evdev numbers are the Set-1 codes.
+                if sc.code > 0x58 {
+                    return None;
+                }
+                sc.code
+            } else {
+                match sc.code {
+                    0x1C => 96,  // NumpadEnter
+                    0x1D => 97,  // ControlRight
+                    0x35 => 98,  // NumpadDivide
+                    0x37 => 99,  // PrintScreen
+                    0x38 => 100, // AltRight
+                    0x47 => 102, // Home
+                    0x48 => 103, // ArrowUp
+                    0x49 => 104, // PageUp
+                    0x4B => 105, // ArrowLeft
+                    0x4D => 106, // ArrowRight
+                    0x4F => 107, // End
+                    0x50 => 108, // ArrowDown
+                    0x51 => 109, // PageDown
+                    0x52 => 110, // Insert
+                    0x53 => 111, // Delete
+                    0x5B => 125, // MetaLeft
+                    0x5C => 126, // MetaRight
+                    0x5D => 127, // ContextMenu
+                    _ => return None,
+                }
+            }
+        }
+    };
+    u8::try_from(evdev + 8).ok()
+}
+
 #[cfg(test)]
 mod tests {
+    use super::x11_keycode;
+
+    #[test]
+    fn x11_keycodes() {
+        // Values as `xev` reports them on a PC keyboard.
+        assert_eq!(x11_keycode("Escape"), Some(9));
+        assert_eq!(x11_keycode("KeyA"), Some(38));
+        assert_eq!(x11_keycode("Enter"), Some(36));
+        assert_eq!(x11_keycode("ShiftLeft"), Some(50));
+        assert_eq!(x11_keycode("F12"), Some(96));
+        assert_eq!(x11_keycode("IntlBackslash"), Some(94));
+        assert_eq!(x11_keycode("ControlRight"), Some(105));
+        assert_eq!(x11_keycode("ArrowUp"), Some(111));
+        assert_eq!(x11_keycode("Delete"), Some(119));
+        assert_eq!(x11_keycode("MetaLeft"), Some(133));
+        assert_eq!(x11_keycode("NumLock"), Some(77));
+        assert_eq!(x11_keycode("Pause"), Some(127));
+        assert_eq!(x11_keycode("NoSuchKey"), None);
+    }
+
     use super::*;
 
     #[test]
