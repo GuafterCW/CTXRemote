@@ -4,6 +4,8 @@ pub mod agent;
 pub mod annotate;
 pub mod audio;
 pub mod account;
+#[cfg(target_os = "macos")]
+mod activity;
 pub mod alias;
 pub mod agent_process;
 pub mod capture;

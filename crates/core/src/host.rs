@@ -465,11 +465,13 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
             _ => false,
         };
         if !member {
+            // Logged before the refusal goes out, so whoever reads the log
+            // after being refused finds the entry.
+            record_failure(&shared);
+            shared.history.add(&peer, profile_name.as_deref(), Outcome::NotMember);
             let mut tx = tx;
             let _ = tx.send(&HostMsg::Bye("Dieses Gerät gehört nicht mehr zum Konto".into())).await;
             tx.close().await;
-            record_failure(&shared);
-            shared.history.add(&peer, profile_name.as_deref(), Outcome::NotMember);
             bail!("{peer}: Kontozugriff ohne gültige Mitgliedschaft");
         }
         info!(%peer, "Zugriff über das Konto");
@@ -507,10 +509,10 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
             }
         };
         if let Some(reason) = problem {
-            let _ = tx.send(&HostMsg::Bye(reason.clone())).await;
-            tx.close().await;
             record_failure(&shared);
             shared.history.add(&peer, profile_name.as_deref(), Outcome::WrongCode);
+            let _ = tx.send(&HostMsg::Bye(reason.clone())).await;
+            tx.close().await;
             bail!("{peer}: {reason}");
         }
     }
@@ -534,10 +536,10 @@ async fn admitted(
     if let Some(approve) = approver {
         // Viewer messages sent meanwhile (input) wait unread in the connection.
         if !timeout(APPROVAL_TIMEOUT, approve(peer.clone(), profile.clone())).await.unwrap_or(false) {
+            shared.history.add(&peer, profile_name.as_deref(), Outcome::Declined);
             let mut tx = tx;
             let _ = tx.send(&HostMsg::Bye("Der Zugriff wurde abgelehnt".into())).await;
             tx.close().await;
-            shared.history.add(&peer, profile_name.as_deref(), Outcome::Declined);
             bail!("Zugriff für {peer} abgelehnt");
         }
     }
@@ -767,6 +769,9 @@ async fn run_session(
     mut route: Route,
 ) -> Result<()> {
     let advertised = screen.features();
+    // A hidden app would otherwise be slowed down by macOS during the session.
+    #[cfg(target_os = "macos")]
+    let _awake = crate::activity::Activity::begin("Fernwartungssitzung");
     let (mut to_agent, mut from_agent) = match screen.open().await {
         Ok(channels) => channels,
         Err(e) => {

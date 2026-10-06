@@ -148,7 +148,8 @@ async fn start_host_on(
     start: impl FnOnce(Arc<RwLock<Config>>) -> Host,
 ) -> (Host, DeviceId, Arc<RwLock<Config>>) {
     let config_path = std::env::temp_dir().join(format!("ctxremote-test-host-{}.json", free_port()));
-    std::env::set_var("CTXREMOTE_CONFIG", &config_path);
+    // A log left from an earlier run with this port would show its visits.
+    let _ = std::fs::remove_file(ctxremote_core::history::History::path_for(&config_path));
     let mut config = Config {
         server: server.to_string(),
         direct_port: free_port(),
@@ -156,7 +157,14 @@ async fn start_host_on(
     };
     adjust(&mut config);
     let config = Arc::new(RwLock::new(config));
-    let host = start(config.clone());
+    // The host takes its files' place (history) from CTXREMOTE_CONFIG as it
+    // starts; tests running at the same time must not swap it in between.
+    static STARTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let host = {
+        let _one_at_a_time = STARTING.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("CTXREMOTE_CONFIG", &config_path);
+        start(config.clone())
+    };
     let mut presence = host.presence();
     let id = tokio::time::timeout(Duration::from_secs(10), async {
         loop {

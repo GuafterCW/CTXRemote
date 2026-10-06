@@ -140,21 +140,40 @@ mod imp {
         (IDC_HELP, OCR_HELP),
     ];
 
-    /// Exists while the pointers are swapped, so a later agent can undo it.
+    /// Exists while the pointers are swapped, so a later agent can undo it;
+    /// holds the process ID of the agent that swapped them.
     fn marker() -> PathBuf {
         std::env::temp_dir().join("ctxremote-pointers-hidden")
     }
 
+    /// Only if the agent that hid them is gone: one still running (say, while
+    /// a reconnecting viewer starts a second) keeps its privacy mode intact.
     pub fn restore_if_left() {
-        if marker().exists() {
-            tracing::info!("Mauszeiger eines früheren Privatsphäre-Modus wiederhergestellt");
-            restore_pointers();
+        let Ok(owner) = std::fs::read_to_string(marker()) else { return };
+        let owner: u32 = owner.trim().parse().unwrap_or(0);
+        if owner != 0 && owner != std::process::id() && process_alive(owner) {
+            return;
+        }
+        tracing::info!("Mauszeiger eines früheren Privatsphäre-Modus wiederhergestellt");
+        restore_pointers();
+    }
+
+    fn process_alive(pid: u32) -> bool {
+        use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        // SAFETY: the handle is checked and closed; no other pointers.
+        unsafe {
+            let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return false };
+            let mut code = 0u32;
+            let alive = GetExitCodeProcess(process, &mut code).is_ok() && code == STILL_ACTIVE.0 as u32;
+            let _ = CloseHandle(process);
+            alive
         }
     }
 
     /// Swaps every system pointer for an invisible one, keeping copies.
     unsafe fn hide_pointers() {
-        let _ = std::fs::write(marker(), b"");
+        let _ = std::fs::write(marker(), std::process::id().to_string());
         let mut originals = ORIGINALS.lock().unwrap_or_else(|e| e.into_inner());
         for (name, id) in SYSTEM_POINTERS {
             let Ok(shared) = LoadCursorW(None, name) else { continue };
