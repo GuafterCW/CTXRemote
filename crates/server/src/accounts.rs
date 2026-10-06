@@ -564,7 +564,10 @@ impl Accounts {
         if now.duration_since(failures.1) > LOCKOUT {
             *failures = (0, now);
         }
-        if failures.0 >= MAX_FAILURES {
+        // The recovery code (125 bits) cannot be guessed; checking it even
+        // while locked keeps the owner from being locked out by a stranger
+        // who types wrong passwords on purpose.
+        if failures.0 >= MAX_FAILURES && !recovery {
             return Err(AccountError::Locked);
         }
         let login = self.stored.accounts[&id].login.clone().expect("indexed by its login");
@@ -576,7 +579,9 @@ impl Accounts {
         let given: [u8; 32] = Sha256::digest(value).into();
         let expected: [u8; 32] = hex::decode(expected).ok().and_then(|h| h.try_into().ok()).unwrap_or([0xff; 32]);
         if !constant_time_eq(&given, &expected) {
-            failures.0 += 1;
+            if !recovery {
+                failures.0 += 1;
+            }
             return Err(AccountError::WrongPassword);
         }
         self.failures.remove(&id);
@@ -840,6 +845,9 @@ mod tests {
         }
         let right = AccountOp::Login { email: "a@b.de".into(), auth: [1; 32] };
         assert_eq!(accounts.handle([2; 32], right), Err(AccountError::Locked));
+        // The owner still gets in with the recovery code.
+        let recover = AccountOp::Recover { email: "a@b.de".into(), recovery_auth: [101; 32] };
+        assert!(matches!(accounts.handle([3; 32], recover), Ok(AccountReply::LoggedIn { .. })));
     }
 
     #[test]

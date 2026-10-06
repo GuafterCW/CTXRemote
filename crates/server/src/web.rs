@@ -238,18 +238,37 @@ pub async fn serve(server: Arc<Server>, addr: SocketAddr, origin: Option<String>
 }
 
 impl Api {
-    /// The client's address as Caddy (and Cloudflare in front of it) report it.
+    /// The client's address. Caddy sets `X-Forwarded-For` to whoever talked
+    /// to it, replacing what that one sent. Only when that is Cloudflare is
+    /// `CF-Connecting-IP` believed: anyone can reach Caddy directly and send
+    /// that header themselves.
     fn client_ip(headers: &HeaderMap, peer: SocketAddr) -> IpAddr {
-        let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
-        header("cf-connecting-ip")
-            .or_else(|| header("x-forwarded-for").and_then(|v| v.split(',').next().map(|s| s.trim().to_string())))
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(peer.ip())
+        let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+        // Only a proxy on this machine (or the Docker bridge) sets these.
+        let proxied = match peer.ip() {
+            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private(),
+            IpAddr::V6(v6) => v6.is_loopback(),
+        };
+        if !proxied {
+            return peer.ip();
+        }
+        let Some(caddy_peer) = header("x-forwarded-for")
+            .and_then(|v| v.rsplit(',').next())
+            .and_then(|v| v.trim().parse::<IpAddr>().ok())
+        else {
+            return peer.ip();
+        };
+        if crate::cloudflare::contains(caddy_peer) {
+            if let Some(ip) = header("cf-connecting-ip").and_then(|v| v.trim().parse().ok()) {
+                return ip;
+            }
+        }
+        caddy_peer
     }
 
     /// Every request: rate limit, and for changes a JSON body from our own origin.
     fn guard(&self, method: &Method, headers: &HeaderMap, peer: SocketAddr) -> ApiResult<()> {
-        if !self.server.allow_connect(Self::client_ip(headers, peer)) {
+        if !self.server.allow_web(Self::client_ip(headers, peer)) {
             return Err(AccountError::RateLimited.into());
         }
         if method != Method::GET {
@@ -532,4 +551,31 @@ async fn resend_verification(
     let id = api.signed_in(&headers)?;
     api.server.accounts.lock().unwrap().resend_verification(id)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ip(headers: &[(&'static str, &str)], peer: &str) -> String {
+        let mut map = HeaderMap::new();
+        for (name, value) in headers {
+            map.insert(*name, value.parse().unwrap());
+        }
+        Api::client_ip(&map, peer.parse().unwrap()).to_string()
+    }
+
+    #[test]
+    fn believes_cloudflare_only_through_cloudflare() {
+        let caddy = "127.0.0.1:5000";
+        // Through Cloudflare: its header names the client.
+        assert_eq!(ip(&[("x-forwarded-for", "172.70.1.2"), ("cf-connecting-ip", "203.0.113.9")], caddy), "203.0.113.9");
+        // Straight to Caddy with a made-up header: the sender's own address counts.
+        assert_eq!(ip(&[("x-forwarded-for", "198.51.100.7"), ("cf-connecting-ip", "203.0.113.9")], caddy), "198.51.100.7");
+        // Caddy's own entry is the last one; earlier ones come from the client.
+        assert_eq!(ip(&[("x-forwarded-for", "172.70.1.2, 198.51.100.7")], caddy), "198.51.100.7");
+        // Headers from anyone but a local proxy are ignored.
+        assert_eq!(ip(&[("x-forwarded-for", "172.70.1.2"), ("cf-connecting-ip", "203.0.113.9")], "198.51.100.7:4000"), "198.51.100.7");
+        assert_eq!(ip(&[], "172.17.0.2:4000"), "172.17.0.2");
+    }
 }

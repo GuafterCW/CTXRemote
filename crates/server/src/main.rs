@@ -11,6 +11,7 @@
 //! out to clients that ask; see `docs/DEPLOY.md`.
 
 mod accounts;
+mod cloudflare;
 mod mail;
 mod web;
 mod registry;
@@ -48,6 +49,18 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 const CONNECTS_PER_MINUTE: u32 = 30;
 /// Installer downloads served at once; each holds a file open.
 const PARALLEL_DOWNLOADS: usize = 8;
+/// A download that takes longer frees its slot for others.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+/// Nothing a client sends the server is bigger (an address book is at most
+/// 256 KiB); the codec would reserve the full announced length up front.
+/// The codec checks frames it sends too, so update downloads raise it.
+const SERVER_MAX_FRAME: usize = 1024 * 1024;
+/// Open connections at once, all together and from one address. An office
+/// behind one address has one connection per device plus its sessions.
+const MAX_CONNECTIONS: usize = 20_000;
+const MAX_CONNECTIONS_PER_IP: u32 = 1_000;
+/// Above this many addresses, stale rate entries are dropped.
+const RATE_PRUNE_AT: usize = 10_000;
 
 struct Server {
     /// Static key of the encrypted connections; its public half is in the clients.
@@ -59,6 +72,10 @@ struct Server {
     wakers: Mutex<std::collections::HashSet<DeviceId>>,
     pending: Mutex<HashMap<SessionId, oneshot::Sender<Transport>>>,
     rate: Mutex<HashMap<IpAddr, (Instant, u32)>>,
+    /// The web API counts on its own, so it cannot use up an app's quota.
+    web_rate: Mutex<HashMap<IpAddr, (Instant, u32)>>,
+    /// Open connections (see [`ConnectionSlot`]).
+    open: Mutex<OpenConnections>,
     updates: updates::Store,
     downloads: tokio::sync::Semaphore,
 }
@@ -111,6 +128,8 @@ async fn main() -> Result<()> {
         wakers: Mutex::default(),
         pending: Mutex::default(),
         rate: Mutex::default(),
+        web_rate: Mutex::default(),
+        open: Mutex::default(),
         updates: updates::Store::new(data.join("updates")),
         downloads: tokio::sync::Semaphore::new(PARALLEL_DOWNLOADS),
     });
@@ -138,9 +157,22 @@ async fn main() -> Result<()> {
         Err(e) => warn!("UDP-Reflektor nicht verfügbar: {e}"),
     }
     loop {
-        let (stream, peer) = listener.accept().await?;
+        // Out of file handles (or a connection reset before it was taken):
+        // the server keeps running, the others stay connected.
+        let (stream, peer) = match listener.accept().await {
+            Ok(accepted) => accepted,
+            Err(e) => {
+                warn!("Verbindung nicht angenommen: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+        let Some(slot) = ConnectionSlot::take(&server, peer.ip()) else {
+            continue;
+        };
         let server = server.clone();
         tokio::spawn(async move {
+            let _slot = slot;
             if let Err(e) = server.handle(stream, peer).await {
                 debug!(%peer, "Verbindung beendet: {e:#}");
             }
@@ -166,6 +198,7 @@ async fn reflect(socket: tokio::net::UdpSocket) {
 impl Server {
     async fn handle(self: Arc<Self>, stream: TcpStream, peer: SocketAddr) -> Result<()> {
         let mut t = framing::transport(stream);
+        t.codec_mut().set_max_frame_length(SERVER_MAX_FRAME);
         let mut nonce = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut nonce);
         framing::send(&mut t, &ServerMsg::Challenge { version: PROTOCOL_VERSION, nonce }).await?;
@@ -178,6 +211,7 @@ impl Server {
             let mut next = [0u8; 32];
             rand::thread_rng().fill_bytes(&mut next);
             t = tunnel::server(t, &self.tunnel, &ephemeral, nonce, next).await?;
+            t.codec_mut().set_max_frame_length(SERVER_MAX_FRAME);
             nonce = next;
             (first, rest) = timeout(HELLO_TIMEOUT, framing::recv_with_rest::<ClientMsg>(&mut t)).await??;
         }
@@ -188,6 +222,13 @@ impl Server {
                 if !verify_challenge(&public_key, &nonce, &signature) {
                     framing::send(&mut t, &ServerMsg::Error(ServerError::BadSignature)).await?;
                     bail!("ungültige Signatur");
+                }
+                // Known devices come back after every restart; only new keys
+                // count, so nobody fills the registry from one address.
+                let known = self.registry.lock().unwrap().id_for_key(&public_key).is_some();
+                if !known && !self.allow_connect(peer.ip()) {
+                    framing::send(&mut t, &ServerMsg::Error(ServerError::RateLimited)).await?;
+                    return Ok(());
                 }
                 let id = self.registry.lock().unwrap().assign(id, public_key)?;
                 framing::send(&mut t, &ServerMsg::Registered { id }).await?;
@@ -276,7 +317,12 @@ impl Server {
                     framing::send(&mut t, &ServerMsg::Error(ServerError::RateLimited)).await?;
                     return Ok(());
                 };
-                self.updates.send(&mut t, &platform, &version).await
+                // The limit also applies to what the server sends; chunks are larger.
+                t.codec_mut().set_max_frame_length(framing::MAX_FRAME);
+                // A client that stops reading must not hold the slot forever.
+                timeout(DOWNLOAD_TIMEOUT, self.updates.send(&mut t, &platform, &version))
+                    .await
+                    .context("Download dauerte zu lange")?
             }
         }
     }
@@ -390,20 +436,90 @@ impl Server {
     }
 
     pub(crate) fn allow_connect(&self, ip: IpAddr) -> bool {
-        let mut rate = self.rate.lock().unwrap();
-        let now = Instant::now();
-        let entry = rate.entry(ip).or_insert((now, 0));
-        if now.duration_since(entry.0) > Duration::from_secs(60) {
-            *entry = (now, 0);
-        }
-        entry.1 += 1;
-        if entry.1 > CONNECTS_PER_MINUTE {
-            warn!(%ip, "Verbindungsversuche gedrosselt");
-            return false;
-        }
-        true
+        allow(&self.rate, ip)
+    }
+
+    /// Like [`Self::allow_connect`], for the web API.
+    pub(crate) fn allow_web(&self, ip: IpAddr) -> bool {
+        allow(&self.web_rate, ip)
     }
 }
+
+/// At most [`CONNECTS_PER_MINUTE`] for `ip` in `rate`.
+fn allow(rate: &Mutex<HashMap<IpAddr, (Instant, u32)>>, ip: IpAddr) -> bool {
+    let key = rate_key(ip);
+    let mut rate = rate.lock().unwrap();
+    let now = Instant::now();
+    if rate.len() > RATE_PRUNE_AT {
+        rate.retain(|_, (since, _)| now.duration_since(*since) <= Duration::from_secs(60));
+    }
+    let entry = rate.entry(key).or_insert((now, 0));
+    if now.duration_since(entry.0) > Duration::from_secs(60) {
+        *entry = (now, 0);
+    }
+    entry.1 += 1;
+    if entry.1 > CONNECTS_PER_MINUTE {
+        // Once per minute and address, not for every refused attempt.
+        if entry.1 == CONNECTS_PER_MINUTE + 1 {
+            warn!(ip = %key, "Verbindungsversuche gedrosselt");
+        }
+        return false;
+    }
+    true
+}
+
+/// Who counts as one client: an IPv4 address, or an IPv6 /64, which a single
+/// connection usually has to itself.
+fn rate_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => IpAddr::V6(std::net::Ipv6Addr::from(u128::from(v6) & !((1u128 << 64) - 1))),
+        },
+        v4 => v4,
+    }
+}
+
+#[derive(Default)]
+struct OpenConnections {
+    total: usize,
+    per_ip: HashMap<IpAddr, u32>,
+}
+
+/// One open connection, counted against the limits until dropped.
+struct ConnectionSlot {
+    server: Arc<Server>,
+    ip: IpAddr,
+}
+
+impl ConnectionSlot {
+    fn take(server: &Arc<Server>, ip: IpAddr) -> Option<Self> {
+        let ip = rate_key(ip);
+        let mut open = server.open.lock().unwrap();
+        let mine = open.per_ip.get(&ip).copied().unwrap_or(0);
+        if open.total >= MAX_CONNECTIONS || mine >= MAX_CONNECTIONS_PER_IP {
+            debug!(%ip, "Verbindung abgewiesen: zu viele offene Verbindungen");
+            return None;
+        }
+        open.total += 1;
+        open.per_ip.insert(ip, mine + 1);
+        Some(Self { server: server.clone(), ip })
+    }
+}
+
+impl Drop for ConnectionSlot {
+    fn drop(&mut self) {
+        let mut open = self.server.open.lock().unwrap();
+        open.total -= 1;
+        if let Some(count) = open.per_ip.get_mut(&self.ip) {
+            *count -= 1;
+            if *count == 0 {
+                open.per_ip.remove(&self.ip);
+            }
+        }
+    }
+}
+
 
 /// Pipes bytes between both peers until either side closes.
 async fn relay(a: Transport, b: Transport) -> Result<(u64, u64)> {
@@ -469,4 +585,18 @@ fn pepper(tunnel: &x25519_dalek::StaticSecret) -> [u8; 32] {
         .expand(b"accounts", &mut out)
         .expect("32 bytes is a valid HKDF length");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_ipv6_network_counts_as_one_client() {
+        let key = |ip: &str| rate_key(ip.parse().unwrap()).to_string();
+        assert_eq!(key("2001:db8:1:2:aaaa::1"), key("2001:db8:1:2:bbbb::9"));
+        assert_ne!(key("2001:db8:1:2::1"), key("2001:db8:1:3::1"));
+        assert_eq!(key("::ffff:198.51.100.7"), "198.51.100.7");
+        assert_eq!(key("198.51.100.7"), "198.51.100.7");
+    }
 }

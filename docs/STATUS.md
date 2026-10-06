@@ -73,6 +73,27 @@
 - Windows-Updates: Der Dienst prüft jetzt stündlich (vorher alle 6 Stunden) und zusätzlich kurz nachdem er sich nach einem Server-Neustart wieder verbunden hat. Ein Release startet den Server neu, also kommt das Update dann nach wenigen Minuten ohne Dienst-Neustart. Greift erst ab dem Release danach, weil die Geräte bis dahin den alten Dienst haben.
 - Diese letzten fünf Punkte sind auf Linux gebaut und für Mac/Windows nur typgeprüft; sie gehen mit dem nächsten Release raus (vor dem Push nach `master` fragen).
 
+**Handy-Ansicht geprüft (6. Oktober, abends, simuliert mit Playwright, 390×844):** Alle Menüs der Sitzung öffnen sich per Tippen. Die Dateien-Seite war auf dem Handy unbrauchbar (drei Spalten nebeneinander) und hat jetzt einen Umschalter „Ferngesteuertes Gerät / Dieses Handy“. Darunter liegt der passende Knopf, die Zeilen sind ohne Datum und größer. Auf Android beginnt die lokale Seite in `Download/CTXRemote` und zeigt nur die Ordner der App (Downloads, Bilder, Videos), weil die App den Rest nicht lesen darf. Am Gerät noch nicht geprüft.
+
+**Sicherheitsdurchsicht des Servers (6. Oktober, abends):** Umgesetzt, mit Tests:
+- Der Server beendet sich nicht mehr, wenn ihm die Dateihandles ausgehen.
+- Verbindungen sind begrenzt: höchstens 20 000 insgesamt und 1 000 pro Adresse. Ein IPv6-/64-Netz zählt als eine Adresse.
+- Frames vor und nach der Anmeldung dürfen höchstens 1 MiB groß sein, statt dass für jede Verbindung 32 MiB reserviert werden.
+- Ein Update-Download dauert höchstens 20 Minuten.
+- Neue Geräteschlüssel werden gedrosselt.
+- Die Drosselliste wird aufgeräumt.
+- Die Web-API glaubt `CF-Connecting-IP` nur, wenn die Anfrage von Cloudflare kommt, und hat ihr eigenes Kontingent.
+- Der Wiederherstellungscode funktioniert auch bei gesperrtem Konto.
+- Die Unit hat `LimitNOFILE` und `UMask`. Auf dem bestehenden Server muss der Nutzer das einmal per `systemctl edit` nachtragen, siehe `docs/DEPLOY.md`, „Grenzen für Verbindungen“.
+
+Noch offen aus der Durchsicht, nach Wichtigkeit:
+1. Registrieren ohne Adressbeweis sperrt die Adresse für den echten Besitzer und verrät per `EmailTaken`, welche Adressen ein Konto haben. Lösung: die Adresse erst mit der Bestätigung binden.
+2. `SetLogin` im Webinterface verlangt nicht das alte Passwort.
+3. Kontosperre pro Konto statt pro Konto und Adresse.
+4. `devices.json` und die Konten werden bei jeder Änderung ganz neu geschrieben, unter der Sperre.
+5. Der Relay hat kein Leerlauf-Ende.
+6. Klartext-Verbindungen für alte Clients abschalten.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**

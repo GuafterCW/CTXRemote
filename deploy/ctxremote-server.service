@@ -13,6 +13,10 @@ EnvironmentFile=-/etc/ctxremote/mail.env
 Restart=always
 RestartSec=2
 Environment=RUST_LOG=info
+# Every device keeps a connection open; the server allows 20 000 at once.
+LimitNOFILE=65536
+# Account and device lists are for the server's eyes only.
+UMask=0077
 
 # The server only needs its data folder and the network.
 NoNewPrivileges=yes
