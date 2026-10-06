@@ -158,8 +158,51 @@ jobs:
           name: client-macos
           path: out/
 
+  # Linux: an AppImage (runs on most distributions) and a .deb. Built on the
+  # oldest supported Ubuntu, so the AppImage also runs on older systems.
+  client-linux:
+    needs: version
+    runs-on: ubuntu-22.04
+    # Still new: a failing Linux build must not hold back the Windows release.
+    continue-on-error: true
+    env:
+      CTXREMOTE_VERSION: ${{ needs.version.outputs.version }}
+      CTXREMOTE_DEFAULT_SERVER: ${{ vars.CTXREMOTE_SERVER }}
+      CTXREMOTE_UPDATE_KEY: ${{ vars.CTXREMOTE_UPDATE_KEY }}
+      CTXREMOTE_SERVER_KEY: ${{ vars.CTXREMOTE_SERVER_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Abhängigkeiten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Frontend
+        working-directory: app
+        run: npm ci
+      - name: App
+        working-directory: app
+        run: |
+          printf '{"version":"%s"}' "$CTXREMOTE_VERSION" > src-tauri/tauri.version.json
+          npm run tauri build -- --config src-tauri/tauri.version.json
+      - name: Dateien einsammeln
+        run: |
+          mkdir out
+          cp target/release/bundle/appimage/*.AppImage out/CTXRemote.AppImage
+          cp target/release/bundle/deb/*.deb out/ctxremote.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-linux
+          path: out/
+
   deploy:
-    needs: [version, server, client, client-macos]
+    needs: [version, server, client, client-macos, client-linux]
     runs-on: ubuntu-latest
     # Only from master, and only once the server is set up (docs/DEPLOY.md).
     if: github.ref == 'refs/heads/master' && vars.DEPLOY_HOST != ''
@@ -200,6 +243,9 @@ jobs:
           fi
           if [ -f artifacts/client-macos/CTXRemote.dmg ]; then
             cp artifacts/client-macos/CTXRemote.dmg incoming/download/CTXRemote.dmg
+          fi
+          if [ -f artifacts/client-linux/CTXRemote.AppImage ]; then
+            cp artifacts/client-linux/CTXRemote.AppImage artifacts/client-linux/ctxremote.deb incoming/download/
           fi
           if [ -n "$CTXREMOTE_UPDATE_SIGNING_KEY" ]; then
             artifacts/server/ctxremote-server update-sign \

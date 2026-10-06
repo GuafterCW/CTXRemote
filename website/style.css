@@ -335,6 +335,18 @@ section {
   align-self: flex-start;
 }
 
+/* Several downloads in one card. */
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.card-actions .btn {
+  margin-top: 0;
+}
+
 .card-accent {
   border-color: var(--accent);
 }
