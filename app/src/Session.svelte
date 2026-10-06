@@ -4,7 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { api, errorText, RIGHT, type SystemInfo, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
+  import { api, CODE_NEEDED, errorText, RIGHT, type SystemInfo, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
@@ -52,6 +52,37 @@
     const secs = Math.max(0, Math.floor((now - recordingSince) / 1000));
     return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   });
+
+  /** Connecting again after the session ended: same password first. */
+  let reconnecting = $state(false);
+  let reError = $state("");
+  let rePassword = $state("");
+  let reCode = $state("");
+  let askPassword = $state(false);
+  let askCode = $state(false);
+
+  async function reconnect(e?: SubmitEvent) {
+    e?.preventDefault();
+    reconnecting = true;
+    reError = "";
+    try {
+      await api.reconnect(session, askPassword ? rePassword : undefined, askCode ? reCode : undefined);
+      // The new session has its own window.
+      await appWindow.close();
+    } catch (err) {
+      const text = errorText(err);
+      if (text === CODE_NEEDED) {
+        askCode = true;
+      } else {
+        reError = text;
+        // A one-time password is used up; a changed one needs typing.
+        askPassword = true;
+        reCode = "";
+      }
+    } finally {
+      reconnecting = false;
+    }
+  }
 
   /** This computer's clipboard text, typed at the host key by key. */
   async function typeClipboard() {
@@ -779,7 +810,19 @@
       <div class="card">
         <h1>Sitzung beendet</h1>
         <p>{closed}</p>
-        <button class="btn btn-quiet" onclick={() => appWindow.close()}>Fenster schließen</button>
+        <form class="again" onsubmit={reconnect}>
+          {#if askPassword}
+            <input class="again-field" type="password" bind:value={rePassword} placeholder="Passwort des Geräts" autocomplete="off" />
+          {/if}
+          {#if askCode}
+            <input class="again-field" bind:value={reCode} inputmode="numeric" maxlength="7" placeholder="Bestätigungscode" autocomplete="one-time-code" />
+          {/if}
+          {#if reError}<p class="again-error">{reError}</p>{/if}
+          <div class="again-actions">
+            <button type="button" class="btn btn-quiet" onclick={() => appWindow.close()}>Fenster schließen</button>
+            <button class="btn btn-primary" disabled={reconnecting}>{reconnecting ? "Verbinde …" : "Erneut verbinden"}</button>
+          </div>
+        </form>
       </div>
     </div>
   {/if}
@@ -1170,6 +1213,36 @@
 
   .card .btn-quiet:hover {
     background: #222220;
+  }
+
+  .again {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: 300px;
+  }
+
+  .again-field {
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid #3b3a37;
+    border-radius: 8px;
+    background: #181816;
+    color: #edebe6;
+    font-size: 14px;
+  }
+
+  .again-error {
+    margin: 0 !important;
+    color: #e07a66;
+    font-size: 12.5px;
+  }
+
+  .again-actions {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
   }
 
   .toolbar {

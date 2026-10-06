@@ -396,6 +396,7 @@ Der Nutzer hat bestätigt: Privatsphäre-Modus, Rechte und Zeichnen funktioniere
 
 - **Zwischenablage eintippen** (Tastenmenü): Der Text aus der lokalen Zwischenablage wird am Gerät Zeichen für Zeichen getippt (`InputEvent::Text`, Fähigkeit `TYPE_TEXT`, `KEYEVENTF_UNICODE`, also unabhängig vom Tastaturlayout). Gedacht für Anmeldebildschirm, UAC und alles, wo Einfügen nicht geht. Zeilenumbrüche und Tabs werden zu Enter und Tab. Höchstens 4096 Zeichen. Es gilt das Recht „Maus und Tastatur“.
 - **Bei Inaktivität trennen:** Neue Einstellung „Ihre Sitzungen“ mit Nie, 15, 30 oder 60 Minuten. Sie gilt für diesen Computer und wird im Browser-Speicher der App abgelegt. Eine Minute vorher erscheint ein Hinweis, und eine Mausbewegung hält die Sitzung.
+- **Erneut verbinden:** Die Karte „Sitzung beendet“ hat einen Knopf dafür. Die App merkt sich Ziel und Passwort jedes Sitzungsfensters nur im Arbeitsspeicher, bis es geschlossen wird. Ein Klick genügt also nach einem Abbruch oder einem Neustart des Geräts. Klappt das nicht (Einmal-Passwort verbraucht, Passwort geändert), fragt die Karte nach dem Passwort und bei Bedarf nach dem Bestätigungscode. Die neue Sitzung öffnet ein eigenes Fenster, das alte schließt sich.
 - **Fehler behoben:** Die App meldete die Fähigkeiten des Geräts mit `file_paste`, die Oberfläche fragte `filePaste` ab. Deshalb griff Strg+V mit Dateien in der Sitzung nie, und der Hinweis „… am Gerät kopiert“ fehlte. Jetzt werden die Namen in camelCase übertragen. Testpunkt 27 bitte wiederholen.
 
 ### Testliste für den nächsten Windows-Termin
@@ -518,6 +519,7 @@ Der Nutzer hat bestätigt: Privatsphäre-Modus, Rechte und Zeichnen funktioniere
 41. „Beim Trennen sperren“ im Tastenmenü an, dann trennen: Das Gerät muss gesperrt sein. Beim nächsten Verbinden zum selben Gerät ist der Haken noch gesetzt.
 44. Zwischenablage eintippen: Lokal ein Passwort kopieren. Am gesperrten Gerät im Tastenmenü „Zwischenablage eintippen“ wählen: Das Passwort steht im Feld, auch mit Sonderzeichen und Umlauten und bei anderem Tastaturlayout am Gerät.
 45. Bei Inaktivität trennen: In den Einstellungen 15 Minuten wählen. Eine Sitzung offen lassen ohne Eingabe: Nach 14 Minuten kommt der Hinweis, nach 15 ist die Sitzung getrennt. Eine Mausbewegung nach dem Hinweis hält sie.
+46. Erneut verbinden: Mit festem Passwort verbinden, „Neu starten …“ wählen. Nach dem Neustart auf „Erneut verbinden“ klicken: Die Sitzung läuft wieder ohne Passworteingabe. Mit Einmal-Passwort: Nach dem Trennen fragt die Karte nach dem neuen Passwort.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

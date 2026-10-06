@@ -38,6 +38,9 @@ struct AppState {
     next_viewer: AtomicU32,
     /// Local paths dropped on a session window, waiting for its file window.
     drops: Mutex<HashMap<u32, Vec<String>>>,
+    /// Target and password of each session window, in memory only, so the
+    /// window can connect again after the session ended.
+    logins: Mutex<HashMap<u32, (String, String)>>,
     /// A newer signed release on the server (app mode only; the service updates itself).
     update: Mutex<Option<ctxremote_core::proto::update::UpdateInfo>>,
 }
@@ -627,6 +630,7 @@ async fn connect(
     }
 
     let number = state.next_viewer.fetch_add(1, Ordering::Relaxed);
+    let login = (target.to_string(), password.clone());
     let link = Arc::new(Mutex::new(Link::default()));
     let on_event = {
         let link = link.clone();
@@ -772,6 +776,7 @@ async fn connect(
     poke_sync(&app);
     let lock_on_end = state.config.read().unwrap().lock_on_end.contains(&target);
     state.viewers.lock().unwrap().insert(number, Viewer { session, target, link, lock_on_end });
+    state.logins.lock().unwrap().insert(number, login);
 
     WebviewWindowBuilder::new(
         &app,
@@ -896,6 +901,21 @@ fn type_clipboard(state: State<AppState>, session: u32) -> CmdResult<()> {
     }
     viewer.session.send(ViewerMsg::Input(InputEvent::Text(text)));
     Ok(())
+}
+
+/// Connects again to the device of an ended session, with the same password
+/// unless `password` is given; opens a new session window.
+#[tauri::command]
+async fn reconnect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session: u32,
+    password: Option<String>,
+    code: Option<String>,
+) -> CmdResult<u32> {
+    let (target, remembered) = state.logins.lock().unwrap().get(&session).cloned().ok_or("Das Gerät ist nicht mehr bekannt")?;
+    let password = password.filter(|p| !p.is_empty()).unwrap_or(remembered);
+    connect(app, state, target, password, code).await
 }
 
 /// Lock the host's screen when this session ends, and next time for this device, too.
@@ -1408,6 +1428,7 @@ macro_rules! handlers {
             send_sas,
             lock_screen,
             set_lock_on_end,
+            reconnect,
             type_clipboard,
             save_screenshot,
             restart_host,
@@ -1581,6 +1602,7 @@ fn main() {
                 viewers: Mutex::default(),
                 next_viewer: AtomicU32::new(1),
                 drops: Mutex::default(),
+                logins: Mutex::default(),
                 update: Mutex::default(),
             });
 
@@ -1620,6 +1642,7 @@ fn main() {
             if let WindowEvent::Destroyed = event {
                 if let Some(number) = window.label().strip_prefix("session-").and_then(|n| n.parse().ok()) {
                     window.state::<AppState>().viewers.lock().unwrap().remove(&number);
+                    window.state::<AppState>().logins.lock().unwrap().remove(&number);
                 }
             }
         })

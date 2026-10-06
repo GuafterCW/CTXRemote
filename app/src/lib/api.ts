@@ -331,6 +331,9 @@ export const api = {
   restartHost: (session: number) => invoke<void>("restart_host", { session }),
   setQuality: (session: number, quality: Quality) => invoke<void>("set_quality", { session, quality }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
+  /** Connects again to an ended session's device; opens a new window. */
+  reconnect: (session: number, password?: string, code?: string) =>
+    invoke<number>("reconnect", { session, password: password ?? null, code: code ?? null }),
   /** Turns the host's sound on or off; false if the host has none. */
   setAudio: (session: number, on: boolean) => invoke<boolean>("set_audio", { session, on }),
   /** Blanks the host's screen and blocks its local input, or ends that. */
