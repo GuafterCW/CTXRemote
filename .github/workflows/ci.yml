@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +57,19 @@ jobs:
 
       - name: Setup-Fenster
         run: cargo build --locked -p ctxremote-setup
+
+      # A disk image to try the Mac app from any branch (unsigned: right-click → Open).
+      - name: Mac-Disk-Image zum Testen
+        if: runner.os == 'macOS'
+        working-directory: app
+        run: npm run tauri build -- --bundles dmg
+      - name: Mac-Disk-Image ablegen
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CTXRemote-macOS
+          path: target/release/bundle/dmg/*.dmg
+          retention-days: 14
 
   # The web interface (website/konto): types, build, and the check that the
   # browser derives the same keys as the app.

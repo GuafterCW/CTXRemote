@@ -117,8 +117,49 @@ jobs:
           name: client
           path: out/
 
+  # The macOS app as a disk image, for Apple silicon and Intel. Not signed or
+  # notarised yet (needs an Apple developer account): on first start macOS
+  # asks to confirm it (right-click → Open).
+  client-macos:
+    needs: version
+    runs-on: macos-latest
+    # Still new: a failing Mac build must not hold back the Windows release.
+    continue-on-error: true
+    env:
+      CTXREMOTE_VERSION: ${{ needs.version.outputs.version }}
+      CTXREMOTE_DEFAULT_SERVER: ${{ vars.CTXREMOTE_SERVER }}
+      CTXREMOTE_UPDATE_KEY: ${{ vars.CTXREMOTE_UPDATE_KEY }}
+      CTXREMOTE_SERVER_KEY: ${{ vars.CTXREMOTE_SERVER_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Frontend
+        working-directory: app
+        run: npm ci
+      - name: App
+        working-directory: app
+        run: |
+          printf '{"version":"%s"}' "$CTXREMOTE_VERSION" > src-tauri/tauri.version.json
+          npm run tauri build -- --target universal-apple-darwin --config src-tauri/tauri.version.json
+      - name: Dateien einsammeln
+        run: |
+          mkdir out
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg out/CTXRemote.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-macos
+          path: out/
+
   deploy:
-    needs: [version, server, client]
+    needs: [version, server, client, client-macos]
     runs-on: ubuntu-latest
     # Only from master, and only once the server is set up (docs/DEPLOY.md).
     if: github.ref == 'refs/heads/master' && vars.DEPLOY_HOST != ''
@@ -156,6 +197,9 @@ jobs:
           cp artifacts/client/CTXRemote-Setup.exe incoming/download/CTXRemote-Setup.exe
           if [ -f artifacts/client/CTXRemote-Hilfe.exe ]; then
             cp artifacts/client/CTXRemote-Hilfe.exe incoming/download/CTXRemote-Hilfe.exe
+          fi
+          if [ -f artifacts/client-macos/CTXRemote.dmg ]; then
+            cp artifacts/client-macos/CTXRemote.dmg incoming/download/CTXRemote.dmg
           fi
           if [ -n "$CTXREMOTE_UPDATE_SIGNING_KEY" ]; then
             artifacts/server/ctxremote-server update-sign \

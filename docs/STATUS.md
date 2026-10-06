@@ -403,6 +403,15 @@ Der Nutzer hat bestätigt: Privatsphäre-Modus, Rechte und Zeichnen funktioniere
 
 Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt die nächste Übertragung derselben Datei an der Stelle fort, in beide Richtungen (Fähigkeit `RESUME`). Einzelheiten stehen in `docs/FILE-TRANSFER.md`. Unter Linux mit Ende-zu-Ende-Tests geprüft.
 
+### macOS-Viewer, Schritt 1 (6. Oktober, Cloud-Sitzung)
+
+- `scripts/check-macos.sh` prüft den Code unter Linux auf Typfehler für macOS. Ein Ersatz-Compiler steht für Apples clang. Die ganze App besteht die Prüfung ohne Fehler.
+- **CI:** `macos-latest` in der Matrix. Dort laufen Tests und Build, und eine `.dmg` liegt 14 Tage als Artefakt **CTXRemote-macOS** am Lauf, zum Testen von jedem Branch.
+- **Release:** Job `client-macos` baut eine Universal-App für Apple-Chips und Intel. Er hält das Windows-Release nicht auf, wenn er fehlschlägt. Die `.dmg` liegt unter `/download/CTXRemote.dmg`, und die Download-Seite hat dafür eine Karte „Vorschau“.
+- **Signatur:** Die App ist nur ad hoc signiert (`signingIdentity: "-"`) und nicht notarisiert. Beim ersten Start Rechtsklick und „Öffnen“, unter macOS 15 eventuell unter Systemeinstellungen → Datenschutz & Sicherheit → „Trotzdem öffnen“. Für eine Verteilung ohne Warnung ist ein Apple-Entwicklerkonto nötig.
+- **Tastatur im Sitzungsfenster am Mac:** Cmd wirkt am Windows-Gerät als Strg und Strg als Windows-Taste. Strg+V mit Dateien heißt am Mac Cmd+V. macOS meldet kein Loslassen von Tasten, solange Cmd gedrückt ist. Deshalb löst das Loslassen von Cmd alle mitgedrückten Tasten, sonst blieben sie am Gerät hängen.
+- Updates sind am Mac aus (`update::PLATFORM` kennt nur Windows), ebenso der Host-Teil (`HOST_SUPPORTED`).
+
 ### Testliste für den nächsten Windows-Termin
 
 1. `node app/scripts/prepare-service.mjs`, dann App und Dienst wie gewohnt bauen. CI muss auf Windows und Linux grün sein.
@@ -525,6 +534,13 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
 45. Bei Inaktivität trennen: In den Einstellungen 15 Minuten wählen. Eine Sitzung offen lassen ohne Eingabe: Nach 14 Minuten kommt der Hinweis, nach 15 ist die Sitzung getrennt. Eine Mausbewegung nach dem Hinweis hält sie.
 46. Erneut verbinden: Mit festem Passwort verbinden, „Neu starten …“ wählen. Nach dem Neustart auf „Erneut verbinden“ klicken: Die Sitzung läuft wieder ohne Passworteingabe. Mit Einmal-Passwort: Nach dem Trennen fragt die Karte nach dem neuen Passwort.
 47. Fortsetzen: Eine große Datei (mehrere GB) herunterladen und in der Mitte das Netzwerkkabel ziehen oder die Sitzung trennen. Im Downloads-Ordner liegt `Name.<Größe>.ctxpart`. Neu verbinden und dieselbe Datei erneut herunterladen: Der Fortschritt beginnt beim Rest, und die fertige Datei ist identisch (z. B. per `certutil -hashfile`). Dasselbe beim Hochladen.
+48. Mac-Viewer: Die `.dmg` aus dem CI-Lauf (Artefakt „CTXRemote-macOS“) installieren und per Rechtsklick öffnen. Mit einem Windows-PC verbinden:
+    - Bild, Maus und Ton funktionieren.
+    - Cmd+C und Cmd+V kopieren am PC, und danach hängt keine Taste.
+    - Text tippen mit Umlauten klappt.
+    - Die Zwischenablage zwischen Mac und PC geht in beide Richtungen.
+    - Dateien lassen sich übertragen.
+    - Wie sieht die App im Dark Mode aus, und erscheint das Menüleisten-Symbol?
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

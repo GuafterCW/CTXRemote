@@ -612,16 +612,44 @@
     hideToolbarSoon();
   }
 
+  // On a Mac, Cmd does what Ctrl does on the Windows device (copy, paste, …),
+  // and Ctrl stands in for the Windows key.
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const MAC_SWAP: Record<string, string> = {
+    MetaLeft: "ControlLeft",
+    MetaRight: "ControlRight",
+    ControlLeft: "MetaLeft",
+    ControlRight: "MetaRight",
+  };
+  /** Keys held down here, as sent to the host. */
+  const held = new Set<string>();
+
   function onKey(e: KeyboardEvent, down: boolean) {
     if (inChat(e)) return;
     if (!streaming || closed !== null || !e.code) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.code === "KeyV" && (e.ctrlKey || pasting) && canPasteFiles()) {
+    const shortcut = MAC ? e.metaKey : e.ctrlKey;
+    if (e.code === "KeyV" && (shortcut || pasting) && canPasteFiles()) {
       if (down && !pasting) pasteThenV();
       return;
     }
-    send({ Key: { code: e.code, down } });
+    const code = MAC ? (MAC_SWAP[e.code] ?? e.code) : e.code;
+    if (down) {
+      held.add(code);
+    } else {
+      held.delete(code);
+    }
+    send({ Key: { code, down } });
+    // macOS reports no key-up for keys released while Cmd is down, so they
+    // would stay pressed at the host: letting go of Cmd lets go of them.
+    if (MAC && !down && (e.code === "MetaLeft" || e.code === "MetaRight")) {
+      for (const other of [...held]) {
+        if (other.startsWith("Shift") || other.startsWith("Alt") || other.startsWith("Meta") || other.startsWith("Control")) continue;
+        held.delete(other);
+        send({ Key: { code: other, down: false } });
+      }
+    }
   }
 
   const canPasteFiles = () => features.filePaste && can(RIGHT.FILES) && can(RIGHT.CLIPBOARD) && can(RIGHT.INPUT);
