@@ -321,6 +321,8 @@ export const api = {
       { session, channel },
     ),
   sendInput: (session: number, event: InputEvent) => invoke<void>("send_input", { session, event }),
+  /** Phones: the phone's clipboard text to the host (no watcher there). */
+  sendClipboard: (session: number, text: string) => invoke<void>("send_clipboard", { session, text }),
   selectDisplay: (session: number, index: number) => invoke<void>("select_display", { session, index }),
   requestKeyframe: (session: number) => invoke<void>("request_keyframe", { session }),
   sendSas: (session: number) => invoke<void>("send_sas", { session }),

@@ -13,6 +13,7 @@
   import { readIdleMinutes } from "./lib/idle";
   import { MOBILE, goHome } from "./lib/platform";
   import { TouchControl } from "./lib/touch";
+  import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 
   let { session }: { session: number } = $props();
 
@@ -464,6 +465,18 @@
     }
   }
 
+  /** Phones: the phone's clipboard to the host, by hand. */
+  async function sendPhoneClipboard() {
+    try {
+      const text = await readText();
+      if (!text) return showNotice("Die Zwischenablage ist leer");
+      await api.sendClipboard(session, text);
+      showNotice("Zwischenablage gesendet");
+    } catch (e) {
+      showNotice(errorText(e));
+    }
+  }
+
   const EXTRA_KEYS: [string, string][] = [
     ["Escape", "Esc"],
     ["Tab", "Tab"],
@@ -558,6 +571,12 @@
       privacy = e.payload.on;
       if (e.payload.error) showNotice(e.payload.error);
     });
+    // Phones: text copied on the host lands in the phone's clipboard.
+    const unlistenClipboard = MOBILE
+      ? getCurrentWindow().listen<string>("remote-clipboard", (e) => {
+          if (can(RIGHT.CLIPBOARD)) writeText(e.payload).catch(() => {});
+        })
+      : Promise.resolve(() => {});
     const unlistenChat = getCurrentWindow().listen<string>("chat", (e) => {
       chatMessages = [...chatMessages, { mine: false, text: e.payload, at: Date.now() }];
       if (!chatOpen) {
@@ -610,6 +629,7 @@
       unlistenPrivacy.then((off) => off());
       clearTimeout(noticeTimer);
       unlistenChat.then((off) => off());
+      unlistenClipboard.then((off) => off());
     };
   });
 
@@ -1316,6 +1336,11 @@
       {#if can(RIGHT.INPUT)}
         <button class="phone-btn" class:active={keyboardOpen} title="Tastatur" onclick={toggleKeyboard}>
           <Icon name="keyboard" size={18} />
+        </button>
+      {/if}
+      {#if can(RIGHT.CLIPBOARD)}
+        <button class="phone-btn" title="Zwischenablage senden" onclick={sendPhoneClipboard}>
+          <Icon name="copy" size={18} />
         </button>
       {/if}
       {#if view.zoom > 1}

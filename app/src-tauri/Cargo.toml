@@ -27,6 +27,9 @@ tracing-subscriber.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+# Only registered on phones (desktop has arboard in core); a dependency everywhere
+# so its permissions are known to every build.
+tauri-plugin-clipboard-manager = "2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Phones: the clipboard, read and written by the session page",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": ["clipboard-manager:allow-read-text", "clipboard-manager:allow-write-text"]
+}

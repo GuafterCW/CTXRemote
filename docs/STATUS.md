@@ -448,6 +448,13 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
 - **Android-Konfiguration:** `tauri.android.conf.json` setzt die Kennung ohne Bindestrich (`info.philippdev.ctxremote`).
 - **CI:** Job `android` baut eine Debug-APK für arm64 (Artefakt „CTXRemote-Android“). Sie ist mit dem Debug-Schlüssel signiert und direkt installierbar, ist aber nicht für den Play Store.
 - Geprüft: Typprüfung für Android (`cargo check --target aarch64-linux-android` mit Ersatz-Compiler) und Screenshots der Oberfläche im Handyformat. Auf einem echten Gerät noch nicht.
+- **Nachtrag:**
+  - **Zwischenablage auf dem Handy:** Text vom PC landet automatisch in der Zwischenablage des Handys. Der Knopf „Zwischenablage senden“ (Kopier-Symbol) schickt den Text vom Handy zum PC. Dafür gibt es `tauri-plugin-clipboard-manager` (nur auf dem Handy registriert, Rechte in `capabilities/mobile.json`) und den Befehl `send_clipboard`. Automatisch geht es nicht, denn Android erlaubt Apps im Hintergrund kein Mitlesen der Zwischenablage.
+  - **CI baut jetzt eine optimierte Release-APK:**
+    - Sie ist deutlich kleiner und schneller als die Debug-Version.
+    - Signiert wird mit dem Schlüssel aus den Secrets `ANDROID_KEYSTORE` (base64 einer .jks) und `ANDROID_KEYSTORE_PASSWORD`.
+    - Fehlen die Secrets, signiert die CI mit einem Wegwerf-Schlüssel. Dann muss die alte App vor jedem Update deinstalliert werden.
+    - Den festen Schlüssel einmal erzeugen und gut aufheben, denn er gilt auch später für den Play Store: `keytool -genkeypair -keystore ctxremote.jks -alias ctxremote -keyalg RSA -keysize 3072 -validity 10000`, dann `base64 -w0 ctxremote.jks` als Secret.
 
 ### Testliste für den nächsten Windows-Termin
 

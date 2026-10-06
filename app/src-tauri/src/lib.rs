@@ -709,9 +709,13 @@ async fn connect(
                 let _ = app.emit("transfer", TransferUpdate { session: number, event });
             }
             ViewerEvent::Clipboard(text) => {
+                #[cfg(desktop)]
                 if let Some(clipboard) = &link.lock().unwrap().clipboard {
                     clipboard.apply(text);
                 }
+                // Phones have no clipboard watcher: the page puts the text there.
+                #[cfg(mobile)]
+                let _ = app.emit_to(session_label(number), "remote-clipboard", text);
             }
             ViewerEvent::ClipboardImage(png) => {
                 if let Some(clipboard) = &link.lock().unwrap().clipboard {
@@ -1013,6 +1017,17 @@ fn with_viewer(state: &AppState, session: u32, f: impl FnOnce(&ViewerSession)) {
     if let Some(viewer) = state.viewers.lock().unwrap().get(&session) {
         f(&viewer.session);
     }
+}
+
+/// Phones: the phone's clipboard text, sent by hand (no watcher there).
+#[tauri::command]
+fn send_clipboard(state: State<AppState>, session: u32, text: String) -> CmdResult<()> {
+    if text.is_empty() || text.len() > ctxremote_core::clipboard::MAX_CLIPBOARD_BYTES {
+        return Err("Die Zwischenablage ist leer oder zu groß".into());
+    }
+    let viewers = state.viewers.lock().unwrap();
+    let viewer = viewers.get(&session).ok_or("Sitzung beendet")?;
+    viewer.session.sender().send(ViewerMsg::Clipboard(text)).map_err(err)
 }
 
 #[tauri::command]
@@ -1493,6 +1508,7 @@ macro_rules! handlers {
             connect,
             attach,
             send_input,
+            send_clipboard,
             select_display,
             request_keyframe,
             set_audio,
@@ -1632,6 +1648,10 @@ pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
     // A separate config is a separate profile (e.g. a second device for testing on one PC).
+    #[cfg(mobile)]
+    {
+        builder = builder.plugin(tauri_plugin_clipboard_manager::init());
+    }
     #[cfg(all(desktop, not(feature = "quick")))]
     if std::env::var_os("CTXREMOTE_CONFIG").is_none() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)));
