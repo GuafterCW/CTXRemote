@@ -341,6 +341,7 @@ fn video_loop(
             let (width, height) = (capturer.display().width, capturer.display().height);
             if encoder.as_ref().map(|e| e.size()) != Some((width & !1, height & !1)) {
                 let mut fresh = VideoEncoder::new(width, height, FPS, quality)?;
+                debug!(encoder = fresh.kind(), width, height, "Encoder bereit");
                 fresh.set_bitrate_factor(congestion.factor());
                 encoder = Some(fresh);
                 force_key = true;

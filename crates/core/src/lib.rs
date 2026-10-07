@@ -19,6 +19,8 @@ pub mod profile;
 pub mod record;
 pub mod punch;
 pub mod encoder;
+#[cfg(windows)]
+mod encoder_mf;
 pub mod files;
 pub mod history;
 pub mod host;
