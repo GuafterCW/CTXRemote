@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use ctxremote_core::config::{Config, DirectSettings};
 use ctxremote_core::agent_process::{self, AgentProcess};
-use ctxremote_core::host::{Host, ScreenSource};
+use ctxremote_core::host::{Host, Presence, ScreenSource};
 use ctxremote_core::ui_link::{self, ServiceLink, UiEvent, UiRequest};
 use sha2::{Digest, Sha256};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
@@ -651,23 +651,52 @@ fn start_host(config: Config, screen: Arc<dyn ScreenSource>) -> Host {
 
 /// First check a little after start, so a boot is not slowed down.
 const UPDATE_FIRST_CHECK: Duration = Duration::from_secs(120);
-const UPDATE_INTERVAL: Duration = Duration::from_secs(6 * 3600);
+/// Fallback when the server stays up; a release restarts it (see below).
+const UPDATE_INTERVAL: Duration = Duration::from_secs(3600);
 /// While someone is connected, check again this often whether they are done.
 const UPDATE_IDLE_POLL: Duration = Duration::from_secs(300);
+/// Spreads the devices' checks after a server restart over this long.
+const UPDATE_SPREAD_SECS: u64 = 180;
 
 /// Installs signed releases from the server on its own, but only while
 /// nobody controls this device: the installer restarts the service.
+///
+/// A release restarts the server, so every device goes offline for a moment;
+/// coming back online is the cue to look for an update right away instead
+/// of waiting for the next hourly check.
 async fn auto_update(host: Host, config: Arc<RwLock<Config>>) {
     if !ctxremote_core::update::enabled() {
         tracing::info!("Automatische Updates sind in diesem Build nicht eingerichtet");
         return;
     }
+    let mut presence = host.presence();
     tokio::time::sleep(UPDATE_FIRST_CHECK).await;
+    presence.borrow_and_update();
     loop {
         if let Err(e) = update_once(&host, &config).await {
             tracing::warn!("Update fehlgeschlagen: {e:#}");
         }
-        tokio::time::sleep(UPDATE_INTERVAL).await;
+        let back_online = async {
+            let mut was_online = matches!(*presence.borrow_and_update(), Presence::Online { .. });
+            loop {
+                if presence.changed().await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+                let online = matches!(*presence.borrow_and_update(), Presence::Online { .. });
+                if online && !was_online {
+                    return;
+                }
+                was_online = online;
+            }
+        };
+        tokio::select! {
+            _ = tokio::time::sleep(UPDATE_INTERVAL) => {}
+            _ = back_online => {
+                // Not all devices at the same moment: the server just started.
+                let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+                tokio::time::sleep(Duration::from_secs(30 + u64::from(nanos) % UPDATE_SPREAD_SECS)).await;
+            }
+        }
     }
 }
 

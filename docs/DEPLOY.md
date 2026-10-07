@@ -27,7 +27,7 @@ Ohne die Einstellungen unten laufen die Builds trotzdem. Installer und Schnellhi
   - Sie installieren nur Signiertes und nur Versionen, die neuer sind als die eigene.
   - Ein gekaperter Server kann deshalb kein eigenes Programm verteilen.
 - **Mit Dienst** (normale Installation):
-  - Der Dienst prüft 2 Minuten nach dem Start und danach alle 6 Stunden.
+  - Der Dienst prüft 2 Minuten nach dem Start, danach stündlich. Weil ein Release den Server neu startet, prüft er außerdem 30 Sekunden bis 3,5 Minuten nachdem er wieder mit dem Server verbunden ist (zufällig verteilt, damit nicht alle Geräte gleichzeitig laden).
   - Er lädt nach `C:\ProgramData\CTXRemote\updates`. Dort dürfen nur SYSTEM und Administratoren schreiben.
   - Er installiert still, aber nur, solange niemand verbunden ist.
   - Der Installer stoppt den Dienst, ersetzt die Dateien und startet ihn wieder.
@@ -206,7 +206,7 @@ Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb je
 ### Schritt 13: Automatisches Update prüfen
 
 1. Eine kleine Änderung nach `master` pushen und warten, bis der neue Release-Lauf grün ist.
-2. Auf einem Gerät mit Dienst (PowerShell als Administrator) den Dienst neu starten. Er prüft dann nach 2 Minuten statt erst nach bis zu 6 Stunden:
+2. Auf einem Gerät mit Dienst (PowerShell als Administrator) den Dienst neu starten. Er prüft dann nach 2 Minuten statt erst nach bis zu einer Stunde (normalerweise ist das nicht nötig, siehe oben):
 
    ```powershell
    PS> Restart-Service CTXRemote
@@ -357,6 +357,20 @@ Danach:
 ```
 
 Neu installierte Server haben `EnvironmentFile=-/etc/ctxremote/mail.env` schon in der Unit. Bestehende bekommen die Zeile über `systemctl edit ctxremote-server`, siehe „Webinterface Konto“ oben.
+
+### Grenzen für Verbindungen (seit Oktober 2026)
+
+Der Server nimmt höchstens 20 000 Verbindungen gleichzeitig an, von einer Adresse höchstens 1 000 (ein IPv6-/64-Netz zählt als eine Adresse). Damit das Betriebssystem mitspielt, braucht die Unit `LimitNOFILE=65536`. Neue Server haben das schon. Bestehende bekommen es einmalig über `systemctl edit ctxremote-server`, zusammen mit der Dateimaske für die Datendateien:
+
+```ini
+[Service]
+LimitNOFILE=65536
+UMask=0077
+```
+
+Danach `systemctl restart ctxremote-server`. Ohne diese Zeilen läuft der Server weiter wie bisher, nur mit der Grenze des Systems (oft 1 024 offene Dateien).
+
+Die Web-API glaubt die Adresse aus `CF-Connecting-IP` nur, wenn die Anfrage laut Caddy von Cloudflare kam (Liste in `crates/server/src/cloudflare.rs`). Wer Caddy direkt anspricht, kann sich so keine fremde Adresse geben. Ändert Cloudflare seine Adressen (https://www.cloudflare.com/ips/), die Liste anpassen. Bis dahin zählt für neue Cloudflare-Adressen die Adresse des Cloudflare-Knotens.
 
 ## Sicherung der Serverdaten
 

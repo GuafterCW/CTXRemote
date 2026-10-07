@@ -19,6 +19,15 @@ use ctxremote_proto::session::{InputEvent, MouseButton};
 use crate::capture::Display;
 use crate::keymap::mac_keycode;
 
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    /// The modifier state macOS keeps for a source, e.g. whether Caps Lock is on.
+    fn CGEventSourceFlagsState(state: i32) -> u64;
+}
+
+/// `kCGEventSourceStateHIDSystemState`: the hardware's state.
+const HID_SYSTEM_STATE: i32 = 1;
+
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     static kAXTrustedCheckOptionPrompt: CFStringRef;
@@ -185,7 +194,7 @@ impl Injector {
         if let Some(clicks) = clicks {
             event.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, clicks);
         }
-        event.set_flags(self.flags);
+        event.set_flags(self.event_flags());
         event.post(CGEventTapLocation::HID);
     }
 
@@ -205,7 +214,7 @@ impl Injector {
         let Some(source) = source() else { return };
         // Line units (1); Windows and macOS agree that positive scrolls up and left.
         if let Ok(event) = CGEvent::new_scroll_event(source, 1, 2, y, -x, 0) {
-            event.set_flags(self.flags);
+            event.set_flags(self.event_flags());
             event.post(CGEventTapLocation::HID);
         }
     }
@@ -220,9 +229,19 @@ impl Injector {
         }
         let Some(source) = source() else { return };
         if let Ok(event) = CGEvent::new_keyboard_event(source, keycode, down) {
-            event.set_flags(self.flags);
+            event.set_flags(self.event_flags());
             event.post(CGEventTapLocation::HID);
         }
+    }
+}
+
+impl Injector {
+    /// The viewer's modifiers, plus Caps Lock as it is at the Mac: setting the
+    /// flags replaces them all, and typed letters would lose it otherwise.
+    fn event_flags(&self) -> CGEventFlags {
+        // SAFETY: a plain query without pointers.
+        let system = CGEventFlags::from_bits_truncate(unsafe { CGEventSourceFlagsState(HID_SYSTEM_STATE) });
+        self.flags | (system & CGEventFlags::CGEventFlagAlphaShift)
     }
 }
 

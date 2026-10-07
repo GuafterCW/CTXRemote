@@ -3,7 +3,7 @@
 //! An ID belongs to the first key that registers it, so nobody can take over
 //! a known device's address without its private key.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -23,6 +23,8 @@ struct Stored {
 pub struct Registry {
     path: PathBuf,
     stored: Stored,
+    /// Public key (hex) → its first ID, so lookups need not scan all devices.
+    by_key: HashMap<String, u32>,
 }
 
 impl Registry {
@@ -33,7 +35,11 @@ impl Registry {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Stored::default(),
             Err(e) => return Err(e.into()),
         };
-        Ok(Self { path, stored })
+        let mut by_key = HashMap::new();
+        for (id, key) in &stored.devices {
+            by_key.entry(key.clone()).or_insert(*id);
+        }
+        Ok(Self { path, stored, by_key })
     }
 
     /// Returns the ID this key may use: the requested one if it is free or
@@ -47,7 +53,7 @@ impl Registry {
                 Some(_) => tracing::warn!(%id, "ID gehört einem anderen Schlüssel, vergebe eine neue"),
             }
         }
-        if let Some((&raw, _)) = self.stored.devices.iter().find(|(_, owner)| **owner == key) {
+        if let Some(&raw) = self.by_key.get(&key) {
             return Ok(DeviceId::new(raw).expect("stored IDs are valid"));
         }
         let id = loop {
@@ -93,8 +99,7 @@ impl Registry {
 
     /// The ID registered with `public_key`, if any.
     pub fn id_for_key(&self, public_key: &[u8; 32]) -> Option<DeviceId> {
-        let key = hex::encode(public_key);
-        self.stored.devices.iter().find(|(_, owner)| **owner == key).and_then(|(id, _)| DeviceId::new(*id))
+        self.by_key.get(&hex::encode(public_key)).and_then(|id| DeviceId::new(*id))
     }
 
     pub fn resolve_alias(&self, alias: &str) -> Option<DeviceId> {
@@ -103,8 +108,12 @@ impl Registry {
     }
 
     fn insert(&mut self, id: DeviceId, key: String) -> Result<DeviceId> {
-        self.stored.devices.insert(id.get(), key);
-        self.save()?;
+        self.stored.devices.insert(id.get(), key.clone());
+        if let Err(e) = self.save() {
+            self.stored.devices.remove(&id.get());
+            return Err(e);
+        }
+        self.by_key.entry(key).or_insert(id.get());
         Ok(id)
     }
 

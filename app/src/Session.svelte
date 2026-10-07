@@ -262,6 +262,11 @@
   async function openTunnel(e: SubmitEvent) {
     e.preventDefault();
     tunnelError = "";
+    // Without a port the button used to stay greyed out with no word why.
+    if (!/:\d+$/.test(tunnelTarget.trim())) {
+      tunnelError = "Bitte das Ziel mit Port angeben, z. B. 192.168.1.10:3389";
+      return;
+    }
     const port = tunnelPort.trim() ? Number(tunnelPort) : undefined;
     try {
       await api.openTunnel(session, tunnelTarget, port);
@@ -519,9 +524,26 @@
     if (MOBILE && canvas) {
       // Not passive: the page must not scroll or zoom itself under the fingers.
       const opts = { passive: false } as const;
-      const start = (e: TouchEvent) => fingers.onStart(e);
-      const move = (e: TouchEvent) => fingers.onMove(e);
-      const end = (e: TouchEvent) => fingers.onEnd(e);
+      // In drawing mode one finger draws; otherwise it controls the host.
+      const at = (e: TouchEvent) => {
+        const t = e.targetTouches[0] ?? e.changedTouches[0];
+        return { clientX: t.clientX, clientY: t.clientY, preventDefault() {} } as unknown as PointerEvent;
+      };
+      const start = (e: TouchEvent) => {
+        if (!drawing) return fingers.onStart(e);
+        e.preventDefault();
+        if (e.targetTouches.length === 1) drawDown(at(e));
+      };
+      const move = (e: TouchEvent) => {
+        if (!drawing) return fingers.onMove(e);
+        e.preventDefault();
+        if (e.targetTouches.length === 1) drawMove(at(e));
+      };
+      const end = (e: TouchEvent) => {
+        if (!drawing) return fingers.onEnd(e);
+        e.preventDefault();
+        if (e.targetTouches.length === 0) drawUp();
+      };
       canvas.addEventListener("touchstart", start, opts);
       canvas.addEventListener("touchmove", move, opts);
       canvas.addEventListener("touchend", end, opts);
@@ -1287,7 +1309,7 @@
       <form class="tunnel-form" onsubmit={openTunnel}>
         <input class="tunnel-field" bind:value={tunnelTarget} placeholder="Ziel, z. B. 192.168.1.10:3389" spellcheck="false" />
         <input class="tunnel-field port" bind:value={tunnelPort} inputmode="numeric" placeholder="Port hier (frei)" />
-        <button class="offer-btn" disabled={!tunnelTarget.includes(":")}>Öffnen</button>
+        <button class="offer-btn" disabled={!tunnelTarget.trim()}>Öffnen</button>
       </form>
       {#if tunnelError}<p class="tunnel-error">{tunnelError}</p>{/if}
     </aside>
@@ -1443,7 +1465,7 @@
   .phone-controls {
     position: absolute;
     right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom));
+    bottom: 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -1485,7 +1507,7 @@
     bottom: 0;
     display: flex;
     gap: 4px;
-    padding: 6px;
+    padding: 6px calc(6px + var(--safe-right, 0px)) calc(6px + var(--safe-bottom, 0px)) calc(6px + var(--safe-left, 0px));
     overflow-x: auto;
     background: #181816;
     border-top: 1px solid #2f2e2b;
@@ -1509,9 +1531,26 @@
     color: #0b0b0a;
   }
 
+  /* Phones: the bar wraps instead of scrolling, so its menus are not cut off. */
   :global(body.mobile) .toolbar {
-    max-width: calc(100vw - 16px);
-    overflow-x: auto;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: max-content;
+    max-width: calc(100% - 16px);
+    height: auto;
+    min-height: 40px;
+    padding: 2px 4px;
+  }
+
+  /* Menus on a phone: centred on the screen, below the bar, never off its edges. */
+  :global(body.mobile) .menu {
+    position: fixed;
+    top: calc(var(--safe-top) + 96px);
+    left: 50%;
+    max-width: calc(100vw - 24px);
+    max-height: 60vh;
+    overflow-y: auto;
+    z-index: 5;
   }
 
   /* Room for the buttons: name only. */

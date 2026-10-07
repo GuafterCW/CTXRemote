@@ -1124,13 +1124,26 @@ fn list_tunnels(state: State<AppState>, session: u32) -> Vec<ctxremote_core::tun
     list
 }
 
+/// The bytes of a command sent as raw data. Android's IPC delivers them as a
+/// JSON list of numbers instead.
+fn raw_body<'a>(request: &'a tauri::ipc::Request<'_>) -> CmdResult<std::borrow::Cow<'a, [u8]>> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(data) => Ok(std::borrow::Cow::Borrowed(data)),
+        tauri::ipc::InvokeBody::Json(serde_json::Value::Array(items)) => items
+            .iter()
+            .map(|v| v.as_u64().and_then(|n| u8::try_from(n).ok()))
+            .collect::<Option<Vec<u8>>>()
+            .map(std::borrow::Cow::Owned)
+            .ok_or_else(|| "Erwartet Rohdaten".into()),
+        _ => Err("Erwartet Rohdaten".into()),
+    }
+}
+
 /// Saves a screenshot of the session (PNG, raw bytes; the session number in
 /// the `session` header) into the pictures folder; returns the file.
 #[tauri::command]
 fn save_screenshot(state: State<AppState>, request: tauri::ipc::Request<'_>) -> CmdResult<String> {
-    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
-        return Err("Erwartet Rohdaten".into());
-    };
+    let data = raw_body(&request)?;
     if !data.starts_with(b"\x89PNG") {
         return Err("Kein PNG".into());
     }
@@ -1160,9 +1173,7 @@ fn save_screenshot(state: State<AppState>, request: tauri::ipc::Request<'_>) -> 
 /// as raw bytes; the session number comes in the `session` header.
 #[tauri::command]
 fn mic_packet(state: State<AppState>, request: tauri::ipc::Request<'_>) -> CmdResult<()> {
-    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
-        return Err("Erwartet Rohdaten".into());
-    };
+    let data = raw_body(&request)?;
     let session: u32 = request
         .headers()
         .get("session")
@@ -1171,7 +1182,7 @@ fn mic_packet(state: State<AppState>, request: tauri::ipc::Request<'_>) -> CmdRe
         .ok_or("Sitzung fehlt")?;
     with_viewer(&state, session, |s| {
         if s.features.has(ctxremote_core::proto::session::Features::MIC) {
-            s.send(ViewerMsg::Mic(ctxremote_core::proto::session::AudioPacket { data: data.clone() }));
+            s.send(ViewerMsg::Mic(ctxremote_core::proto::session::AudioPacket { data: data.to_vec() }));
         }
     });
     Ok(())

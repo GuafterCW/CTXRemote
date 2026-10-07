@@ -42,6 +42,60 @@
   - Android: Ob Bildschirmfoto und Aufnahme einen beschreibbaren Ordner finden, ist unklar. Gboard schickt Wörter erst am Ende des Worts.
   - Linux: Die 20 ms Pause beim Eintippen sind für träge Programme unter Last eventuell knapp.
 
+**Rückmeldungen aus dem Test am 6. Oktober, nachmittags (noch offen, Reihenfolge = Plan):**
+- Windows:
+  - Fehlermeldungen im Dateibrowser werden abgeschnitten.
+  - In den Systeminfos steht „SYSTEM“ als Benutzer (Dienst) statt des angemeldeten Benutzers.
+  - Port-Tunnel: Eingabe geht jetzt, aber „Öffnen“ lässt sich nicht klicken.
+- Mac: Der Privatsphäre-Knopf erscheint, obwohl es die Funktion dort nicht gibt; das Bild ruckelt mehr als unter Windows.
+- Bestätigt: „Zwischenablage eintippen“, alle Downloads der Website, Mac im Großen und Ganzen.
+- Android (erster Test am echten Gerät):
+  - Kopfzeile verschwindet unter der Statusleiste, Ränder zu Bildschirmkanten fehlen (Safe Area).
+  - Zeichnen, Tastenkombinationen und Bild-Einstellungen öffnen sich nicht.
+  - Bildschirmfoto: „Erwartet Rohdaten“.
+  - Sieht sonst „ganz okay“ aus.
+
+**Darauf umgesetzt (6. Oktober, abends; Builds für alle Plattformen und alle Tests grün, am Gerät noch nicht geprüft):**
+- Android:
+  - Sichere Ränder (`viewport-fit=cover`, `--safe-*` in `styles.css`, mit Mindestabstand oben, falls die WebView keine Werte meldet).
+  - Die Werkzeugleiste bricht um statt zu scrollen, sodass die Menüs nicht mehr abgeschnitten werden; Menüs sind auf dem Handy fest positioniert.
+  - Zeichnen mit einem Finger im Zeichenmodus.
+  - Bildschirmfoto und Mikrofon: Bytes als Zahlenliste (`raw_body` nimmt beides). Fotos in `Pictures/CTXRemote`, Aufnahmen in `Movies/CTXRemote`.
+- Windows:
+  - Dateibrowser: Fehlermeldungen brechen um, mit vollem Text als Tooltip.
+  - Systeminfo: der Konsolen-Benutzer (WTS) statt SYSTEM.
+  - Port-Tunnel: „Öffnen“ klickbar, ohne Port kommt ein Hinweis.
+- Mac/Linux: Der Host meldet nur, was er kann (`ScreenSource::features`, `platform_features`). Kein Knopf für Privatsphäre, Zeichnen, Ton vom Host und Neustart.
+- Mac-Ruckeln: vermutlich App Nap (macOS bremst Apps im Hintergrund). Neu: Während einer Sitzung meldet der Host eine laufende Aktivität (`activity.rs`, `NSProcessInfo.beginActivity`). Verbindungsdaten (fps, Datenrate, WLAN oder Kabel) vom Nutzer erfragt, falls es danach noch ruckelt.
+- Mac: Feststelltaste am Host wird bei eingegebenen Tasten mitgeschickt (`CGEventSourceFlagsState`), sonst kamen Kleinbuchstaben trotz Caps Lock.
+- Windows-Privatsphäre: Die Merkdatei für den versteckten Mauszeiger enthält die Prozess-ID. Ein zweiter Agent stellt den Zeiger nicht mehr zurück, solange der erste noch läuft.
+- Tests: Das Verbindungsprotokoll wird jetzt vor der Ablehnung geschrieben (vorher wackelte `account_devices_connect_without_a_password`). Testhosts starten nacheinander und ohne alten Verlauf.
+- Windows-Updates: Der Dienst prüft jetzt stündlich (vorher alle 6 Stunden) und zusätzlich kurz nachdem er sich nach einem Server-Neustart wieder verbunden hat. Ein Release startet den Server neu, also kommt das Update dann nach wenigen Minuten ohne Dienst-Neustart. Greift erst ab dem Release danach, weil die Geräte bis dahin den alten Dienst haben.
+- Diese letzten fünf Punkte sind auf Linux gebaut und für Mac/Windows nur typgeprüft; sie gehen mit dem nächsten Release raus (vor dem Push nach `master` fragen).
+
+**Handy-Ansicht geprüft (6. Oktober, abends, simuliert mit Playwright, 390×844):** Alle Menüs der Sitzung öffnen sich per Tippen. Die Dateien-Seite war auf dem Handy unbrauchbar (drei Spalten nebeneinander) und hat jetzt einen Umschalter „Ferngesteuertes Gerät / Dieses Handy“. Darunter liegt der passende Knopf, die Zeilen sind ohne Datum und größer. Auf Android beginnt die lokale Seite in `Download/CTXRemote` und zeigt nur die Ordner der App (Downloads, Bilder, Videos), weil die App den Rest nicht lesen darf. Am Gerät noch nicht geprüft.
+
+**Sicherheitsdurchsicht des Servers (6. Oktober, abends):** Umgesetzt, mit Tests:
+- Der Server beendet sich nicht mehr, wenn ihm die Dateihandles ausgehen.
+- Verbindungen sind begrenzt: höchstens 20 000 insgesamt und 1 000 pro Adresse. Ein IPv6-/64-Netz zählt als eine Adresse.
+- Frames vor und nach der Anmeldung dürfen höchstens 1 MiB groß sein, statt dass für jede Verbindung 32 MiB reserviert werden.
+- Ein Update-Download dauert höchstens 20 Minuten.
+- Neue Geräteschlüssel werden gedrosselt.
+- Die Drosselliste wird aufgeräumt.
+- Die Web-API glaubt `CF-Connecting-IP` nur, wenn die Anfrage von Cloudflare kommt, und hat ihr eigenes Kontingent.
+- Der Wiederherstellungscode funktioniert auch bei gesperrtem Konto.
+- Die Unit hat `LimitNOFILE` und `UMask`. Auf dem bestehenden Server muss der Nutzer das einmal per `systemctl edit` nachtragen, siehe `docs/DEPLOY.md`, „Grenzen für Verbindungen“.
+
+Danach ebenfalls umgesetzt:
+- Eine nicht bestätigte Adresse gehört ihrem Konto nur 48 Stunden (`StoredLogin::since`). Danach kann sie jemand anderes registrieren, und das alte Konto verliert die Anmeldung, behält aber seine Geräte. So kann niemand eine fremde Adresse dauerhaft blockieren. `EmailTaken` verrät weiter, dass es die Adresse gibt; das ist so gewollt.
+- Im Webinterface braucht eine Änderung von Adresse oder Passwort das aktuelle Passwort, außer in den ersten 10 Minuten nach der Anmeldung oder Wiederherstellung (`FRESH`). Im Formular gibt es dafür das Feld „Aktuelles Passwort“.
+
+Noch offen aus der Durchsicht, nach Wichtigkeit:
+1. Kontosperre pro Konto statt pro Konto und Adresse.
+2. `devices.json` und die Konten werden bei jeder Änderung ganz neu geschrieben, unter der Sperre. (Die Suche nach einem Schlüssel geht inzwischen über einen Index.)
+3. Der Relay hat kein Leerlauf-Ende.
+4. Klartext-Verbindungen für alte Clients abschalten.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
@@ -50,10 +104,10 @@
 - **Code-Signatur Windows:** siehe „Offene Entscheidungen“.
 
 **Arbeitsweise mit dem Nutzer:**
-- Er schreibt Deutsch, kurz und oft vom Handy.
+- Schreibt Deutsch, kurz und oft vom Handy.
 - Antworten sollen kurz und ohne Fachjargon sein. Klar sagen, was getestet ist und was nicht.
-- Er testet selbst an Windows-PC, Mac, Android und Linux, sobald die Geräte da sind.
-- Er will, dass selbstständig weitergearbeitet wird, aber kein ungetesteter Stapel entsteht.
+- Testet selbst an Windows-PC, Mac, Android und Linux, sobald die Geräte da sind.
+- Möchte, dass selbstständig weitergearbeitet wird, aber kein ungetesteter Stapel entsteht.
 
 **Lokal statt in der Cloud weitermachen:**
 - Windows: siehe „Entwicklungsumgebung (Windows)“ am Ende dieser Datei.

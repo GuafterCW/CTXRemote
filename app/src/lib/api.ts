@@ -1,4 +1,10 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { MOBILE } from "./platform";
+
+/** Bytes for a raw-data command. Android's IPC takes them as a plain list of
+ * numbers (the app accepts both); elsewhere they go as they are. */
+const rawBytes = (data: ArrayBuffer | Uint8Array) =>
+  MOBILE ? Array.from(data instanceof Uint8Array ? data : new Uint8Array(data)) : data;
 
 export type Presence =
   | { state: "connecting" }
@@ -333,7 +339,7 @@ export const api = {
   setLockOnEnd: (session: number, on: boolean) => invoke<void>("set_lock_on_end", { session, on }),
   /** Saves a PNG into the pictures folder; returns the file. */
   saveScreenshot: (session: number, png: ArrayBuffer) =>
-    invoke<string>("save_screenshot", png, { headers: { session: String(session) } }),
+    invoke<string>("save_screenshot", rawBytes(png) as never, { headers: { session: String(session) } }),
   restartHost: (session: number) => invoke<void>("restart_host", { session }),
   setQuality: (session: number, quality: Quality) => invoke<void>("set_quality", { session, quality }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
@@ -354,7 +360,7 @@ export const api = {
   listTunnels: (session: number) => invoke<{ port: number; target: string }[]>("list_tunnels", { session }),
   /** One Opus packet from the microphone, as raw bytes. */
   micPacket: (session: number, packet: Uint8Array) =>
-    invoke<void>("mic_packet", packet, { headers: { session: String(session) } }),
+    invoke<void>("mic_packet", rawBytes(packet) as never, { headers: { session: String(session) } }),
   /** A line over the host's screen (points 0..=65535 across the picture). */
   drawStroke: (session: number, color: number, width: number, points: [number, number][]) =>
     invoke<void>("draw", { session, color, width, points }),

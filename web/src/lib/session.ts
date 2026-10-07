@@ -105,7 +105,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     // A wrong password is a 401 too, but no reason to sign out.
-    if (response.status === 401 && !["/login", "/recover", "/account/delete"].includes(path)) forget();
+    if (response.status === 401 && !["/login", "/recover", "/account/delete", "/login-setup"].includes(path)) forget();
     throw new ApiError(data.error ?? `Fehler ${response.status}`, response.status);
   }
   return data as T;
@@ -164,10 +164,21 @@ export async function recover(email: string, code: string, password: string): Pr
 }
 
 /** New password or address; returns the new recovery code. Other browser
- * sessions of the account end. */
-export async function changeLogin(email: string, password: string): Promise<string> {
+ * sessions of the account end. Unless the session has just begun, the
+ * server wants the current password too (`current`, with the address it
+ * belongs to). */
+export async function changeLogin(
+  email: string,
+  password: string,
+  current?: { email: string; password: string },
+): Promise<string> {
+  let currentAuth: string | undefined;
+  if (current) {
+    const pre = await call<{ salt: string; kdf: Kdf }>("POST", "/prelogin", { email: normalizeEmail(current.email) ?? current.email });
+    currentAuth = toBase64((await passwordKeys(current.password, fromBase64(pre.salt), pre.kdf)).auth);
+  }
   const { setup, code } = await loginSetup(email, password, key());
-  await call("POST", "/login-setup", setupJson(setup));
+  await call("POST", "/login-setup", { ...setupJson(setup), current: currentAuth });
   return code;
 }
 

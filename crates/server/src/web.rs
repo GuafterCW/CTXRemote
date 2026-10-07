@@ -31,6 +31,8 @@ const COOKIE: &str = "ctx_session";
 const IDLE: Duration = Duration::from_secs(12 * 3600);
 /// … and after this long in any case.
 const ABSOLUTE: Duration = Duration::from_secs(7 * 24 * 3600);
+/// How long after signing in the login may change without the password.
+const FRESH: Duration = Duration::from_secs(10 * 60);
 
 /// Signed-in browsers: SHA-256 of the cookie → session. In memory only, so a
 /// server restart signs everyone out of the web interface.
@@ -58,6 +60,19 @@ impl Sessions {
         sessions.retain(|_, s| now.duration_since(s.seen) < IDLE && now.duration_since(s.created) < ABSOLUTE);
         sessions.insert(Sha256::digest(token).into(), Session { account, created: now, seen: now, pad });
         (URL_SAFE_NO_PAD.encode(token), pad)
+    }
+
+    /// Whether the session began moments ago, with the password or the
+    /// recovery code; then changing the login needs no password again.
+    fn fresh(&self, headers: &HeaderMap) -> bool {
+        let Some(token) = cookie(headers).and_then(|c| URL_SAFE_NO_PAD.decode(c).ok()) else { return false };
+        let hash: [u8; 32] = Sha256::digest(token).into();
+        // Tests shorten the window instead of waiting ten minutes.
+        #[cfg(debug_assertions)]
+        let window = std::env::var("CTXREMOTE_WEB_FRESH_SECS").ok().and_then(|v| v.parse().ok()).map_or(FRESH, Duration::from_secs);
+        #[cfg(not(debug_assertions))]
+        let window = FRESH;
+        self.0.lock().unwrap().get(&hash).is_some_and(|s| s.created.elapsed() < window)
     }
 
     fn account(&self, headers: &HeaderMap) -> Option<u64> {
@@ -238,18 +253,37 @@ pub async fn serve(server: Arc<Server>, addr: SocketAddr, origin: Option<String>
 }
 
 impl Api {
-    /// The client's address as Caddy (and Cloudflare in front of it) report it.
+    /// The client's address. Caddy sets `X-Forwarded-For` to whoever talked
+    /// to it, replacing what that one sent. Only when that is Cloudflare is
+    /// `CF-Connecting-IP` believed: anyone can reach Caddy directly and send
+    /// that header themselves.
     fn client_ip(headers: &HeaderMap, peer: SocketAddr) -> IpAddr {
-        let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
-        header("cf-connecting-ip")
-            .or_else(|| header("x-forwarded-for").and_then(|v| v.split(',').next().map(|s| s.trim().to_string())))
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(peer.ip())
+        let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+        // Only a proxy on this machine (or the Docker bridge) sets these.
+        let proxied = match peer.ip() {
+            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private(),
+            IpAddr::V6(v6) => v6.is_loopback(),
+        };
+        if !proxied {
+            return peer.ip();
+        }
+        let Some(caddy_peer) = header("x-forwarded-for")
+            .and_then(|v| v.rsplit(',').next())
+            .and_then(|v| v.trim().parse::<IpAddr>().ok())
+        else {
+            return peer.ip();
+        };
+        if crate::cloudflare::contains(caddy_peer) {
+            if let Some(ip) = header("cf-connecting-ip").and_then(|v| v.trim().parse().ok()) {
+                return ip;
+            }
+        }
+        caddy_peer
     }
 
     /// Every request: rate limit, and for changes a JSON body from our own origin.
     fn guard(&self, method: &Method, headers: &HeaderMap, peer: SocketAddr) -> ApiResult<()> {
-        if !self.server.allow_connect(Self::client_ip(headers, peer)) {
+        if !self.server.allow_web(Self::client_ip(headers, peer)) {
             return Err(AccountError::RateLimited.into());
         }
         if method != Method::GET {
@@ -463,16 +497,37 @@ async fn remove_device(
     Ok(Json(json!({ "ok": true })))
 }
 
+#[derive(Deserialize)]
+struct SetLoginJson {
+    #[serde(flatten)]
+    setup: SetupJson,
+    /// The value derived from the current password (base64); needed unless
+    /// the session has just begun.
+    #[serde(default)]
+    current: Option<String>,
+}
+
 /// A new password or address: other browser sessions end, this one stays.
+/// A stolen cookie alone does not get that far: after the first minutes of
+/// a session, the current password is needed too.
 async fn set_login(
     State(api): State<Api>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    Json(body): Json<SetupJson>,
+    Json(body): Json<SetLoginJson>,
 ) -> ApiResult<Json<serde_json::Value>> {
     api.guard(&Method::POST, &headers, peer)?;
     let id = api.signed_in(&headers)?;
-    api.op(id, AccountOp::SetLogin { login: body.into() })?;
+    if !api.sessions.fresh(&headers) {
+        let current: [u8; 32] = body
+            .current
+            .as_deref()
+            .and_then(|c| B64.decode(c).ok())
+            .and_then(|c| c.try_into().ok())
+            .ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "Bitte das aktuelle Passwort angeben".into()))?;
+        api.server.accounts.lock().unwrap().confirm_password(id, &current)?;
+    }
+    api.op(id, AccountOp::SetLogin { login: body.setup.into() })?;
     api.sessions.end_all(id, Some(&headers));
     debug!(account = id, "Anmeldung im Web geändert");
     Ok(Json(json!({ "ok": true })))
@@ -532,4 +587,31 @@ async fn resend_verification(
     let id = api.signed_in(&headers)?;
     api.server.accounts.lock().unwrap().resend_verification(id)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ip(headers: &[(&'static str, &str)], peer: &str) -> String {
+        let mut map = HeaderMap::new();
+        for (name, value) in headers {
+            map.insert(*name, value.parse().unwrap());
+        }
+        Api::client_ip(&map, peer.parse().unwrap()).to_string()
+    }
+
+    #[test]
+    fn believes_cloudflare_only_through_cloudflare() {
+        let caddy = "127.0.0.1:5000";
+        // Through Cloudflare: its header names the client.
+        assert_eq!(ip(&[("x-forwarded-for", "172.70.1.2"), ("cf-connecting-ip", "203.0.113.9")], caddy), "203.0.113.9");
+        // Straight to Caddy with a made-up header: the sender's own address counts.
+        assert_eq!(ip(&[("x-forwarded-for", "198.51.100.7"), ("cf-connecting-ip", "203.0.113.9")], caddy), "198.51.100.7");
+        // Caddy's own entry is the last one; earlier ones come from the client.
+        assert_eq!(ip(&[("x-forwarded-for", "172.70.1.2, 198.51.100.7")], caddy), "198.51.100.7");
+        // Headers from anyone but a local proxy are ignored.
+        assert_eq!(ip(&[("x-forwarded-for", "172.70.1.2"), ("cf-connecting-ip", "203.0.113.9")], "198.51.100.7:4000"), "198.51.100.7");
+        assert_eq!(ip(&[], "172.17.0.2:4000"), "172.17.0.2");
+    }
 }

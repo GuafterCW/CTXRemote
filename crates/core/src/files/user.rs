@@ -9,7 +9,7 @@ use std::path::PathBuf;
 pub use imp::UserContext;
 
 /// Display names and paths of the well-known folders, from the platform's lookup.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 fn standard_places() -> Vec<(String, PathBuf)> {
     let mut places = Vec::new();
     if let Some(dirs) = directories::UserDirs::new() {
@@ -25,6 +25,26 @@ fn standard_places() -> Vec<(String, PathBuf)> {
         }
     }
     places
+}
+
+/// On a phone the app may only see its own files in shared storage, so it
+/// works in its folders there (see [`crate::record`]).
+#[cfg(target_os = "android")]
+fn standard_places() -> Vec<(String, PathBuf)> {
+    let places = vec![
+        ("Downloads".to_string(), android_downloads()),
+        ("Bilder".to_string(), crate::record::pictures_dir()),
+        ("Videos".to_string(), crate::record::default_dir()),
+    ];
+    for (_, dir) in &places {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    places
+}
+
+#[cfg(target_os = "android")]
+fn android_downloads() -> PathBuf {
+    std::path::Path::new(crate::record::ANDROID_STORAGE).join("Download").join("CTXRemote")
 }
 
 #[cfg(not(windows))]
@@ -49,6 +69,9 @@ mod imp {
 
         /// The folder downloads go to by default.
         pub fn downloads(&self) -> Option<PathBuf> {
+            if cfg!(target_os = "android") {
+                return standard_places().into_iter().next().map(|(_, dir)| dir);
+            }
             directories::UserDirs::new()
                 .and_then(|d| d.download_dir().map(PathBuf::from).or_else(|| Some(d.home_dir().to_path_buf())))
         }

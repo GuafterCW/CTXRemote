@@ -4,6 +4,39 @@
 use ctxremote_proto::session::{DiskInfo, NetworkInfo, SystemInfo};
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, RefreshKind, System};
 
+/// The person using the computer. With the service the host runs as SYSTEM,
+/// so on Windows it is whoever is signed in at the console (empty at the
+/// sign-in screen); elsewhere, and if that fails, the process's own user.
+fn user() -> String {
+    #[cfg(windows)]
+    if let Some(name) = console_user() {
+        return name;
+    }
+    whoami::username()
+}
+
+#[cfg(windows)]
+fn console_user() -> Option<String> {
+    use windows::core::PWSTR;
+    use windows::Win32::System::RemoteDesktop::{
+        WTSFreeMemory, WTSGetActiveConsoleSessionId, WTSQuerySessionInformationW, WTSUserName, WTS_CURRENT_SERVER_HANDLE,
+    };
+    // SAFETY: the buffer comes from the call and is freed once read.
+    unsafe {
+        let session = WTSGetActiveConsoleSessionId();
+        if session == u32::MAX {
+            return None;
+        }
+        let mut buffer = PWSTR::null();
+        let mut bytes = 0u32;
+        WTSQuerySessionInformationW(Some(WTS_CURRENT_SERVER_HANDLE), session, WTSUserName, &mut buffer, &mut bytes).ok()?;
+        let name = buffer.to_string().ok();
+        WTSFreeMemory(buffer.0 as *mut _);
+        // Nobody signed in: say so instead of naming the service account.
+        name.map(|n| if n.is_empty() { "(niemand angemeldet)".to_string() } else { n })
+    }
+}
+
 /// Takes a moment (disks, network); call it off the async threads.
 pub fn gather() -> SystemInfo {
     let system = System::new_with_specifics(
@@ -38,7 +71,7 @@ pub fn gather() -> SystemInfo {
     networks.sort_by(|a, b| a.name.cmp(&b.name));
     SystemInfo {
         hostname: System::host_name().unwrap_or_default(),
-        user: whoami::username(),
+        user: user(),
         os: System::long_os_version().unwrap_or_else(|| whoami::distro()),
         os_build: System::kernel_version().unwrap_or_default(),
         model: model(),

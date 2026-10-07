@@ -87,4 +87,7 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = { version = "0.25", features = ["highsierra"] }
 core-foundation = "0.10"
+# Keeps App Nap away while a session runs (activity.rs).
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
 block2 = "0.6"

@@ -154,9 +154,15 @@ fn drives() -> Vec<String> {
         .collect()
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 fn drives() -> Vec<String> {
     vec!["/".into()]
+}
+
+/// An app on a phone cannot read the file system's root.
+#[cfg(target_os = "android")]
+fn drives() -> Vec<String> {
+    Vec::new()
 }
 
 fn modified(meta: &std::fs::Metadata) -> u64 {

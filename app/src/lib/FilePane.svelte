@@ -153,6 +153,12 @@
     }
   }
 
+  /** Keeps the end of a long path (the current folder) in view. */
+  function toEnd(node: HTMLElement, _path: string | undefined) {
+    node.scrollLeft = node.scrollWidth;
+    return { update: () => (node.scrollLeft = node.scrollWidth) };
+  }
+
   function focusSelect(node: HTMLInputElement) {
     node.focus();
     node.select();
@@ -259,7 +265,7 @@
       <button class="icon-btn" title="Oberste Ebene" disabled={disabled || atTop} onclick={() => go("")}>
         <Icon name="monitor" size={17} />
       </button>
-      <div class="crumbs" title={listing?.path}>
+      <div class="crumbs" title={listing?.path} use:toEnd={listing?.path}>
         {#if atTop}
           <span class="crumb current">Oberste Ebene</span>
         {:else}
@@ -373,7 +379,7 @@
     {:else if selected.length > 0}
       <span class="hint">{selected.length} ausgewählt</span>
     {:else if listing}
-      <span class="hint">{rows.length} Einträge</span>
+      <span class="hint">{rows.length === 1 ? "1 Eintrag" : `${rows.length} Einträge`}</span>
     {/if}
   </footer>
 
@@ -545,6 +551,23 @@
     gap: 8px;
     min-width: 0;
     color: var(--ink-2);
+  }
+
+  .name > :global(svg) {
+    flex: none;
+  }
+
+  /* Phones: no date column, rows big enough for a finger. */
+  :global(body.mobile) .row {
+    grid-template-columns: minmax(0, 1fr) 72px;
+  }
+
+  :global(body.mobile) .row > :nth-child(3) {
+    display: none;
+  }
+
+  :global(body.mobile) .row.item {
+    min-height: 44px;
   }
 
   .item.selected .name {

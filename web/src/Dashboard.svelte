@@ -50,6 +50,7 @@
   let email = $state("");
   let password = $state("");
   let repeat = $state("");
+  let currentPassword = $state("");
   let loginBusy = $state(false);
 
   const tooShort = $derived([...password].length < MIN_PASSWORD);
@@ -182,11 +183,17 @@
     loginBusy = true;
     loginError = "";
     try {
-      const code = await changeLogin(email, password);
-      password = repeat = "";
+      const current = info?.email && currentPassword ? { email: info.email, password: currentPassword } : undefined;
+      const code = await changeLogin(email, password, current);
+      password = repeat = currentPassword = "";
       onCode(code);
     } catch (err) {
-      loginError = message(err);
+      loginError =
+        err instanceof ApiError && err.status === 401
+          ? currentPassword
+            ? "Das aktuelle Passwort stimmt nicht."
+            : "Bitte zuerst das aktuelle Passwort angeben."
+          : message(err);
     } finally {
       loginBusy = false;
     }
@@ -357,6 +364,12 @@
       <span>E-Mail-Adresse</span>
       <input type="email" autocomplete="username" required bind:value={email} disabled={loginBusy} />
     </label>
+    {#if info?.email}
+      <label class="field">
+        <span>Aktuelles Passwort</span>
+        <input type="password" autocomplete="current-password" bind:value={currentPassword} disabled={loginBusy} />
+      </label>
+    {/if}
     <label class="field">
       <span>Neues Passwort</span>
       <input type="password" autocomplete="new-password" required bind:value={password} disabled={loginBusy} />
