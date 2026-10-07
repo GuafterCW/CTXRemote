@@ -215,6 +215,15 @@
   // Kept in this computer's browser storage, read by each session window.
   let idleMinutes = $state(readIdleMinutes());
 
+  // Applies to sessions opened from now on; saved at once like the idle time.
+  let separateWindows = $state(false);
+  api.separateWindows().then((on) => (separateWindows = on)).catch(() => {});
+
+  function setSeparateWindows(on: boolean) {
+    separateWindows = on;
+    api.setSeparateWindows(on).catch((e) => (error = errorText(e)));
+  }
+
   function setIdleMinutes(minutes: number) {
     idleMinutes = minutes;
     try {
@@ -407,6 +416,18 @@
 
     <section class="group section">
       <h3>Ihre Sitzungen</h3>
+      <label class="toggle">
+        <span>
+          <span class="name">Jede Sitzung in eigenem Fenster</span>
+          <span class="note">Sonst öffnen sich Sitzungen als Tabs in einem gemeinsamen Fenster.</span>
+        </span>
+        <input
+          type="checkbox"
+          class="switch"
+          checked={separateWindows}
+          onchange={(e) => setSeparateWindows(e.currentTarget.checked)}
+        />
+      </label>
       <label class="group">
         <span class="name">Bei Inaktivität trennen</span>
         <select class="field" value={idleMinutes} onchange={(e) => setIdleMinutes(Number(e.currentTarget.value))}>

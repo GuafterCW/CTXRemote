@@ -61,6 +61,9 @@ pub struct Config {
     /// Devices whose screen this viewer locks when it ends a session there.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub lock_on_end: Vec<DeviceId>,
+    /// Each session in a window of its own instead of a tab.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub separate_windows: bool,
 }
 
 /// The direct-connection part of the settings form.
@@ -137,6 +140,7 @@ impl Default for Config {
             rights_unattended: Permissions::ALL,
             code_secret: None,
             lock_on_end: Vec::new(),
+            separate_windows: false,
         }
     }
 }

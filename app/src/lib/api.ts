@@ -343,6 +343,13 @@ export const api = {
   restartHost: (session: number) => invoke<void>("restart_host", { session }),
   setQuality: (session: number, quality: Quality) => invoke<void>("set_quality", { session, quality }),
   disconnect: (session: number) => invoke<void>("disconnect", { session }),
+  /** "Name · ID" of a session, for its tab. */
+  sessionTitle: (session: number) => invoke<string>("session_title", { session }),
+  /** Ends a tab's session and forgets it. */
+  closeTab: (session: number) => invoke<void>("close_tab", { session }),
+  /** Whether sessions open in windows of their own instead of tabs. */
+  separateWindows: () => invoke<boolean>("separate_windows"),
+  setSeparateWindows: (on: boolean) => invoke<void>("set_separate_windows", { on }),
   /** macOS only: whether screen recording and control are allowed; null elsewhere. */
   hostPermissions: () => invoke<{ screen: boolean; input: boolean } | null>("host_permissions"),
   requestHostPermission: (kind: "screen" | "input") => invoke<void>("request_host_permission", { kind }),

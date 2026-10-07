@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { Channel } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -15,7 +15,22 @@
   import { TouchControl } from "./lib/touch";
   import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 
-  let { session }: { session: number } = $props();
+  let {
+    session,
+    active = true,
+    onclose,
+  }: {
+    session: number;
+    /** False while another tab is in front: keys, mouse and drops are not this session's. */
+    active?: boolean;
+    /** Set in the tab window: closes the tab instead of the window. */
+    onclose?: () => void;
+  } = $props();
+
+  // Leaving the tab must not leave keys held on the host.
+  $effect(() => {
+    if (!active) untrack(() => send("ReleaseAll"));
+  });
 
   let canvas = $state<HTMLCanvasElement>();
   let host = $state<HostInfo | null>(null);
@@ -70,8 +85,9 @@
     reError = "";
     try {
       await api.reconnect(session, askPassword ? rePassword : undefined, askCode ? reCode : undefined);
-      // The new session has its own window (on a phone it already took this one).
-      if (!MOBILE) await appWindow.close();
+      // The new session has its own window or tab (on a phone it already took this one).
+      if (onclose) onclose();
+      else if (!MOBILE) await appWindow.close();
     } catch (err) {
       const text = errorText(err);
       if (text === CODE_NEEDED) {
@@ -109,6 +125,7 @@
   let lastActivity = Date.now();
   let idleWarned = false;
   const touch = () => {
+    if (!active) return;
     lastActivity = Date.now();
     if (idleWarned) {
       idleWarned = false;
@@ -602,24 +619,24 @@
 
     hideToolbarSoon();
 
-    const unlistenRoute = getCurrentWindow().listen<string>("route", (e) => (direct = e.payload));
-    const unlistenRights = getCurrentWindow().listen<number>("rights", (e) => applyRights(e.payload));
-    const unlistenInfo = getCurrentWindow().listen<SystemInfo>("system-info", (e) => (info = e.payload));
-    const unlistenFiles = getCurrentWindow().listen<string[]>("host-files", (e) => {
+    const unlistenRoute = getCurrentWindow().listen<string>(`route-${session}`, (e) => (direct = e.payload));
+    const unlistenRights = getCurrentWindow().listen<number>(`rights-${session}`, (e) => applyRights(e.payload));
+    const unlistenInfo = getCurrentWindow().listen<SystemInfo>(`system-info-${session}`, (e) => (info = e.payload));
+    const unlistenFiles = getCurrentWindow().listen<string[]>(`host-files-${session}`, (e) => {
       hostFiles = e.payload;
       toolbarVisible = true;
     });
-    const unlistenPrivacy = getCurrentWindow().listen<{ on: boolean; error: string | null }>("privacy", (e) => {
+    const unlistenPrivacy = getCurrentWindow().listen<{ on: boolean; error: string | null }>(`privacy-${session}`, (e) => {
       privacy = e.payload.on;
       if (e.payload.error) showNotice(e.payload.error);
     });
     // Phones: text copied on the host lands in the phone's clipboard.
     const unlistenClipboard = MOBILE
-      ? getCurrentWindow().listen<string>("remote-clipboard", (e) => {
+      ? getCurrentWindow().listen<string>(`remote-clipboard-${session}`, (e) => {
           if (can(RIGHT.CLIPBOARD)) writeText(e.payload).catch(() => {});
         })
       : Promise.resolve(() => {});
-    const unlistenChat = getCurrentWindow().listen<string>("chat", (e) => {
+    const unlistenChat = getCurrentWindow().listen<string>(`chat-${session}`, (e) => {
       chatMessages = [...chatMessages, { mine: false, text: e.payload, at: Date.now() }];
       if (!chatOpen) {
         unread += 1;
@@ -630,7 +647,7 @@
 
     // Files dropped from the OS go to the remote desktop; the files window shows the progress.
     const unlistenDrop = getCurrentWebview().onDragDropEvent((event) => {
-      if (event.payload.type === "drop") uploadToDesktop(event.payload.paths);
+      if (event.payload.type === "drop" && active) uploadToDesktop(event.payload.paths);
     });
 
     // Audio may only start after a user gesture; any click or key will do.
@@ -813,7 +830,7 @@
   const held = new Set<string>();
 
   function onKey(e: KeyboardEvent, down: boolean) {
-    if (inChat(e)) return;
+    if (!active || inChat(e)) return;
     if (!streaming || closed !== null || !e.code) return;
     e.preventDefault();
     e.stopPropagation();
@@ -978,6 +995,8 @@
     if (MOBILE) {
       await api.disconnect(session).catch(() => {});
       goHome();
+    } else if (onclose) {
+      onclose();
     } else {
       await appWindow.close();
     }
@@ -992,7 +1011,10 @@
   }
 
   function onWindowMove(e: MouseEvent) {
-    if (e.clientY < 56) {
+    if (!active) return;
+    // Measured from the top of the picture: the tab bar sits above it.
+    const top = canvas?.parentElement?.getBoundingClientRect().top ?? 0;
+    if (e.clientY - top < 56) {
       toolbarVisible = true;
       clearTimeout(hideTimer);
     } else if (toolbarVisible) {
@@ -1004,7 +1026,7 @@
 <svelte:window
   onkeydown={(e) => onKey(e, true)}
   onkeyup={(e) => onKey(e, false)}
-  onblur={() => send("ReleaseAll")}
+  onblur={() => active && send("ReleaseAll")}
   onmousemove={onWindowMove}
 />
 <svelte:document onvisibilitychange={() => document.hidden && send("ReleaseAll")} />

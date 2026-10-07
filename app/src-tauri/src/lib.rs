@@ -43,6 +43,9 @@ struct AppState {
     /// Target and password of each session window, in memory only, so the
     /// window can connect again after the session ended.
     logins: Mutex<HashMap<u32, (String, String)>>,
+    /// The window each session shows in: its own, or the tab window.
+    #[cfg(desktop)]
+    windows: Mutex<HashMap<u32, String>>,
     /// A newer signed release on the server (app mode only; the service updates itself).
     update: Mutex<Option<ctxremote_core::proto::update::UpdateInfo>>,
 }
@@ -672,12 +675,12 @@ async fn connect(
                 }
             }
             ViewerEvent::Chat(text) => {
-                let _ = app.emit_to(session_label(number), "chat", text);
+                let _ = app.emit_to(session_label(&app, number), &format!("chat-{number}"), text);
             }
             // Kept for a window that attaches later; it comes right after `Welcome`.
             ViewerEvent::Rights(rights) => {
                 link.lock().unwrap().rights = Some(rights.0);
-                let _ = app.emit_to(session_label(number), "rights", rights.0);
+                let _ = app.emit_to(session_label(&app, number), &format!("rights-{number}"), rights.0);
             }
             ViewerEvent::SystemInfo(info) => {
                 // Its network cards, to wake it later (and on the account's other devices).
@@ -694,7 +697,7 @@ async fn connect(
                 if changed {
                     poke_sync(&app);
                 }
-                let _ = app.emit_to(session_label(number), "system-info", info);
+                let _ = app.emit_to(session_label(&app, number), &format!("system-info-{number}"), info);
             }
             ViewerEvent::ClipboardFiles(paths) => {
                 let names: Vec<String> = paths
@@ -702,15 +705,15 @@ async fn connect(
                     .map(|p| p.rsplit(['\\', '/']).next().unwrap_or(p).to_string())
                     .collect();
                 link.lock().unwrap().host_files = paths;
-                let _ = app.emit_to(session_label(number), "host-files", names);
+                let _ = app.emit_to(session_label(&app, number), &format!("host-files-{number}"), names);
             }
             ViewerEvent::Privacy { on, error } => {
                 link.lock().unwrap().privacy = on;
-                let _ = app.emit_to(session_label(number), "privacy", PrivacyUpdate { on, error });
+                let _ = app.emit_to(session_label(&app, number), &format!("privacy-{number}"), PrivacyUpdate { on, error });
             }
             ViewerEvent::Direct(addr) => {
                 link.lock().unwrap().direct = Some(addr.clone());
-                let _ = app.emit_to(session_label(number), "route", addr);
+                let _ = app.emit_to(session_label(&app, number), &format!("route-{number}"), addr);
             }
             ViewerEvent::Transfer(event) => {
                 let _ = app.emit("transfer", TransferUpdate { session: number, event });
@@ -722,7 +725,7 @@ async fn connect(
                 }
                 // Phones have no clipboard watcher: the page puts the text there.
                 #[cfg(mobile)]
-                let _ = app.emit_to(session_label(number), "remote-clipboard", text);
+                let _ = app.emit_to(session_label(&app, number), &format!("remote-clipboard-{number}"), text);
             }
             ViewerEvent::ClipboardImage(png) => {
                 if let Some(clipboard) = &link.lock().unwrap().clipboard {
@@ -797,16 +800,7 @@ async fn connect(
     state.logins.lock().unwrap().insert(number, login);
 
     #[cfg(desktop)]
-    WebviewWindowBuilder::new(
-        &app,
-        session_label(number),
-        WebviewUrl::App(format!("index.html#/session/{number}").into()),
-    )
-    .title(format!("{label} · {target}"))
-    .inner_size(1280.0, 800.0)
-    .min_inner_size(640.0, 400.0)
-    .build()
-    .map_err(err)?;
+    open_session_window(&app, number, format!("{label} · {target}"))?;
     #[cfg(mobile)]
     {
         let _ = (&label, &target);
@@ -815,14 +809,92 @@ async fn connect(
     Ok(number)
 }
 
-/// The window that shows session `number`: its own on a computer, the only
-/// one on a phone.
-fn session_label(number: u32) -> String {
+/// The window that shows session `number`: the tab window or its own on a
+/// computer, the only one on a phone.
+fn session_label(app: &AppHandle, number: u32) -> String {
+    #[cfg(desktop)]
+    if let Some(label) = app.state::<AppState>().windows.lock().unwrap().get(&number) {
+        return label.clone();
+    }
+    let _ = app;
     if cfg!(mobile) {
         "main".into()
     } else {
         format!("session-{number}")
     }
+}
+
+/// Label of the window that holds sessions as tabs.
+#[cfg(desktop)]
+const TABS: &str = "sessions";
+
+/// Shows a new session: as a tab, or in its own window if the user turned tabs off.
+#[cfg(desktop)]
+fn open_session_window(app: &AppHandle, number: u32, title: String) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    let tabs = !state.config.read().unwrap().separate_windows;
+    if tabs {
+        if let Some(window) = app.get_webview_window(TABS) {
+            state.windows.lock().unwrap().insert(number, TABS.into());
+            window.emit_to(TABS, "tab-open", TabOpen { session: number, title }).map_err(err)?;
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+            return Ok(());
+        }
+    }
+    let (label, url) = if tabs {
+        (TABS.to_string(), format!("index.html#/tabs/{number}"))
+    } else {
+        (format!("session-{number}"), format!("index.html#/session/{number}"))
+    };
+    state.windows.lock().unwrap().insert(number, label.clone());
+    WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title(title)
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(640.0, 400.0)
+        .build()
+        .map_err(err)?;
+    Ok(())
+}
+
+#[cfg(desktop)]
+#[derive(Clone, Serialize)]
+struct TabOpen {
+    session: u32,
+    title: String,
+}
+
+/// Title of a session's window or tab.
+#[tauri::command]
+fn session_title(state: State<AppState>, session: u32) -> CmdResult<String> {
+    let viewers = state.viewers.lock().unwrap();
+    let viewer = viewers.get(&session).ok_or("Die Sitzung ist bereits beendet")?;
+    let target = viewer.target;
+    drop(viewers);
+    let config = state.config.read().unwrap();
+    let label = config.peer(target).map_or(target.to_string(), |p| p.label().to_string());
+    Ok(format!("{label} · {target}"))
+}
+
+/// A tab was closed: ends its session and forgets it.
+#[tauri::command]
+fn close_tab(state: State<AppState>, session: u32) {
+    state.viewers.lock().unwrap().remove(&session);
+    state.logins.lock().unwrap().remove(&session);
+    #[cfg(desktop)]
+    state.windows.lock().unwrap().remove(&session);
+}
+
+#[tauri::command]
+fn separate_windows(state: State<AppState>) -> bool {
+    state.config.read().unwrap().separate_windows
+}
+
+#[tauri::command]
+fn set_separate_windows(state: State<AppState>, on: bool) -> CmdResult<()> {
+    let mut config = state.config.write().unwrap();
+    config.separate_windows = on;
+    config.save().map_err(err)
 }
 
 /// Phones have one window: it switches to the page instead (`#/session/1`, …).
@@ -1555,6 +1627,10 @@ macro_rules! handlers {
             send_sas,
             lock_screen,
             set_lock_on_end,
+            session_title,
+            close_tab,
+            separate_windows,
+            set_separate_windows,
             reconnect,
             host_permissions,
             request_host_permission,
@@ -1742,6 +1818,8 @@ pub fn run() {
                 next_viewer: AtomicU32::new(1),
                 drops: Mutex::default(),
                 logins: Mutex::default(),
+                #[cfg(desktop)]
+                windows: Mutex::default(),
                 update: Mutex::default(),
             });
 
@@ -1785,9 +1863,20 @@ pub fn run() {
                 }
             }
             if let WindowEvent::Destroyed = event {
-                if let Some(number) = window.label().strip_prefix("session-").and_then(|n| n.parse().ok()) {
-                    window.state::<AppState>().viewers.lock().unwrap().remove(&number);
-                    window.state::<AppState>().logins.lock().unwrap().remove(&number);
+                // Every session shown in the window ends with it.
+                #[cfg(desktop)]
+                {
+                    let state = window.state::<AppState>();
+                    let gone: Vec<u32> = {
+                        let mut windows = state.windows.lock().unwrap();
+                        let gone = windows.iter().filter(|(_, l)| *l == window.label()).map(|(n, _)| *n).collect();
+                        windows.retain(|_, l| l != window.label());
+                        gone
+                    };
+                    for number in gone {
+                        state.viewers.lock().unwrap().remove(&number);
+                        state.logins.lock().unwrap().remove(&number);
+                    }
                 }
             }
         })

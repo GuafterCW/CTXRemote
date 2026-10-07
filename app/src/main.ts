@@ -4,6 +4,7 @@ import Home from "./Home.svelte";
 import Quick from "./Quick.svelte";
 import Files from "./Files.svelte";
 import Session from "./Session.svelte";
+import Tabs from "./Tabs.svelte";
 import { api } from "./lib/api";
 import { MOBILE } from "./lib/platform";
 
@@ -11,6 +12,7 @@ const match = location.hash.match(/^#\/session\/(\d+)$/);
 const target = document.getElementById("app")!;
 
 const files = location.hash.match(/^#\/files\/(\d+)$/);
+const tabs = location.hash.match(/^#\/tabs\/(\d+)$/);
 
 if (files) document.body.classList.add("files");
 // Phones show sessions and files in the one window: Android's back button
@@ -25,10 +27,12 @@ if (MOBILE) {
     location.reload();
   });
 }
-if (match) document.body.classList.add("session");
+if (match || tabs) document.body.classList.add("session");
 
 export default files
   ? mount(Files, { target, props: { session: Number(files[1]) } })
+  : tabs
+  ? mount(Tabs, { target, props: { first: Number(tabs[1]) } })
   : match
   ? mount(Session, { target, props: { session: Number(match[1]) } })
   : location.hash === "#/quick"

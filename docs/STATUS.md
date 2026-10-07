@@ -96,6 +96,11 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 3. Der Relay hat kein Leerlauf-Ende.
 4. Klartext-Verbindungen für alte Clients abschalten.
 
+**Neu am 7. Oktober (Cloud-Sitzung), noch nicht ausgeliefert und nicht an Geräten geprüft:**
+- **Grafikkarten-Encoder unter Windows** (`crates/core/src/encoder_mf.rs`): Media Foundation sucht einen Hardware-Encoder (NVIDIA, AMD, Intel). Er bekommt NV12 und liefert H.264 Baseline wie bisher, damit alle Viewer es weiter dekodieren. Fehlt er, lehnt er das Format ab oder fällt er in der Sitzung aus, geht es mit OpenH264 und einem Keyframe weiter. Danach versucht es der Prozess nicht mehr. `CTXREMOTE_SOFTWARE_ENCODER` schaltet die Grafikkarte ab. Nur typgeprüft, Testpunkt 53.
+- **Sitzungen als Tabs:** Neue Sitzungen öffnen sich als Tabs im Fenster „sessions“ (`app/src/Tabs.svelte`). Ereignisse an eine Sitzung heißen jetzt `chat-<Nummer>` usw., damit sich die Tabs nicht vermischen. Einstellung „Jede Sitzung in eigenem Fenster“ (`Config::separate_windows`). Mit Playwright geprüft: Tab-Leiste, Chat landet im richtigen Tab, Schließen beendet die richtige Sitzung. Testpunkt 54.
+- Release 0.1.43 (alles bis zur Server-Sicherheitsdurchsicht) liegt als Pull Request #1 bereit, weil der Push nach `master` aus der Cloud-Sitzung blockiert ist. Die beiden neuen Punkte kommen erst nach dem Merge auf den Branch.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
@@ -744,6 +749,18 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Tippen, auch mit Umlauten und über „Text eintippen“.
     - Unter Wayland erscheint der Hinweis im Hauptfenster.
     - Festes Passwort setzen, ab- und wieder anmelden: CTXRemote läuft im Tray.
+53. Grafikkarten-Encoder (Windows-Host mit Grafikkarte):
+    - Während einer Sitzung im Task-Manager unter „Leistung“ → GPU auf „Video Encode“ schauen: Dort muss Last zu sehen sein, und die CPU-Last des Agents ist geringer als vorher.
+    - Bild flüssig und scharf, auch beim Scrollen und bei Videos. Bildqualität umschalten funktioniert.
+    - Gegenprobe mit der Umgebungsvariable `CTXREMOTE_SOFTWARE_ENCODER=1` am Host (Dienst neu starten): dann wieder über den Prozessor.
+    - Auf einem Rechner ohne Grafikkarte (z. B. Windows Server in einer VM) läuft alles wie bisher.
+    - Viewer am Mac und Android zeigen das Bild der Grafikkarte genauso.
+54. Sitzungen als Tabs:
+    - Zwei Geräte nacheinander verbinden: Beide erscheinen als Tabs in einem Fenster, das Fenster trägt den Namen des vorderen Tabs.
+    - Tippen und Maus gehen nur an den vorderen Tab. Beim Wechsel bleiben keine Tasten hängen.
+    - Ein Tab per ×, Mittelklick oder „Trennen“ schließen: nur diese Sitzung endet. Der letzte Tab schließt das Fenster. Das Fenster schließen beendet alle.
+    - Chat, Dateien, Vollbild, Dateien per Drag & Drop (nur in den vorderen Tab) und „Erneut verbinden“ (öffnet einen neuen Tab und schließt den alten) funktionieren.
+    - In den Einstellungen „Jede Sitzung in eigenem Fenster“ einschalten: neue Sitzungen öffnen wieder eigene Fenster.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.
