@@ -82,7 +82,7 @@ Fernwartung, Fernzugriff, Remote Desktop, Fernsteuerung, Bildschirmfreigabe, Sup
 
 ## Weitere Angaben
 
-- Kategorie: Produktivität (Unterkategorie, falls gefragt: Hilfsprogramme und Tools)
+- Kategorie: Dienstprogramme und Tools, sekundäre Kategorie: Produktivität. Personenbezogene Daten: „Ja“ (Konto-E-Mail, Geräteliste, IP-Adressen am Server, Sitzungsinhalte).
 - Datenschutzrichtlinie: https://ctxremote.ctx.ink/datenschutz.html
 - Website: https://ctxremote.ctx.ink
 - Support-Kontakt: die Adresse aus dem Impressum
