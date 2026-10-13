@@ -781,6 +781,7 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Festes Passwort setzen (UAC-Abfrage) und danach damit verbinden.
     - Abmelden und wieder anmelden: Ist die App im Tray? In den Einstellungen gibt es keinen Update-Knopf.
     - Paket deinstallieren: Ist der Dienst weg?
+    - Update auf ein neueres Testpaket, während die App im Tray läuft: `Add-AppxPackage … -ForceApplicationShutdown` nötig (sonst 0x80073D02). Offen: Wartet ein Update aus dem Store, bis die Tray-App beendet ist? Dann müsste die App das Update bemerken und sich beenden (`Windows.Services.Store` bzw. Paket-Update-Ereignis).
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

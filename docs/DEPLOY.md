@@ -408,7 +408,7 @@ Im Paket ist alles wie beim NSIS-Installer, nur auf anderem Weg:
 
 1. `CTXRemote-Test.cer` doppelklicken → „Zertifikat installieren“ → „Lokaler Computer“ → Speicher „Vertrauenswürdige Personen“.
 2. Den alten CTXRemote (NSIS) vorher deinstallieren, sonst laufen zwei Dienste.
-3. Pakete mit Dienst lassen sich nur als Administrator installieren, der Doppelklick meldet „requires administrator privileges“. Deshalb PowerShell als Administrator öffnen und `Add-AppxPackage -Path "<Pfad>\CTXRemote-<Version>.msix"` ausführen. Aus dem Store fragt Windows selbst nach den Adminrechten.
+3. Pakete mit Dienst lassen sich nur als Administrator installieren, der Doppelklick meldet „requires administrator privileges“. Deshalb PowerShell als Administrator öffnen und `Add-AppxPackage -Path "<Pfad>\CTXRemote-<Version>.msix"` ausführen. Aus dem Store fragt Windows selbst nach den Adminrechten. Läuft schon eine ältere Version (Tray), dazu `-ForceApplicationShutdown` anhängen.
 
 Ohne Secret entsteht das Testzertifikat bei jedem Release neu, Schritt 1 ist dann jedes Mal nötig. Ein festes Zertifikat: als Secrets `MSIX_CERT` (base64 einer .pfx, deren Subject gleich dem Publisher ist) und `MSIX_CERT_PASSWORD`.
 
