@@ -3,6 +3,7 @@
 #   2. the signed Windows installer to the server's update folder, from where
 #      installed clients update themselves
 #   3. the website (website/) with the newest installer and quick helper
+#   4. on request (run by hand with "store" ticked) the MSIX to the Microsoft Store
 # One-time setup (secrets, variables, server): docs/DEPLOY.md. Without the
 # secrets the builds still run and the files are kept as workflow artifacts.
 name: Release
@@ -17,6 +18,11 @@ on:
       - ".claude/**"
       - "LICENSE"
   workflow_dispatch:
+    inputs:
+      store:
+        description: "Auch im Microsoft Store einreichen"
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -394,3 +400,31 @@ jobs:
           ssh $ssh_opts "$TARGET" 'rm -rf ~/incoming'
           scp $ssh_opts -r incoming "$TARGET":incoming
           ssh $ssh_opts "$TARGET" 'bash ~/incoming/remote-deploy.sh'
+
+  # Submits the MSIX to the Microsoft Store, only when the run was started by
+  # hand with "store" ticked: every submission goes through certification, and
+  # the store takes no new one while another is still being certified.
+  # Setup (Partner Center app registration, secrets): docs/DEPLOY.md.
+  store:
+    needs: [version, client]
+    if: github.event_name == 'workflow_dispatch' && inputs.store && vars.MSSTORE_PRODUCT_ID != ''
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-msix
+          path: msix
+      - uses: microsoft/microsoft-store-apppublisher@v1.4
+      - name: Anmelden
+        shell: pwsh
+        env:
+          TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+          CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+        run: msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
+      - name: Einreichen
+        shell: pwsh
+        run: msstore publish "msix\CTXRemote-$env:VERSION-store.msix" --appId "${{ vars.MSSTORE_PRODUCT_ID }}"

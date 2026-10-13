@@ -420,6 +420,17 @@ Ohne Secret entsteht das Testzertifikat bei jedem Release neu, Schritt 1 ist dan
 4. Einreichung anlegen, `…-store.msix` hochladen, Store-Eintrag ausfüllen und die eingeschränkten Fähigkeiten begründen. Texte und Screenshots dafür: `docs/STORE.md`.
 5. Nach der Freigabe die Store-Adresse als Variable `MSSTORE_URL` eintragen (siehe „Download-Seite“).
 
+### Store-Updates automatisch einreichen
+
+Der Job `store` im Release-Lauf reicht das `…-store.msix` über Microsofts Store-CLI (`msstore publish`) ein. Er läuft nur, wenn der Lauf von Hand gestartet wird: Actions → Release → „Run workflow“ → Haken bei „Auch im Microsoft Store einreichen“. Pushes nach `master` reichen nichts ein, denn jede Einreichung geht durch die Zertifizierung, und solange eine läuft, nimmt der Store keine neue an. Store-Eintrag, Bilder und Antworten bleiben, wie sie im Partner Center stehen; ersetzt wird nur das Paket.
+
+Einmalig einrichten:
+1. Partner Center → Einstellungen (Zahnrad) → Kontoeinstellungen → Benutzerverwaltung → **Microsoft Entra-Anwendungen** → „Microsoft Entra-Anwendung erstellen“ (bzw. vorhandenen Mandanten verknüpfen). Rolle: **Manager**.
+2. In der angelegten Anwendung „Neuen Schlüssel hinzufügen“. Notieren: **Mandanten-ID** (Tenant ID), **Client-ID** und den **Schlüssel** (wird nur einmal angezeigt).
+3. **Verkäufer-ID** (Seller ID): Kontoeinstellungen → Rechtliche Informationen bzw. Kontoübersicht.
+4. **Store-ID** der App (beginnt mit `9…`): App → Produktidentität.
+5. In GitHub: Secrets `MSSTORE_TENANT_ID`, `MSSTORE_SELLER_ID`, `MSSTORE_CLIENT_ID`, `MSSTORE_CLIENT_SECRET`; Variable `MSSTORE_PRODUCT_ID` (die Store-ID). Ohne die Variable bleibt der Job aus.
+
 ## Download-Seite
 
 Die Deploy-Stufe passt `website/download.html` an:
