@@ -24,7 +24,11 @@ const FPS: f32 = 30.0;
 /// Serves one session until `inbox` closes, the viewer says `Bye` or `outbox`
 /// is gone. Sends `Welcome` first, or `Bye` with a reason if there is no screen.
 /// A small `outbox` applies backpressure to the capture loop.
-pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<HostMsg>) -> Result<()> {
+pub async fn run(
+    mut inbox: mpsc::Receiver<ViewerMsg>,
+    outbox: mpsc::Sender<HostMsg>,
+    options: crate::host::ScreenOptions,
+) -> Result<()> {
     let displays = match capture::displays() {
         Ok(displays) if !displays.is_empty() => displays,
         result => {
@@ -61,6 +65,14 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
         })?;
 
     let mut injector = Injector::new(&active);
+    #[cfg(windows)]
+    injector.protect_own_ui(options.protect_own_ui);
+    #[cfg(not(windows))]
+    let _ = options;
+    // Whether the viewer's mouse is ignored right now; the viewer is told on change.
+    let mut input_paused = false;
+    let mut pause_poll = tokio::time::interval(Duration::from_millis(150));
+    pause_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // The sender is kept so the receiver stays pending if there is no clipboard.
     let (clip_tx, mut clip_rx) = mpsc::unbounded_channel::<String>();
     let (files_tx, mut files_rx) = mpsc::unbounded_channel::<Vec<std::path::PathBuf>>();
@@ -109,6 +121,13 @@ pub async fn run(mut inbox: mpsc::Receiver<ViewerMsg>, outbox: mpsc::Sender<Host
                     outbox.send(HostMsg::ClipboardFiles(paths)).await?;
                 }
                 Some(data) = audio_rx.recv() => outbox.send(HostMsg::Audio(AudioPacket { data })).await?,
+                _ = pause_poll.tick() => {
+                    let paused = injector.input_paused();
+                    if paused != input_paused {
+                        input_paused = paused;
+                        outbox.send(HostMsg::InputPaused(paused)).await?;
+                    }
+                }
                 _ = pointer_poll.tick(), if privacy.is_some() => {
                     if let Some(shape) = privacy.as_mut().and_then(|p| p.pointer()) {
                         outbox.send(HostMsg::Cursor(shape)).await?;

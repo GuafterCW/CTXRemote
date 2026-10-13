@@ -15,5 +15,10 @@ impl Injector {
 
     pub fn apply(&mut self, _: &InputEvent) {}
 
+    /// Whether the viewer's mouse is being ignored; only Windows hosts do that yet.
+    pub fn input_paused(&self) -> bool {
+        false
+    }
+
     pub fn release_all(&mut self) {}
 }

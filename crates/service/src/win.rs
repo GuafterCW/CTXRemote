@@ -60,7 +60,8 @@ Aufruf: ctxremote-service <Option>
   --uninstall        Dienst stoppen und entfernen (Administrator)
   --service          Vom Dienstmanager gestartet (nicht manuell verwenden)
   --console          Host im Vordergrund ausführen, Ende mit Strg+C
-  --agent <pipe>     Bildschirm-Agent starten (intern)
+  --agent <pipe> [--protect]
+                     Bildschirm-Agent starten (intern)
   --configure <datei> <sha256>
                      Einstellungen der App an den Dienst übergeben (intern, erhöht)";
 
@@ -75,7 +76,8 @@ pub fn run() -> i32 {
         ["--service"] => service_dispatcher::start(SERVICE_NAME, ffi_service_main)
             .context("Start als Dienst fehlgeschlagen (nur durch den Dienstmanager möglich)"),
         ["--console"] => console(),
-        ["--agent", pipe] => agent(pipe),
+        ["--agent", pipe] => agent(pipe, false),
+        ["--agent", pipe, "--protect"] => agent(pipe, true),
         ["--configure", file, digest] => configure(Path::new(file), digest),
         _ => {
             eprintln!("{HELP}");
@@ -244,10 +246,11 @@ fn screen_source() -> Result<Arc<dyn ScreenSource>> {
 // ------------------------------------------------------------ run modes
 
 /// The agent process, started by the host for one session.
-fn agent(pipe: &str) -> Result<()> {
+fn agent(pipe: &str, protect_own_ui: bool) -> Result<()> {
     // Best effort: the agent works without a log, too.
     let _ = init_logging(&data_dir(), "agent.log", false);
-    let result = tokio::runtime::Runtime::new()?.block_on(agent_process::serve(pipe));
+    let options = ctxremote_core::host::ScreenOptions { protect_own_ui };
+    let result = tokio::runtime::Runtime::new()?.block_on(agent_process::serve(pipe, options));
     if let Err(e) = &result {
         tracing::warn!("Agent beendet: {e:#}");
     }

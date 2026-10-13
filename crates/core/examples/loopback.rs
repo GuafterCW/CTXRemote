@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--agent") {
         // Started by `--agent-process` below.
-        return ctxremote_core::agent_process::serve(&args[1]).await;
+        return ctxremote_core::agent_process::serve(&args[1], Default::default()).await;
     }
     let agent_process = args.iter().any(|a| a == "--agent-process");
     args.retain(|a| a != "--agent-process");

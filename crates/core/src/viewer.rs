@@ -66,6 +66,8 @@ pub enum ViewerEvent {
     Rights(Permissions),
     /// Privacy mode went on or off; `error` if turning it on failed.
     Privacy { on: bool, error: Option<String> },
+    /// The host ignores the viewer's mouse for now (see `HostMsg::InputPaused`).
+    InputPaused(bool),
     /// The session ended; carries the reason if it was not the viewer's choice.
     Closed(Option<String>),
 }
@@ -279,6 +281,7 @@ impl ViewerSession {
                     Ok(Some(HostMsg::SystemInfo(info))) => on_event(ViewerEvent::SystemInfo(info)),
                     Ok(Some(HostMsg::Tunnel(msg))) => tunnel_router.handle(msg),
                     Ok(Some(HostMsg::Privacy { on, error })) => on_event(ViewerEvent::Privacy { on, error }),
+                    Ok(Some(HostMsg::InputPaused(paused))) => on_event(ViewerEvent::InputPaused(paused)),
                     Ok(Some(HostMsg::Chat(text))) => {
                         if let Some(text) = crate::host::chat_text(&text) {
                             on_event(ViewerEvent::Chat(text));

@@ -316,6 +316,15 @@
   let direct = $state<string | null>(null);
   /** CSS cursor showing the host's pointer shape, once it has sent one. */
   let cursor = $state("default");
+  /** The same pointer, faded: shown while the host ignores this mouse. */
+  let ghostCursor = $state(
+    `url("data:image/svg+xml,${encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="24" opacity="0.4"><path d="M2 2v17l4.5-4.2 3 6.7 2.6-1.2-3-6.6H15z" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/></svg>',
+    )}") 2 2, default`,
+  );
+  /** The host ignores this mouse for now: the person there uses theirs, or it
+   *  was aimed at CTXRemote's own window there (`HostMsg::InputPaused`). */
+  let inputPaused = $state(false);
   let fullscreen = $state(false);
 
   const appWindow = getCurrentWindow();
@@ -636,6 +645,7 @@
           if (can(RIGHT.CLIPBOARD)) writeText(e.payload).catch(() => {});
         })
       : Promise.resolve(() => {});
+    const unlistenPaused = getCurrentWindow().listen<boolean>(`input-paused-${session}`, (e) => (inputPaused = e.payload));
     const unlistenChat = getCurrentWindow().listen<string>(`chat-${session}`, (e) => {
       chatMessages = [...chatMessages, { mine: false, text: e.payload, at: Date.now() }];
       if (!chatOpen) {
@@ -688,6 +698,7 @@
       unlistenPrivacy.then((off) => off());
       clearTimeout(noticeTimer);
       unlistenChat.then((off) => off());
+      unlistenPaused.then((off) => off());
       unlistenClipboard.then((off) => off());
     };
   });
@@ -731,8 +742,13 @@
     const draw = document.createElement("canvas");
     draw.width = width;
     draw.height = height;
-    draw.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(pixels), width, height), 0, 0);
+    const context = draw.getContext("2d")!;
+    context.putImageData(new ImageData(new Uint8ClampedArray(pixels), width, height), 0, 0);
     cursor = `url(${draw.toDataURL("image/png")}) ${hotX} ${hotY}, default`;
+    const faded = new Uint8ClampedArray(pixels);
+    for (let i = 3; i < faded.length; i += 4) faded[i] = Math.round(faded[i] * 0.4);
+    context.putImageData(new ImageData(faded, width, height), 0, 0);
+    ghostCursor = `url(${draw.toDataURL("image/png")}) ${hotX} ${hotY}, default`;
   }
 
   // Mouse moves are coalesced to one message per animation frame.
@@ -1035,7 +1051,7 @@
   <canvas
     bind:this={canvas}
     class:live={streaming}
-    style:cursor={drawing ? "crosshair" : streaming ? cursor : "default"}
+    style:cursor={drawing ? "crosshair" : streaming ? (inputPaused || !can(RIGHT.INPUT) ? ghostCursor : cursor) : "default"}
     style:max-width={scaleMode === "fit" && video.width ? `${video.width / devicePixelRatio}px` : null}
     style:max-height={scaleMode === "fit" && video.height ? `${video.height / devicePixelRatio}px` : null}
     style:transform={MOBILE && view.zoom > 1 ? `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` : null}

@@ -7,7 +7,7 @@ pub use std::sync::{Arc, RwLock};
 pub use std::time::Duration;
 
 pub use ctxremote_core::config::Config;
-pub use ctxremote_core::host::{Host, Presence, ScreenChannels, ScreenSource};
+pub use ctxremote_core::host::{Host, Presence, ScreenChannels, ScreenOptions, ScreenSource};
 pub use ctxremote_core::proto::session::{Features, HelperProfile, HostInfo, HostMsg, Permissions, ViewerMsg};
 pub use ctxremote_core::proto::DeviceId;
 pub use ctxremote_core::viewer::{ViewerEvent, ViewerSession};
@@ -17,7 +17,7 @@ pub use tokio::sync::mpsc;
 pub struct Echo;
 
 impl ScreenSource for Echo {
-    fn open(&self) -> BoxFuture<'static, anyhow::Result<ScreenChannels>> {
+    fn open(&self, _: ScreenOptions) -> BoxFuture<'static, anyhow::Result<ScreenChannels>> {
         let (to_agent, mut inbox) = mpsc::channel::<ViewerMsg>(64);
         let (outbox, from_agent) = mpsc::channel::<HostMsg>(8);
         tokio::spawn(async move {

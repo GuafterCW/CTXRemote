@@ -141,6 +141,11 @@ impl Injector {
         }
     }
 
+    /// Whether the viewer's mouse is being ignored; only Windows hosts do that yet.
+    pub fn input_paused(&self) -> bool {
+        false
+    }
+
     pub fn release_all(&mut self) {
         for code in std::mem::take(&mut self.keys) {
             self.key(&code, false);

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use futures::future::BoxFuture;
 
-use crate::host::{ScreenChannels, ScreenSource};
+use crate::host::{ScreenChannels, ScreenOptions, ScreenSource};
 
 /// Starts `exe --agent <pipe>` for every session.
 pub struct AgentProcess {
@@ -24,26 +24,26 @@ impl AgentProcess {
 }
 
 impl ScreenSource for AgentProcess {
-    fn open(&self) -> BoxFuture<'static, Result<ScreenChannels>> {
+    fn open(&self, options: ScreenOptions) -> BoxFuture<'static, Result<ScreenChannels>> {
         let exe = self.exe.clone();
-        Box::pin(async move { imp::open(exe).await })
+        Box::pin(async move { imp::open(exe, options).await })
     }
 }
 
 /// The agent process: connects to the service's pipe and serves the session.
-pub async fn serve(pipe: &str) -> Result<()> {
-    imp::serve(pipe).await
+pub async fn serve(pipe: &str, options: ScreenOptions) -> Result<()> {
+    imp::serve(pipe, options).await
 }
 
 #[cfg(not(windows))]
 mod imp {
     use super::*;
 
-    pub async fn open(_: PathBuf) -> Result<ScreenChannels> {
+    pub async fn open(_: PathBuf, _: ScreenOptions) -> Result<ScreenChannels> {
         anyhow::bail!("Agent-Prozesse gibt es nur unter Windows")
     }
 
-    pub async fn serve(_: &str) -> Result<()> {
+    pub async fn serve(_: &str, _: ScreenOptions) -> Result<()> {
         anyhow::bail!("Agent-Prozesse gibt es nur unter Windows")
     }
 }
@@ -98,10 +98,10 @@ mod imp {
     /// Granted by `SetTokenInformation`/`DuplicateTokenEx` callers asking for everything.
     const MAXIMUM_ALLOWED: u32 = 0x0200_0000;
 
-    pub async fn open(exe: PathBuf) -> Result<ScreenChannels> {
+    pub async fn open(exe: PathBuf, options: ScreenOptions) -> Result<ScreenChannels> {
         let name = format!(r"\\.\pipe\ctxremote-agent-{:016x}", rand::random::<u64>());
         let server = create_pipe(&name)?;
-        let (process, pid) = spawn_agent(&exe, &name)?;
+        let (process, pid) = spawn_agent(&exe, &name, options)?;
 
         match tokio::time::timeout(CONNECT_TIMEOUT, server.connect()).await {
             Ok(Ok(())) => {}
@@ -126,10 +126,10 @@ mod imp {
         Ok((to_agent, from_agent))
     }
 
-    pub async fn serve(pipe: &str) -> Result<()> {
+    pub async fn serve(pipe: &str, options: ScreenOptions) -> Result<()> {
         let client = ClientOptions::new().open(pipe).context("Agent-Pipe nicht erreichbar")?;
         let (outbox, inbox) = bridge::<ViewerMsg, HostMsg, _>(client);
-        crate::agent::run(inbox, outbox).await
+        crate::agent::run(inbox, outbox, options).await
     }
 
     /// Frames `io` and moves messages between it and two channels. The pipe
@@ -271,7 +271,9 @@ mod imp {
 
     /// Starts the agent in the console session, as SYSTEM with our own token.
     /// Outside the service (same session, e.g. `--console`), a plain child is enough.
-    fn spawn_agent(exe: &std::path::Path, pipe: &str) -> Result<(OwnedHandle, u32)> {
+    fn spawn_agent(exe: &std::path::Path, pipe: &str, options: ScreenOptions) -> Result<(OwnedHandle, u32)> {
+        // `--protect`: an attended session, see `ScreenOptions::protect_own_ui`.
+        let protect = if options.protect_own_ui { " --protect" } else { "" };
         let console = unsafe { WTSGetActiveConsoleSessionId() };
         if console == u32::MAX {
             bail!("Keine Konsolensitzung aktiv");
@@ -279,7 +281,12 @@ mod imp {
         let mut own = 0;
         unsafe { ProcessIdToSessionId(GetCurrentProcessId(), &mut own) }?;
         if own == console {
-            let child = std::process::Command::new(exe).arg("--agent").arg(pipe).spawn()?;
+            let mut child = std::process::Command::new(exe);
+            child.arg("--agent").arg(pipe);
+            if options.protect_own_ui {
+                child.arg("--protect");
+            }
+            let child = child.spawn()?;
             let pid = child.id();
             let process = unsafe { OpenProcess(PROCESS_TERMINATE, false, pid) }?;
             return Ok((unsafe { OwnedHandle::from_raw_handle(process.0) }, pid));
@@ -314,7 +321,7 @@ mod imp {
                 lpDesktop: PWSTR(desktop.as_mut_ptr()),
                 ..Default::default()
             };
-            let mut command: Vec<u16> = format!("\"{}\" --agent {pipe}", exe.display())
+            let mut command: Vec<u16> = format!("\"{}\" --agent {pipe}{protect}", exe.display())
                 .encode_utf16()
                 .chain(Some(0))
                 .collect();

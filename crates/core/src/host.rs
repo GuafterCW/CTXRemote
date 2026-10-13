@@ -594,6 +594,7 @@ async fn admitted(
         rights: rights_rx,
         privacy,
         recording,
+        screen: ScreenOptions { protect_own_ui: slot == 0 },
     };
     let result = run_session(tx, rx, stop, shared.screen.as_ref(), route).await;
 
@@ -648,9 +649,18 @@ fn record_failure(shared: &Shared) {
 /// It ends when the sender is dropped; it is gone when the receiver closes.
 pub type ScreenChannels = (mpsc::Sender<ViewerMsg>, mpsc::Receiver<HostMsg>);
 
+/// How a session's screen side is set up.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScreenOptions {
+    /// An attended session (one-time password, quick helper): the viewer may
+    /// not operate CTXRemote's own windows, so they cannot raise their own
+    /// rights. On their own devices (fixed password, account) they may.
+    pub protect_own_ui: bool,
+}
+
 /// Provides the screen side (capture, input, clipboard) for each session.
 pub trait ScreenSource: Send + Sync + 'static {
-    fn open(&self) -> BoxFuture<'static, Result<ScreenChannels>>;
+    fn open(&self, options: ScreenOptions) -> BoxFuture<'static, Result<ScreenChannels>>;
 
     /// What the viewer is told this host can do; its buttons follow.
     fn features(&self) -> Features {
@@ -678,12 +688,12 @@ impl ScreenSource for InProcess {
         platform_features()
     }
 
-    fn open(&self) -> BoxFuture<'static, Result<ScreenChannels>> {
+    fn open(&self, options: ScreenOptions) -> BoxFuture<'static, Result<ScreenChannels>> {
         let (to_agent, inbox) = mpsc::channel::<ViewerMsg>(64);
         // Small, so a slow link throttles capture instead of queueing frames.
         let (outbox, from_agent) = mpsc::channel::<HostMsg>(2);
         tokio::spawn(async move {
-            if let Err(e) = agent::run(inbox, outbox).await {
+            if let Err(e) = agent::run(inbox, outbox, options).await {
                 info!("Bildschirmseite beendet: {e:#}");
             }
         });
@@ -712,6 +722,8 @@ struct Route {
     rights: watch::Receiver<Permissions>,
     privacy: Arc<AtomicBool>,
     recording: Arc<AtomicBool>,
+    /// How the screen side is opened, again after it comes back.
+    screen: ScreenOptions,
 }
 
 impl Route {
@@ -772,7 +784,7 @@ async fn run_session(
     // A hidden app would otherwise be slowed down by macOS during the session.
     #[cfg(target_os = "macos")]
     let _awake = crate::activity::Activity::begin("Fernwartungssitzung");
-    let (mut to_agent, mut from_agent) = match screen.open().await {
+    let (mut to_agent, mut from_agent) = match screen.open(route.screen).await {
         Ok(channels) => channels,
         Err(e) => {
             let _ = tx.send(&HostMsg::Bye(format!("{e:#}"))).await;
@@ -799,6 +811,7 @@ async fn run_session(
             tokio::select! {
                 msg = from_agent.recv() => match msg {
                     Some(HostMsg::Cursor(_)) if !route.features.has(Features::CURSOR) => {}
+                    Some(HostMsg::InputPaused(_)) if !route.features.has(Features::INPUT_PAUSED) => {}
                     Some(HostMsg::Audio(_)) if !route.features.has(Features::AUDIO) || !route.allows(Permissions::AUDIO) => {}
                     Some(HostMsg::Clipboard(_)) if !route.allows(Permissions::CLIPBOARD) => {}
                     Some(HostMsg::ClipboardImage(_))
@@ -854,7 +867,7 @@ async fn run_session(
                     }
                     // Gone without `Bye`: the agent ended with its Windows session
                     // (sign-out, sign-in, user switch). Start one in the new session.
-                    None => match reopen(screen, &stop).await {
+                    None => match reopen(screen, route.screen, &stop).await {
                         Some((new_to, new_from)) => {
                             info!("Bildschirmseite neu gestartet");
                             (to_agent, from_agent) = (new_to, new_from);
@@ -1017,14 +1030,14 @@ async fn run_session(
 
 /// Retries opening the screen side for up to [`SCREEN_RETURN`]; `None` if it
 /// stays away or the session is stopped meanwhile.
-async fn reopen(screen: &dyn ScreenSource, stop: &Notify) -> Option<ScreenChannels> {
+async fn reopen(screen: &dyn ScreenSource, options: ScreenOptions, stop: &Notify) -> Option<ScreenChannels> {
     let deadline = Instant::now() + SCREEN_RETURN;
     while Instant::now() < deadline {
         tokio::select! {
             _ = sleep(Duration::from_secs(1)) => {}
             _ = stop.notified() => return None,
         }
-        match screen.open().await {
+        match screen.open(options).await {
             Ok(channels) => return Some(channels),
             Err(e) => info!("Bildschirmseite noch nicht verfügbar: {e:#}"),
         }

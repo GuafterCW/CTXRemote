@@ -707,6 +707,9 @@ async fn connect(
                 link.lock().unwrap().host_files = paths;
                 let _ = app.emit_to(session_label(&app, number), &format!("host-files-{number}"), names);
             }
+            ViewerEvent::InputPaused(paused) => {
+                let _ = app.emit_to(session_label(&app, number), &format!("input-paused-{number}"), paused);
+            }
             ViewerEvent::Privacy { on, error } => {
                 link.lock().unwrap().privacy = on;
                 let _ = app.emit_to(session_label(&app, number), &format!("privacy-{number}"), PrivacyUpdate { on, error });

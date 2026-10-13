@@ -119,6 +119,9 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 
 - **Maus am Gerät hat Vorrang (13. Oktober, Wunsch des Nutzers, wie AnyDesk):** Bewegt oder klickt die Person am Windows-Gerät ihre eigene Maus, verwirft der Host eine Sekunde lang Mausbewegungen, Klicks und Mausrad des Viewers (Loslassen bleibt erlaubt). Erkannt per `WH_MOUSE_LL`-Hook am fehlenden `LLMHF_INJECTED` (`crates/core/src/input/windows.rs`); im Privatsphäre-Modus aus (`privacy::LOCAL_INPUT_BLOCKED`). Tastatur unverändert. Mac/Linux noch nicht. Nur typgeprüft, Testpunkt 56.
 
+- **CTXRemote-Fenster vor dem Viewer geschützt (13. Oktober, Variante A des Nutzers):** In beaufsichtigten Sitzungen (Einmal-Passwort, Schnellhilfe; `slot == 0`) verwirft der Windows-Host Klicks, Mausrad und Tasten des Viewers, die auf ein Fenster von `ctxremote.exe` oder `ctxremote-hilfe.exe` zielen (Tasten: wenn es im Vordergrund ist). Damit kann sich der Viewer keine Rechte mehr selbst geben. Bei festem Passwort und Konto-Geräten bleibt alles bedienbar. Umsetzung: `ScreenOptions::protect_own_ui` → Agent `--protect` → `Injector::protect_own_ui`; die Low-Level-Hooks erkennen die Eingaben des Viewers an `dwExtraInfo == TAG` (Bildschirmtastatur u. Ä. bleiben unberührt). Loslassen geschluckter Tasten wird mitgeschluckt.
+- **Blasser Zeiger:** Neue `HostMsg::InputPaused(bool)` (angehängt, nur an Viewer mit `Features::INPUT_PAUSED`, Bit 22). Der Agent meldet Änderungen alle 150 ms (Mausvorrang der Person oder Klick auf das geschützte Fenster in der letzten Sekunde). Der Viewer zeigt dann und ohne Recht „Maus und Tastatur“ den Zeiger mit 40 % Deckkraft. Mac/Linux-Hosts melden nie Pause. Nur typgeprüft, Testpunkt 57.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
@@ -795,6 +798,13 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Hält der Viewer gerade eine Taste (z. B. beim Ziehen) und die Person bewegt die Maus: Danach hängt keine Maustaste.
     - Am Sperrbildschirm und bei UAC-Dialogen: Steuert der Viewer dort normal? (Der Hook läuft auf dem Desktop, auf dem die Sitzung begann.)
     - Im Privatsphäre-Modus: Der Viewer steuert ohne Unterbrechung, auch wenn jemand an der gesperrten Maus wackelt.
+57. CTXRemote-Fenster geschützt und blasser Zeiger (Windows-Host, beide Seiten 0.1.5x):
+    - Mit Einmal-Passwort verbinden. Beim Gegenüber im CTXRemote-Fenster auf „Rechte“ und die Rechte-Symbole klicken: Nichts passiert, der Zeiger wird kurz blass. Die Person am Gerät kann die Rechte weiter ändern.
+    - Das CTXRemote-Fenster beim Gegenüber in den Vordergrund holen und tippen: Es kommt nichts an. In anderen Programmen tippt der Viewer normal.
+    - Mit festem Passwort (eigenes Gerät) verbinden: Das CTXRemote-Fenster ist normal bedienbar.
+    - Schnellhilfe: Ihr Fenster (Rechte, Trennen) ist für den Viewer gesperrt.
+    - Die Person am Gerät bewegt die Maus: Beim Viewer wird der Zeiger blass, bis sie eine Sekunde still ist.
+    - Gegenseite nimmt „Maus und Tastatur“ weg: Zeiger blass.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.

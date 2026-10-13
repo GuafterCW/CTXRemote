@@ -59,6 +59,11 @@ pub enum HostMsg {
     /// An image was copied at the host, as PNG; only to viewers with
     /// [`Features::CLIPBOARD_IMAGE`].
     ClipboardImage(Vec<u8>),
+    /// The host is ignoring the viewer's mouse for now: the person there is
+    /// using theirs, or the viewer clicked at CTXRemote's own window, which
+    /// only the person at the host may operate in an attended session. Sent on
+    /// each change; only to viewers with [`Features::INPUT_PAUSED`].
+    InputPaused(bool),
 }
 
 /// Port tunnels: TCP connections the viewer accepts locally and the host
@@ -205,6 +210,8 @@ impl Features {
     pub const TYPE_TEXT: u32 = 1 << 20;
     /// Continues interrupted single-file transfers (`DownloadFrom`, `UploadFrom`).
     pub const RESUME: u32 = 1 << 21;
+    /// Shows `InputPaused` (a faded pointer).
+    pub const INPUT_PAUSED: u32 = 1 << 22;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -229,7 +236,8 @@ impl Features {
             | Self::MIC
             | Self::CLIPBOARD_IMAGE
             | Self::TYPE_TEXT
-            | Self::RESUME,
+            | Self::RESUME
+            | Self::INPUT_PAUSED,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
