@@ -115,6 +115,8 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 
 - **Store-Eintrag vorbereitet:** `docs/STORE.md` (Beschreibung, Features, Suchbegriffe, Altersfreigabe, Begründung der eingeschränkten Fähigkeiten) und fünf Screenshots 1920×1080 in `docs/store/` (echte Oberfläche mit Beispieldaten, Skript `docs/store/screenshots.cjs`).
 
+- **Microsoft Store eingereicht (13. Oktober):** Paket 0.1.50 (`PhilippEcker.CTXRemote`) in der Zertifizierung. Die erste Fassung (0.1.49) lehnte das Partner Center ab: eine zweite Application ohne Listeneintrag (für den Tray-Start) gilt als „App ohne Benutzeroberfläche“; behoben mit der StartupTask an der Haupt-App. Nach der Freigabe: Store-Link aus „Produktidentität anzeigen“ als Variable `MSSTORE_URL`. Store-Updates kommen nur mit einer neuen Einreichung (neues `…-store.msix` hochladen); automatisch per Store-Submission-API ist noch nicht gebaut.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
