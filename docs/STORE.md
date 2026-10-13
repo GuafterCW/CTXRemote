@@ -67,8 +67,8 @@ Alles, was eine Fernwartung braucht
 Für Windows, Mac, Linux und Android
 CTXRemote gibt es auch für macOS, Linux und als Viewer für Android (Vorschau). Downloads unter https://ctxremote.ctx.ink
 
-Kostenlos für die private Nutzung
-Für Ihre eigenen Geräte, Familie und Freunde ist CTXRemote kostenlos. Pläne für die gewerbliche Nutzung sind in Vorbereitung.
+Kostenlos
+CTXRemote ist kostenlos, ohne Abo und ohne Werbung.
 
 ## Neues in dieser Version
 

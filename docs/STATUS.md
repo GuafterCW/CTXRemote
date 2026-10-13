@@ -285,7 +285,7 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
 - **Inhalt:** Statische Seiten in `website/`, ohne JavaScript und ohne fremde Inhalte. Gestaltet wie die App, mit Dark Mode und für Handys geeignet.
   - Start mit Funktionen und App-Screenshot (hell und dunkel)
   - Download: Installer und Schnellhilfe, mit SmartScreen-Hinweis
-  - Preise: Free privat kostenlos, Pro und Ultra „bald verfügbar“, ohne Preise
+  - Preise: Seite am 13. Oktober entfernt (Entscheidung des Nutzers: CTXRemote vorerst kostenlos, keine Pläne auf der Website). Das Konzept bleibt in `docs/PLANS.md`.
   - Impressum und Datenschutz als Vorlagen mit **markierten Platzhaltern** (`<span class="todo">`), die der Nutzer füllen muss
 - **Adresse und Server:** https://ctxremote.ctx.ink (**online seit 5. Oktober**, hinter dem Cloudflare-Proxy) auf dem Hetzner-Server, ausgeliefert vom Caddy-Docker-Container des Nutzers. Nicht `remote.ctx.ink`, weil dort das Cloudflare-Origin-Zertifikat für `*.ctx.ink` greifen würde (siehe DEPLOY.md). Einrichtung einmalig mit `deploy/setup-website.sh`, siehe `docs/DEPLOY.md`, Abschnitt „Website“.
   - **Caddy des Nutzers läuft in Docker** mit weiteren Seiten. Deshalb `setup-website.sh --docker`: Es legt nur den Ordner an und gibt Volume und Caddy-Block aus. Ohne `--docker` bricht das Skript ab, wenn die Ports fremd belegt sind.
