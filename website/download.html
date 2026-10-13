@@ -32,13 +32,16 @@
       <div class="wrap">
         <p class="eyebrow">Download</p>
         <h1>CTXRemote herunterladen</h1>
-        <p class="lead">Version <!--version-->aktuell<!--/version--> für Windows 10 und 11 (64 Bit), dazu Mac und Linux als Vorschau.</p>
+        <p class="lead">Version <!--version-->aktuell<!--/version--> für Windows 10 und 11 (64 Bit), dazu Mac, Linux und Android als Vorschau.</p>
         <div class="cards">
           <div class="card card-accent">
             <span class="tag">Für Ihre Geräte</span>
             <h3>CTXRemote installieren</h3>
             <p>Zum Verbinden mit anderen und für den Zugriff auf eigene Geräte, auch unbeaufsichtigt. Läuft als Dienst im Hintergrund und hält sich selbst aktuell.</p>
-            <a class="btn btn-primary" href="/download/CTXRemote-Setup.exe" download>Installer herunterladen</a>
+            <div class="card-actions">
+              <a class="btn btn-primary" href="__MSSTORE_URL__" data-store>Im Microsoft Store</a>
+              <a class="btn" href="/download/CTXRemote-Setup.exe" download data-direct>Installer herunterladen</a>
+            </div>
           </div>
           <div class="card">
             <span class="tag">Für Ihr Gegenüber</span>
@@ -64,8 +67,19 @@
             </div>
           </div>
         </div>
+        <div class="cards" data-android>
+          <div class="card">
+            <span class="tag">Vorschau</span>
+            <h3>CTXRemote für Android</h3>
+            <p>Ihre Geräte vom Handy aus steuern, mit Touch-Gesten, Bildschirmtastatur und Sondertasten. Ab Android 7. Das Handy selbst lässt sich nicht fernsteuern.</p>
+            <div class="card-actions">
+              <a class="btn" href="__PLAY_URL__" data-play>Bei Google Play</a>
+              <a class="btn" href="/download/CTXRemote.apk" download data-apk>APK herunterladen</a>
+            </div>
+          </div>
+        </div>
         <div class="note">
-          CTXRemote ist noch nicht mit einem Zertifikat signiert. Windows SmartScreen kann deshalb beim ersten Start warnen: „Weitere Informationen“ und dann „Trotzdem ausführen“ wählen. Auf dem Mac beim ersten Start mit Rechtsklick auf die App „Öffnen“ wählen. Unter Linux das AppImage vor dem ersten Start ausführbar machen (Rechtsklick → Eigenschaften, oder <code>chmod +x CTXRemote.AppImage</code>).
+          Aus dem Microsoft Store installiert, startet CTXRemote ohne Warnung und aktualisiert sich über den Store. Der Installer zum direkten Herunterladen ist noch nicht mit einem Zertifikat signiert; Windows SmartScreen kann deshalb beim ersten Start warnen: „Weitere Informationen“ und dann „Trotzdem ausführen“ wählen. Auf dem Mac beim ersten Start mit Rechtsklick auf die App „Öffnen“ wählen. Unter Linux das AppImage vor dem ersten Start ausführbar machen (Rechtsklick → Eigenschaften, oder <code>chmod +x CTXRemote.AppImage</code>). Die APK für Android braucht die Erlaubnis, Apps aus dieser Quelle zu installieren.
         </div>
       </div>
     </section>

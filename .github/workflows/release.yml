@@ -116,6 +116,26 @@ jobs:
         with:
           name: client
           path: out/
+      # The same app and service as an MSIX package for the Microsoft Store
+      # (docs/DEPLOY.md). Still new: a failure must not hold back the release.
+      - name: MSIX
+        id: msix
+        continue-on-error: true
+        shell: pwsh
+        env:
+          MSIX_CERT: ${{ secrets.MSIX_CERT }}
+          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
+        run: >-
+          ./app/msix/build-msix.ps1 -Version $env:CTXREMOTE_VERSION -OutDir msix
+          -IdentityName "${{ vars.MSIX_IDENTITY_NAME || 'CTXRemote' }}"
+          -Publisher "${{ vars.MSIX_PUBLISHER || 'CN=CTXRemote Test' }}"
+          -PublisherDisplayName "${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'CTXRemote' }}"
+          -CertBase64 "$env:MSIX_CERT" -CertPassword "$env:MSIX_CERT_PASSWORD"
+      - uses: actions/upload-artifact@v4
+        if: steps.msix.outcome == 'success'
+        with:
+          name: client-msix
+          path: msix/
 
   # The macOS app as a disk image, for Apple silicon and Intel. Not signed or
   # notarised yet (needs an Apple developer account): on first start macOS
@@ -308,6 +328,9 @@ jobs:
       - name: Update signieren
         env:
           CTXREMOTE_UPDATE_SIGNING_KEY: ${{ secrets.CTXREMOTE_UPDATE_SIGNING_KEY }}
+          HAS_ANDROID_KEY: ${{ secrets.ANDROID_KEYSTORE != '' }}
+          MSSTORE_URL: ${{ vars.MSSTORE_URL }}
+          PLAY_URL: ${{ vars.PLAY_URL }}
           NOTES: ${{ github.event.head_commit.message }}
         run: |
           chmod +x artifacts/server/ctxremote-server
@@ -328,6 +351,24 @@ jobs:
           if [ -f artifacts/client-linux/CTXRemote.AppImage ]; then
             cp artifacts/client-linux/CTXRemote.AppImage artifacts/client-linux/ctxremote.deb incoming/download/
           fi
+          # Android only with the real key: a throwaway one would break every update.
+          if [ "$HAS_ANDROID_KEY" = true ] && [ -f artifacts/client-android/CTXRemote.apk ]; then
+            cp artifacts/client-android/CTXRemote.apk incoming/download/CTXRemote.apk
+          fi
+          # Store links once the listings exist (variables MSSTORE_URL, PLAY_URL);
+          # until then the download page offers the files directly.
+          page=incoming/website/download.html
+          if [ -n "$MSSTORE_URL" ]; then
+            sed -i "s|__MSSTORE_URL__|$MSSTORE_URL|" "$page"
+          else
+            sed -i '/data-store>/d; s|class="btn" href="/download/CTXRemote-Setup.exe" download data-direct|class="btn btn-primary" href="/download/CTXRemote-Setup.exe" download data-direct|' "$page"
+          fi
+          if [ -z "$PLAY_URL" ] && [ ! -f incoming/download/CTXRemote.apk ]; then
+            # No way to get the Android app yet: drop its card (the marker and 10 lines).
+            sed -i '/data-android>/,+10d' "$page"
+          fi
+          if [ -n "$PLAY_URL" ]; then sed -i "s|__PLAY_URL__|$PLAY_URL|" "$page"; else sed -i '/data-play>/d' "$page"; fi
+          [ -f incoming/download/CTXRemote.apk ] || sed -i '/data-apk>/d' "$page"
           if [ -n "$CTXREMOTE_UPDATE_SIGNING_KEY" ]; then
             artifacts/server/ctxremote-server update-sign \
               --platform windows-x86_64 --version "$VERSION" \

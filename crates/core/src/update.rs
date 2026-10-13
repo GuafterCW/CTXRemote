@@ -38,9 +38,25 @@ pub const PUBLIC_KEY: Option<&str> = option_env!("CTXREMOTE_UPDATE_KEY");
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Whether this build can update itself at all.
+/// Whether this build can update itself at all. Not when installed from the
+/// Microsoft Store: there Windows updates the package.
 pub fn enabled() -> bool {
-    PLATFORM != "unsupported" && public_key().is_some()
+    PLATFORM != "unsupported" && public_key().is_some() && !packaged()
+}
+
+/// Whether this process runs from an MSIX package (Microsoft Store).
+#[cfg(windows)]
+pub fn packaged() -> bool {
+    use windows::Win32::Foundation::APPMODEL_ERROR_NO_PACKAGE;
+    use windows::Win32::Storage::Packaging::Appx::GetCurrentPackageFullName;
+    let mut len = 0u32;
+    // With a package this fails for the empty buffer, without one it says so.
+    unsafe { GetCurrentPackageFullName(&mut len, None) != APPMODEL_ERROR_NO_PACKAGE }
+}
+
+#[cfg(not(windows))]
+pub fn packaged() -> bool {
+    false
 }
 
 fn public_key() -> Option<[u8; 32]> {

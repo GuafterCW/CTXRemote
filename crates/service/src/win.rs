@@ -314,6 +314,9 @@ fn service_body() -> Result<()> {
 
     let outcome = (|| -> Result<()> {
         let config = prepare(false)?;
+        if ctxremote_core::update::packaged() {
+            packaged_setup(&config);
+        }
         let runtime = tokio::runtime::Runtime::new()?;
         let _guard = runtime.enter();
         let screen = screen_source()?;
@@ -448,6 +451,17 @@ fn install(server: Option<&str>) -> Result<()> {
         Err(e) => return Err(anyhow::Error::new(e).context("Dienst nicht startbar")),
     }
     Ok(())
+}
+
+/// From the Microsoft Store, Windows registers the service and the start at
+/// sign-in (AppxManifest.xml), and nobody runs `--install`. The rest of it
+/// happens at every start instead; the firewall rule also follows the
+/// package folder, which changes with each update.
+fn packaged_setup(config: &Config) {
+    if let Err(e) = enable_sas_policy() {
+        tracing::warn!("Strg+Alt+Entf nicht freigeschaltet: {e:#}");
+    }
+    allow_direct_connections(config.direct, config.direct_port);
 }
 
 /// Stops the service and waits up to 15 s for `Stopped`.

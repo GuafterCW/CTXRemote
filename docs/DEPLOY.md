@@ -392,6 +392,41 @@ Die Laufnummer des Release ist der `versionCode`, also kann jedes Release hochge
 
 Private Konten brauchen vor der Freigabe im Store einen geschlossenen Test mit mindestens 12 Testern über 14 Tage. Der interne Test geht sofort.
 
+## Microsoft Store (MSIX)
+
+Jedes Release packt App und Dienst zusätzlich als MSIX (`app/msix/`, Artefakt `client-msix`):
+- `CTXRemote-<Version>-store.msix`: unsigniert, zum Hochladen im Partner Center. Der Store signiert es selbst, damit entfällt die SmartScreen-Warnung, und Updates kommen über den Store.
+- `CTXRemote-<Version>.msix` und `CTXRemote-Test.cer`: dasselbe Paket mit Testsignatur, zum direkten Installieren.
+
+Im Paket ist alles wie beim NSIS-Installer, nur auf anderem Weg:
+- Windows richtet den Dienst `CTXRemote` (LocalSystem, automatisch) aus dem Manifest ein. Was sonst `--install` macht (Strg+Alt+Entf-Richtlinie, Firewall-Regel), erledigt der Dienst bei jedem Start (`packaged_setup` in `crates/service/src/win.rs`).
+- Der Start im Tray bei der Anmeldung ist eine StartupTask (zweite Application „Tray“ mit `--tray`). Windows schaltet sie erst nach dem ersten Start der App ein.
+- Der eigene Updater ist aus, sobald die App aus einem Paket läuft (`update::packaged()`).
+- Eingeschränkte Fähigkeiten: `packagedServices`, `localSystemServices`, `allowElevation`, `runFullTrust`. Für die ersten beiden fragt der Store nach einer Begründung, zum Beispiel: „Fernwartung braucht einen Dienst als LocalSystem, um Anmeldebildschirm, Sperrbildschirm und UAC-Dialoge zu übertragen und Strg+Alt+Entf auszulösen.“
+
+### Testpaket installieren
+
+1. `CTXRemote-Test.cer` doppelklicken → „Zertifikat installieren“ → „Lokaler Computer“ → Speicher „Vertrauenswürdige Personen“.
+2. Den alten CTXRemote (NSIS) vorher deinstallieren, sonst laufen zwei Dienste.
+3. `CTXRemote-<Version>.msix` doppelklicken → Installieren.
+
+Ohne Secret entsteht das Testzertifikat bei jedem Release neu, Schritt 1 ist dann jedes Mal nötig. Ein festes Zertifikat: als Secrets `MSIX_CERT` (base64 einer .pfx, deren Subject gleich dem Publisher ist) und `MSIX_CERT_PASSWORD`.
+
+### Einmalig einrichten für den Store
+
+1. Konto im Partner Center (partner.microsoft.com, „Windows & Xbox“), für Einzelpersonen inzwischen kostenlos.
+2. App-Namen „CTXRemote“ reservieren. Unter „Produktidentität“ stehen `Package/Identity/Name`, `Package/Identity/Publisher` und `Package/Properties/PublisherDisplayName`.
+3. Diese drei als GitHub-Variablen `MSIX_IDENTITY_NAME`, `MSIX_PUBLISHER`, `MSIX_PUBLISHER_DISPLAY_NAME` eintragen. Das nächste Release baut das Paket mit diesen Werten.
+4. Einreichung anlegen, `…-store.msix` hochladen, Store-Eintrag (Beschreibung, Screenshots, Datenschutz-URL `https://ctxremote.ctx.ink/datenschutz.html`) ausfüllen, die eingeschränkten Fähigkeiten begründen.
+5. Nach der Freigabe die Store-Adresse als Variable `MSSTORE_URL` eintragen (siehe „Download-Seite“).
+
+## Download-Seite
+
+Die Deploy-Stufe passt `website/download.html` an:
+- `MSSTORE_URL` gesetzt: Knopf „Im Microsoft Store“ zeigt dorthin, der direkte Installer bleibt als zweiter Knopf. Sonst fällt der Store-Knopf weg.
+- `PLAY_URL` gesetzt: Knopf „Bei Google Play“.
+- Die APK liegt nur mit dem echten Android-Schlüssel unter `/download/CTXRemote.apk`. Gibt es weder Play-Adresse noch APK, fällt die Android-Karte weg.
+
 ## Sicherung der Serverdaten
 
 Im Datenordner `/var/lib/ctxremote` liegt alles, was sich nicht neu erzeugen lässt:

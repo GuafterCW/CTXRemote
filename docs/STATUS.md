@@ -103,11 +103,15 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 
 - **Android im Release (13. Oktober):** Der Release-Lauf baut jetzt auch Android (Job `client-android`): eine APK und, mit Signaturschlüssel, ein App-Bundle für Google Play. Die App zeigt auf den Projektserver; die APK aus der CI tut das nicht (dort steht `localhost`). Der `versionCode` ist die Laufnummer. Einrichtung in `docs/DEPLOY.md`, „Android und Google Play“. Der Nutzer pusht auch direkt nach `master`, es ist alles noch Testbetrieb.
 
+- **MSIX für den Microsoft Store (13. Oktober):** Der Release-Lauf baut App und Dienst zusätzlich als MSIX (`app/msix/AppxManifest.xml`, `build-msix.ps1`). Dienst über `desktop6:Service`, Tray-Start über eine StartupTask, eigener Updater im Paket aus (`update::packaged()`), Strg+Alt+Entf-Richtlinie und Firewall setzt der Dienst bei jedem Start. Nur typgeprüft: Ob Windows den Dienst aus dem Paket einrichtet, ob der Agent in der Konsolensitzung startet, ob `--configure` mit UAC aus dem Paket geht und ob die Registry-Richtlinie geschrieben wird, ist offen (Testpunkt 55). Einrichtung in `docs/DEPLOY.md`.
+- **Website:** Download-Seite mit Knopf „Im Microsoft Store“ und Android-Karte. Beide erscheinen erst, wenn die Variablen `MSSTORE_URL` bzw. `PLAY_URL` gesetzt sind oder eine APK mit echtem Schlüssel da ist. Bis dahin bleibt der direkte Installer der Hauptknopf.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
 - **Android-Signaturschlüssel** als Secrets `ANDROID_KEYSTORE` (base64 der .jks) und `ANDROID_KEYSTORE_PASSWORD`. Ohne sie signiert die CI jede APK mit einem Wegwerf-Schlüssel, vor jedem Update muss die alte App deinstalliert werden, und es entsteht kein App-Bundle für Google Play.
 - **Google-Play-Konto** (25 $, Identitätsprüfung) und Store-Eintrag, siehe `docs/DEPLOY.md`.
+- **Partner-Center-Konto** für den Microsoft Store, danach die Variablen `MSIX_IDENTITY_NAME`, `MSIX_PUBLISHER`, `MSIX_PUBLISHER_DISPLAY_NAME` und nach der Freigabe `MSSTORE_URL`, siehe `docs/DEPLOY.md`.
 - **Apple-Entwicklerkonto** (99 $ im Jahr): für iOS und für einen Mac-Download ohne Warnung.
 - **Code-Signatur Windows:** siehe „Offene Entscheidungen“.
 
@@ -764,6 +768,13 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Ein Tab per ×, Mittelklick oder „Trennen“ schließen: nur diese Sitzung endet. Der letzte Tab schließt das Fenster. Das Fenster schließen beendet alle.
     - Chat, Dateien, Vollbild, Dateien per Drag & Drop (nur in den vorderen Tab) und „Erneut verbinden“ (öffnet einen neuen Tab und schließt den alten) funktionieren.
     - In den Einstellungen „Jede Sitzung in eigenem Fenster“ einschalten: neue Sitzungen öffnen wieder eigene Fenster.
+55. MSIX-Testpaket (Artefakt „client-msix“ eines Release-Laufs, Anleitung in `docs/DEPLOY.md`, „Testpaket installieren“):
+    - Vorher den NSIS-CTXRemote deinstallieren. Zertifikat importieren, Paket installieren: Startet die App ohne SmartScreen-Warnung?
+    - Läuft der Dienst „CTXRemote“ (services.msc)? Verbindet sich das Gerät mit derselben ID, und zeigt die App ID und Passwort?
+    - Fernsteuern, auch am Sperrbildschirm und bei einem UAC-Dialog. Strg+Alt+Entf aus der Sitzung.
+    - Festes Passwort setzen (UAC-Abfrage) und danach damit verbinden.
+    - Abmelden und wieder anmelden: Ist die App im Tray? In den Einstellungen gibt es keinen Update-Knopf.
+    - Paket deinstallieren: Ist der Dienst weg?
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.
