@@ -793,12 +793,12 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Abmelden und wieder anmelden: Ist die App im Tray? In den Einstellungen gibt es keinen Update-Knopf.
     - Paket deinstallieren: Ist der Dienst weg?
     - Update auf ein neueres Testpaket, während die App im Tray läuft: `Add-AppxPackage … -ForceApplicationShutdown` nötig (sonst 0x80073D02). Offen: Wartet ein Update aus dem Store, bis die Tray-App beendet ist? Dann müsste die App das Update bemerken und sich beenden (`Windows.Services.Store` bzw. Paket-Update-Ereignis).
-56. Maus am Gerät hat Vorrang (Windows-Host):
+56. Maus am Gerät hat Vorrang (Windows-Host) – **vom Nutzer am 13. Oktober bestätigt**:
     - Während einer Sitzung die Maus am ferngesteuerten Gerät bewegen, während der Viewer seine Maus auch bewegt: Der Zeiger folgt der Person am Gerät, nicht dem Viewer. Etwa eine Sekunde nach ihrer letzten Bewegung steuert der Viewer wieder.
     - Hält der Viewer gerade eine Taste (z. B. beim Ziehen) und die Person bewegt die Maus: Danach hängt keine Maustaste.
     - Am Sperrbildschirm und bei UAC-Dialogen: Steuert der Viewer dort normal? (Der Hook läuft auf dem Desktop, auf dem die Sitzung begann.)
     - Im Privatsphäre-Modus: Der Viewer steuert ohne Unterbrechung, auch wenn jemand an der gesperrten Maus wackelt.
-57. CTXRemote-Fenster geschützt und blasser Zeiger (Windows-Host, beide Seiten 0.1.5x):
+57. CTXRemote-Fenster geschützt und blasser Zeiger (Windows-Host, beide Seiten 0.1.5x) – **vom Nutzer am 13. Oktober bestätigt**:
     - Mit Einmal-Passwort verbinden. Beim Gegenüber im CTXRemote-Fenster auf „Rechte“ und die Rechte-Symbole klicken: Nichts passiert, der Zeiger wird kurz blass. Die Person am Gerät kann die Rechte weiter ändern.
     - Das CTXRemote-Fenster beim Gegenüber in den Vordergrund holen und tippen: Es kommt nichts an. In anderen Programmen tippt der Viewer normal.
     - Mit festem Passwort (eigenes Gerät) verbinden: Das CTXRemote-Fenster ist normal bedienbar.
