@@ -91,6 +91,9 @@ jobs:
         run: |
           printf '{"version":"%s"}' "$CTXREMOTE_VERSION" > src-tauri/tauri.version.json
           npm run tauri build -- --config src-tauri/tauri.version.json
+          # Kept for the MSIX: the quick helper's build overwrites target/release/ctxremote.exe.
+          mkdir -p ../msix-bin
+          cp ../target/release/ctxremote.exe ../target/release/ctxremote-service.exe ../msix-bin/
       - name: Schnellhilfe
         if: vars.CTXREMOTE_SERVER != ''
         working-directory: app
@@ -126,7 +129,7 @@ jobs:
           MSIX_CERT: ${{ secrets.MSIX_CERT }}
           MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
         run: >-
-          ./app/msix/build-msix.ps1 -Version $env:CTXREMOTE_VERSION -OutDir msix
+          ./app/msix/build-msix.ps1 -Version $env:CTXREMOTE_VERSION -BinDir msix-bin -OutDir msix
           -IdentityName "${{ vars.MSIX_IDENTITY_NAME || 'CTXRemote' }}"
           -Publisher "${{ vars.MSIX_PUBLISHER || 'CN=CTXRemote Test' }}"
           -PublisherDisplayName "${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'CTXRemote' }}"

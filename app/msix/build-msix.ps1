@@ -2,9 +2,11 @@
 #   CTXRemote-<version>-store.msix  unsigned, for upload to Partner Center (the store signs it)
 #   CTXRemote-<version>.msix        signed, for installing directly as a test
 #   CTXRemote-Test.cer              the test signature's certificate
-# Runs after `npm run tauri build` on Windows, from the repository root.
+# Runs after `npm run tauri build` on Windows, from the repository root; $BinDir
+# holds ctxremote.exe and ctxremote-service.exe from that build.
 param(
     [Parameter(Mandatory)] [string] $Version,
+    [string] $BinDir = "target\release",
     [string] $IdentityName = "CTXRemote",
     [string] $Publisher = "CN=CTXRemote Test",
     [string] $PublisherDisplayName = "CTXRemote",
@@ -21,7 +23,7 @@ $layout = Join-Path $env:RUNNER_TEMP "msix-layout"
 Remove-Item -Recurse -Force $layout -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$layout\Assets", $OutDir | Out-Null
 
-Copy-Item target\release\ctxremote.exe, target\release\ctxremote-service.exe $layout
+Copy-Item "$BinDir\ctxremote.exe", "$BinDir\ctxremote-service.exe" $layout
 foreach ($asset in "StoreLogo.png", "Square44x44Logo.png", "Square150x150Logo.png") {
     Copy-Item "app\src-tauri\icons\$asset" "$layout\Assets\"
 }
