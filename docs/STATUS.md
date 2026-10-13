@@ -289,7 +289,7 @@ Wunsch des Nutzers: Was der Endnutzer beim Verbinden sieht, soll sich personalis
   - Impressum und Datenschutz als Vorlagen mit **markierten Platzhaltern** (`<span class="todo">`), die der Nutzer füllen muss
 - **Adresse und Server:** https://ctxremote.ctx.ink (**online seit 5. Oktober**, hinter dem Cloudflare-Proxy) auf dem Hetzner-Server, ausgeliefert vom Caddy-Docker-Container des Nutzers. Nicht `remote.ctx.ink`, weil dort das Cloudflare-Origin-Zertifikat für `*.ctx.ink` greifen würde (siehe DEPLOY.md). Einrichtung einmalig mit `deploy/setup-website.sh`, siehe `docs/DEPLOY.md`, Abschnitt „Website“.
   - **Caddy des Nutzers läuft in Docker** mit weiteren Seiten. Deshalb `setup-website.sh --docker`: Es legt nur den Ordner an und gibt Volume und Caddy-Block aus. Ohne `--docker` bricht das Skript ab, wenn die Ports fremd belegt sind.
-  - **Offen beim Nutzer:** Platzhalter in Impressum und Datenschutz füllen, AVV mit Hetzner abschließen.
+  - Platzhalter in Impressum und Datenschutz am 13. Oktober gefüllt (Philipp Ecker, Grafenau, info@pecker.cc; Mailserver eigener auf Hetzner). **Offen beim Nutzer:** AVV mit Hetzner abschließen (die Datenschutzerklärung sagt, dass es einen gibt).
 - **Pipeline:** `release.yml` packt `website/`, die Version und die Downloads unter festen Namen dazu. `remote-deploy.sh` schaltet die Seite per Symlink atomar um, aber nur, wenn `/var/www/ctxremote` existiert.
 - **Selbst-Hosting** bietet die Seite bewusst nicht an (Entscheidung des Nutzers).
 - Die App-Screenshots in `website/img/` stammen aus dem Frontend mit nachgebauter Tauri-API. Bei sichtbaren UI-Änderungen neu erzeugen.
