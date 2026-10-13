@@ -111,6 +111,8 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
   - Agent startete im Paket nicht („Zugriff verweigert“). Vermutete Ursache: Der Dienst läuft im Paket in einem Job, und ein Job kann keine Sitzungen überspannen. Jetzt zweiter Versuch mit `CREATE_BREAKAWAY_FROM_JOB`, die Fehlermeldung nennt den Job-Zustand. Ungetestet.
   - Rote Ecken am Taskleisten-Symbol (Windows legt die Akzentfarbe hinter Logos ohne „unplated“-Varianten): Logos in allen Größen unter `app/msix/Assets`, dazu `resources.pri` per makepri.
 
+- **Zweiter MSIX-Test (13. Oktober, 0.1.48):** Nach dem Nutzer „sieht alles ganz gut aus“: Paket-Update mit `-ForceApplicationShutdown`, Tab-Fenster und Fernsteuern laufen. Noch nicht einzeln bestätigt: Sperrbildschirm/UAC/Strg+Alt+Entf am MSIX-Gerät, festes Passwort mit UAC aus dem Paket, Tray-Start nach Anmeldung, Deinstallation (Rest von Testpunkt 55).
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
