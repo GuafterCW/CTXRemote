@@ -16,6 +16,19 @@ In `docs/store/`, 1920×1080, PNG, in dieser Reihenfolge:
 
 Die Bilder zeigen die echte Oberfläche (`app/dist`) mit Beispieldaten. Das Bild des fernen Desktops ist `docs/store/desktop.html`. Neu erzeugen: `app/dist` bauen und auf Port 8765 ausliefern (`python3 -m http.server 8765` in `app/dist`), `desktop.html` mit Playwright als `desktop.png` (1920×1080) in einen Ordner legen, dann `node docs/store/screenshots.cjs <Ordner>`.
 
+## Store-Logos
+
+In `docs/store/logos/`, aus `app/app-icon.svg` (neu: `node docs/store/logos.cjs app/app-icon.svg docs/store/logos`):
+
+| Feld im Partner Center | Datei |
+|---|---|
+| Verpackungsgrafik 1:1 (1080 bzw. 2160) | `logo-1080.png`, `logo-2160.png` |
+| Symbol für die App-Kachel 300×300 | `logo-300.png` |
+| 1:1 150×150 | `logo-150.png` |
+| 1:1 71×71 | `logo-71.png` |
+
+Die Postergrafik 9:16 braucht nur Xbox und bleibt leer.
+
 ## Produktname
 
 CTXRemote
