@@ -68,7 +68,7 @@ mod imp {
     use tokio_util::codec::{Framed, LengthDelimitedCodec};
     use tracing::{info, warn};
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
+    use windows::Win32::Foundation::{CloseHandle, LocalFree, E_ACCESSDENIED, HANDLE, HLOCAL};
     use windows::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
         SDDL_REVISION_1,
@@ -79,12 +79,17 @@ mod imp {
         TOKEN_ACCESS_MASK, TOKEN_ADJUST_DEFAULT, TOKEN_ADJUST_SESSIONID, TOKEN_ASSIGN_PRIMARY,
         TOKEN_DUPLICATE, TOKEN_QUERY, TOKEN_USER,
     };
+    use windows::Win32::System::JobObjects::{
+        IsProcessInJob, QueryInformationJobObject, JobObjectExtendedLimitInformation,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+    };
     use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
     use windows::Win32::System::RemoteDesktop::{ProcessIdToSessionId, WTSGetActiveConsoleSessionId};
     use windows::Win32::System::Threading::{
         CreateProcessAsUserW, GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken,
         TerminateProcess, PROCESS_TERMINATE,
-        CREATE_NO_WINDOW, PROCESS_INFORMATION, STARTUPINFOW,
+        CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION,
+        STARTUPINFOW,
     };
 
     use super::*;
@@ -234,6 +239,36 @@ mod imp {
         }
     }
 
+    fn in_job() -> bool {
+        let mut result = windows::core::BOOL(0);
+        unsafe { IsProcessInJob(GetCurrentProcess(), None, &mut result) }.is_ok() && result.as_bool()
+    }
+
+    /// For the error message: whether a job holds the service and lets it break away.
+    fn job_note() -> String {
+        if !in_job() {
+            return String::new();
+        }
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        let queried = unsafe {
+            QueryInformationJobObject(
+                None,
+                JobObjectExtendedLimitInformation,
+                (&mut limits as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                None,
+            )
+        };
+        let flags = limits.BasicLimitInformation.LimitFlags;
+        match queried {
+            Err(_) => " (Dienst läuft in einem Job)".into(),
+            Ok(()) if flags.contains(JOB_OBJECT_LIMIT_BREAKAWAY_OK) || flags.contains(JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK) => {
+                " (Dienst läuft in einem Job, Ausbruch erlaubt)".into()
+            }
+            Ok(()) => " (Dienst läuft in einem Job ohne Ausbruch)".into(),
+        }
+    }
+
     /// Starts the agent in the console session, as SYSTEM with our own token.
     /// Outside the service (same session, e.g. `--console`), a plain child is enough.
     fn spawn_agent(exe: &std::path::Path, pipe: &str) -> Result<(OwnedHandle, u32)> {
@@ -285,20 +320,29 @@ mod imp {
                 .collect();
             let app: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
             let mut info = PROCESS_INFORMATION::default();
-            CreateProcessAsUserW(
-                Some(HANDLE(primary.as_raw_handle())),
-                PCWSTR(app.as_ptr()),
-                Some(PWSTR(command.as_mut_ptr())),
-                None,
-                None,
-                false,
-                CREATE_NO_WINDOW,
-                None,
-                PCWSTR::null(),
-                &startup,
-                &mut info,
-            )
-            .context("Agent konnte nicht gestartet werden")?;
+            let mut create = |flags: PROCESS_CREATION_FLAGS| {
+                CreateProcessAsUserW(
+                    Some(HANDLE(primary.as_raw_handle())),
+                    PCWSTR(app.as_ptr()),
+                    Some(PWSTR(command.as_mut_ptr())),
+                    None,
+                    None,
+                    false,
+                    flags,
+                    None,
+                    PCWSTR::null(),
+                    &startup,
+                    &mut info,
+                )
+            };
+            // A job cannot span sessions. From an MSIX package the service runs
+            // in one, and starting the agent in the console session is denied
+            // unless the agent leaves the job.
+            match create(CREATE_NO_WINDOW) {
+                Err(e) if e.code() == E_ACCESSDENIED && in_job() => create(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB),
+                result => result,
+            }
+            .with_context(|| format!("Agent konnte nicht gestartet werden{}", job_note()))?;
             let _ = CloseHandle(info.hThread);
             Ok((OwnedHandle::from_raw_handle(info.hProcess.0), info.dwProcessId))
         }

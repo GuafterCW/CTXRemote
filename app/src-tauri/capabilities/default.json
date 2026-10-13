@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window, remote session windows and their file windows",
-  "windows": ["main", "session-*", "files-*"],
+  "description": "Main window, the session tabs, remote session windows and their file windows",
+  "windows": ["main", "sessions", "session-*", "files-*"],
   "permissions": [
     "core:default",
     "core:window:allow-set-fullscreen",

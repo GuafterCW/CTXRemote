@@ -106,6 +106,11 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 - **MSIX für den Microsoft Store (13. Oktober):** Der Release-Lauf baut App und Dienst zusätzlich als MSIX (`app/msix/AppxManifest.xml`, `build-msix.ps1`). Dienst über `desktop6:Service`, Tray-Start über eine StartupTask, eigener Updater im Paket aus (`update::packaged()`), Strg+Alt+Entf-Richtlinie und Firewall setzt der Dienst bei jedem Start. Seit Release #47 (0.1.47) baut die CI das Paket (makeappx und signtool ohne Fehler, Artefakt „client-msix“). Ob Windows den Dienst aus dem Paket einrichtet, ob der Agent in der Konsolensitzung startet, ob `--configure` mit UAC aus dem Paket geht und ob die Registry-Richtlinie geschrieben wird, ist offen (Testpunkt 55). Einrichtung in `docs/DEPLOY.md`.
 - **Website:** Download-Seite mit Knopf „Im Microsoft Store“ und Android-Karte. Beide erscheinen erst, wenn die Variablen `MSSTORE_URL` bzw. `PLAY_URL` gesetzt sind oder eine APK mit echtem Schlüssel da ist. Bis dahin bleibt der direkte Installer der Hauptknopf.
 
+- **Erster MSIX-Test (13. Oktober, 0.1.47):** Installation geht nur aus einer Admin-PowerShell (`Add-AppxPackage`) und nur mit dem Zertifikat unter „Lokaler Computer → Vertrauenswürdige Personen“. App, Dienst, Verbindungen und Dateien liefen. Gefunden und behoben:
+  - Tab-Fenster `sessions` fehlte in `capabilities/default.json`: Chat vom Host, Systeminfo, Privatsphäre-Status, Vollbild und das Schließen gingen im Tab-Fenster nicht (alle Ereignisse und Fensterbefehle verweigert). Betraf auch die normale Windows-Version seit 0.1.44.
+  - Agent startete im Paket nicht („Zugriff verweigert“). Vermutete Ursache: Der Dienst läuft im Paket in einem Job, und ein Job kann keine Sitzungen überspannen. Jetzt zweiter Versuch mit `CREATE_BREAKAWAY_FROM_JOB`, die Fehlermeldung nennt den Job-Zustand. Ungetestet.
+  - Rote Ecken am Taskleisten-Symbol (Windows legt die Akzentfarbe hinter Logos ohne „unplated“-Varianten): Logos in allen Größen unter `app/msix/Assets`, dazu `resources.pri` per makepri.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
