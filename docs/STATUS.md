@@ -113,6 +113,8 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 
 - **Zweiter MSIX-Test (13. Oktober, 0.1.48):** Nach dem Nutzer „sieht alles ganz gut aus“: Paket-Update mit `-ForceApplicationShutdown`, Tab-Fenster und Fernsteuern laufen. Danach bestätigt: Sperrbildschirm, UAC-Dialoge, Strg+Alt+Entf, festes Passwort mit UAC-Abfrage aus dem Paket, Tray-Start nach der Anmeldung, Deinstallation entfernt den Dienst. Testpunkt 55 ist damit erledigt. Die UAC-Abfrage zeigt „Herausgeber: unbekannt“ wie bei der NSIS-Version (Testsignatur); ob sich das mit der Store-Signatur ändert, ist offen.
 
+- **Store-Eintrag vorbereitet:** `docs/STORE.md` (Beschreibung, Features, Suchbegriffe, Altersfreigabe, Begründung der eingeschränkten Fähigkeiten) und fünf Screenshots 1920×1080 in `docs/store/` (echte Oberfläche mit Beispieldaten, Skript `docs/store/screenshots.cjs`).
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**

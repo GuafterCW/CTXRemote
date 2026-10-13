@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0}
+body{width:1920px;height:1080px;font-family:"Segoe UI",Inter,system-ui,sans-serif;overflow:hidden;
+background:radial-gradient(1200px 700px at 30% 20%,#3b6ea8 0%,transparent 60%),radial-gradient(900px 600px at 80% 75%,#7a4f9e 0%,transparent 60%),linear-gradient(135deg,#1d2b4a,#2c1f45);}
+.icons{position:absolute;left:24px;top:24px;display:grid;gap:26px}
+.ic{width:84px;text-align:center;color:#fff;font-size:13px;text-shadow:0 1px 2px #0008}
+.ic i{display:block;width:52px;height:44px;margin:0 auto 6px;border-radius:6px;background:linear-gradient(#f3c650,#e2a92c)}
+.ic.b i{background:linear-gradient(#cfd8e3,#9fb0c4)} .ic.g i{background:linear-gradient(#6ccf8a,#3aa760)}
+.win{position:absolute;left:330px;top:120px;width:1260px;height:760px;background:#fff;border-radius:10px;box-shadow:0 20px 60px #0007;overflow:hidden;color:#1d1d1f}
+.tb{height:44px;display:flex;align-items:center;padding:0 16px;background:#f3f3f3;border-bottom:1px solid #e3e3e3;font-size:14px}
+.tb span{flex:1}.dots{display:flex;gap:22px;color:#555;font-size:16px}
+.side{position:absolute;top:44px;bottom:0;width:220px;background:#f7f7f8;border-right:1px solid #e8e8e8;padding:18px 14px;font-size:14px;color:#333}
+.side div{padding:8px 10px;border-radius:6px;margin-bottom:2px}.side .on{background:#e6eefc;color:#1f5bd6;font-weight:600}
+.main{position:absolute;left:220px;top:44px;right:0;bottom:0;padding:26px 30px}
+h1{font-size:24px;font-weight:600;margin-bottom:6px}.sub{color:#666;font-size:14px;margin-bottom:22px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+.card{border:1px solid #e6e6e6;border-radius:10px;padding:16px}.card b{display:block;font-size:26px;margin-top:6px}.card small{color:#777}
+table{width:100%;border-collapse:collapse;font-size:14px}th{text-align:left;color:#777;font-weight:500;padding:9px 8px;border-bottom:1px solid #e6e6e6}
+td{padding:11px 8px;border-bottom:1px solid #f0f0f0}.st{padding:3px 9px;border-radius:20px;font-size:12px}
+.ok{background:#e3f5e9;color:#1d7a3e}.wa{background:#fff2d6;color:#8a5a00}
+.bar{position:absolute;left:0;right:0;bottom:0;height:56px;background:#202024ee;display:flex;align-items:center;justify-content:center;gap:14px}
+.bar i{width:36px;height:36px;border-radius:8px;background:#3a3a40}.bar i.s{background:#5b8def}
+.clock{position:absolute;right:20px;bottom:10px;color:#fff;font-size:13px;text-align:right;line-height:1.35}
+</style></head><body>
+<div class="icons"><div class="ic"><i></i>Projekte</div><div class="ic b"><i></i>Papierkorb</div><div class="ic g"><i></i>Rechnungen.xlsx</div></div>
+<div class="win"><div class="tb"><span>Auftragsverwaltung – Übersicht</span><div class="dots">–&nbsp;&nbsp;☐&nbsp;&nbsp;✕</div></div>
+<div class="side"><div class="on">Übersicht</div><div>Aufträge</div><div>Kunden</div><div>Rechnungen</div><div>Lager</div><div>Berichte</div><div>Einstellungen</div></div>
+<div class="main"><h1>Guten Morgen, Anna</h1><div class="sub">Dienstag, 13. Oktober 2026</div>
+<div class="cards"><div class="card"><small>Offene Aufträge</small><b>18</b></div><div class="card"><small>Diese Woche fällig</small><b>6</b></div><div class="card"><small>Umsatz Oktober</small><b>24.380 €</b></div></div>
+<table><tr><th>Nr.</th><th>Kunde</th><th>Leistung</th><th>Fällig</th><th>Status</th></tr>
+<tr><td>A-1042</td><td>Bäckerei Hofmann</td><td>Kassensystem einrichten</td><td>14.10.</td><td><span class="st wa">In Arbeit</span></td></tr>
+<tr><td>A-1041</td><td>Praxis Dr. Weber</td><td>Drucker im Netzwerk</td><td>15.10.</td><td><span class="st ok">Erledigt</span></td></tr>
+<tr><td>A-1039</td><td>Schreinerei Lang</td><td>Datensicherung prüfen</td><td>16.10.</td><td><span class="st wa">In Arbeit</span></td></tr>
+<tr><td>A-1037</td><td>Kanzlei Berger</td><td>Neuer Laptop</td><td>17.10.</td><td><span class="st ok">Erledigt</span></td></tr>
+<tr><td>A-1035</td><td>Autohaus Kern</td><td>E-Mail-Postfächer</td><td>20.10.</td><td><span class="st wa">In Arbeit</span></td></tr></table></div></div>
+<div class="bar"><i class="s"></i><i></i><i></i><i></i><i></i></div><div class="clock">09:41<br>13.10.2026</div>
+</body></html>

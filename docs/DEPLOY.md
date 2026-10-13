@@ -417,7 +417,7 @@ Ohne Secret entsteht das Testzertifikat bei jedem Release neu, Schritt 1 ist dan
 1. Konto im Partner Center (partner.microsoft.com, „Windows & Xbox“), für Einzelpersonen inzwischen kostenlos.
 2. App-Namen „CTXRemote“ reservieren. Unter „Produktidentität“ stehen `Package/Identity/Name`, `Package/Identity/Publisher` und `Package/Properties/PublisherDisplayName`.
 3. Diese drei als GitHub-Variablen `MSIX_IDENTITY_NAME`, `MSIX_PUBLISHER`, `MSIX_PUBLISHER_DISPLAY_NAME` eintragen. Das nächste Release baut das Paket mit diesen Werten.
-4. Einreichung anlegen, `…-store.msix` hochladen, Store-Eintrag (Beschreibung, Screenshots, Datenschutz-URL `https://ctxremote.ctx.ink/datenschutz.html`) ausfüllen, die eingeschränkten Fähigkeiten begründen.
+4. Einreichung anlegen, `…-store.msix` hochladen, Store-Eintrag ausfüllen und die eingeschränkten Fähigkeiten begründen. Texte und Screenshots dafür: `docs/STORE.md`.
 5. Nach der Freigabe die Store-Adresse als Variable `MSSTORE_URL` eintragen (siehe „Download-Seite“).
 
 ## Download-Seite
