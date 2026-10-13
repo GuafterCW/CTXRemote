@@ -19,8 +19,14 @@
 //! The window and hooks belong to a thread of this process; they end with
 //! [`PrivacyMode`], and with the process if it dies.
 
+use std::sync::atomic::AtomicBool;
+
 use anyhow::Result;
 use ctxremote_proto::session::CursorShape;
+
+/// Set while the mode swallows the local mouse and keyboard; the person's
+/// input then cannot take the mouse back from the viewer.
+pub static LOCAL_INPUT_BLOCKED: AtomicBool = AtomicBool::new(false);
 
 pub struct PrivacyMode {
     #[cfg(windows)]
@@ -394,6 +400,7 @@ mod imp {
             };
             cover(window);
             hide_pointers();
+            super::LOCAL_INPUT_BLOCKED.store(true, std::sync::atomic::Ordering::Relaxed);
             SetTimer(Some(window), 1, RAISE_MS, None);
             let _ = ready.send(Ok(GetCurrentThreadId()));
             tracing::info!("Privatsphäre-Modus an");
@@ -405,6 +412,7 @@ mod imp {
             }
 
             let _ = KillTimer(Some(window), 1);
+            super::LOCAL_INPUT_BLOCKED.store(false, std::sync::atomic::Ordering::Relaxed);
             restore_pointers();
             unhook(Some(keyboard));
             unhook(Some(mouse));

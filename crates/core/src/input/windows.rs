@@ -1,7 +1,14 @@
 //! Input injection through `SendInput`.
+//!
+//! The person at the device keeps the mouse: while they move it, the
+//! viewer's mouse moves and clicks wait (like AnyDesk). A low-level hook
+//! notices their mouse by the missing "injected" flag, whatever the screen
+//! scaling.
 
 use std::collections::HashSet;
 use std::mem::size_of;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Once;
 
 use ctxremote_proto::session::{InputEvent, MouseButton};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -12,12 +19,22 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT,
     MOUSE_EVENT_FLAGS, VIRTUAL_KEY, KEYEVENTF_UNICODE,
 };
+use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::SystemInformation::GetTickCount64;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    CallNextHookEx, GetMessageW, GetSystemMetrics, SetWindowsHookExW, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT,
+    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WH_MOUSE_LL,
 };
 
 use crate::capture::Display;
 use crate::keymap::scancode_for;
+
+/// How long the person's mouse keeps priority after its last movement.
+const LOCAL_PRIORITY_MS: u64 = 1000;
+
+/// Tick count of the person's last own mouse input, 0 for none yet.
+static LOCAL_MOUSE: AtomicU64 = AtomicU64::new(0);
 
 const XBUTTON1: u32 = 1;
 const XBUTTON2: u32 = 2;
@@ -30,6 +47,7 @@ pub struct Injector {
 
 impl Injector {
     pub fn new(display: &Display) -> Self {
+        watch_local_mouse();
         Self { origin: (display.left, display.top), keys: HashSet::new(), buttons: HashSet::new() }
     }
 
@@ -38,6 +56,15 @@ impl Injector {
     }
 
     pub fn apply(&mut self, event: &InputEvent) {
+        // Releasing stays allowed, so nothing is left held down.
+        let pressing = match event {
+            InputEvent::MouseMove { .. } | InputEvent::Wheel { .. } => true,
+            InputEvent::MouseButton { down, .. } => *down,
+            _ => false,
+        };
+        if pressing && local_mouse_busy() {
+            return;
+        }
         match event {
             InputEvent::MouseMove { x, y } => self.move_to(self.origin.0 + x, self.origin.1 + y),
             InputEvent::MouseButton { button, down } => {
@@ -211,4 +238,50 @@ fn send(input: &INPUT) -> bool {
         tracing::trace!("SendInput wurde blockiert");
     }
     sent != 0
+}
+
+/// Starts, once per process, the thread whose hook notes the person's own mouse.
+fn watch_local_mouse() {
+    static START: Once = Once::new();
+    START.call_once(|| {
+        let started = std::thread::Builder::new().name("local-mouse".into()).spawn(|| {
+            // The hook sees the input of the desktop the person uses.
+            crate::desktop::follow_input();
+            // SAFETY: the hook and its message loop belong to this thread,
+            // which lives as long as the process.
+            unsafe {
+                let module = GetModuleHandleW(None).unwrap_or_default();
+                if let Err(e) = SetWindowsHookExW(WH_MOUSE_LL, Some(local_mouse_hook), Some(module.into()), 0) {
+                    tracing::warn!("Maus am Gerät nicht erkennbar: {e}");
+                    return;
+                }
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
+            }
+        });
+        if let Err(e) = started {
+            tracing::warn!("Maus am Gerät nicht erkennbar: {e}");
+        }
+    });
+}
+
+unsafe extern "system" fn local_mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 {
+        // SAFETY: for WH_MOUSE_LL, lparam points to an MSLLHOOKSTRUCT.
+        let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        if event.flags & LLMHF_INJECTED == 0 {
+            LOCAL_MOUSE.store(unsafe { GetTickCount64() }, Ordering::Relaxed);
+        }
+    }
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+/// The person moved or clicked their own mouse a moment ago. Not in privacy
+/// mode, which swallows their input anyway.
+fn local_mouse_busy() -> bool {
+    if crate::privacy::LOCAL_INPUT_BLOCKED.load(Ordering::Relaxed) {
+        return false;
+    }
+    let last = LOCAL_MOUSE.load(Ordering::Relaxed);
+    last != 0 && unsafe { GetTickCount64() }.saturating_sub(last) < LOCAL_PRIORITY_MS
 }

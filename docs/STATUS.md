@@ -117,6 +117,8 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 
 - **Microsoft Store eingereicht (13. Oktober):** Paket 0.1.50 (`PhilippEcker.CTXRemote`) in der Zertifizierung. Die erste Fassung (0.1.49) lehnte das Partner Center ab: eine zweite Application ohne Listeneintrag (für den Tray-Start) gilt als „App ohne Benutzeroberfläche“; behoben mit der StartupTask an der Haupt-App. Nach der Freigabe: Store-Link aus „Produktidentität anzeigen“ als Variable `MSSTORE_URL`. Store-Updates lädt der Nutzer von Hand hoch (neue Einreichung mit dem `…-store.msix` aus dem Release-Lauf; Entscheidung 13. Oktober). Der Job `store` (`msstore publish`) ist vorbereitet, aber aus: Das Partner-Center-Konto hat keinen Entra-Mandanten, ohne den gibt es keine Zugangsdaten für die Automatisierung.
 
+- **Maus am Gerät hat Vorrang (13. Oktober, Wunsch des Nutzers, wie AnyDesk):** Bewegt oder klickt die Person am Windows-Gerät ihre eigene Maus, verwirft der Host eine Sekunde lang Mausbewegungen, Klicks und Mausrad des Viewers (Loslassen bleibt erlaubt). Erkannt per `WH_MOUSE_LL`-Hook am fehlenden `LLMHF_INJECTED` (`crates/core/src/input/windows.rs`); im Privatsphäre-Modus aus (`privacy::LOCAL_INPUT_BLOCKED`). Tastatur unverändert. Mac/Linux noch nicht. Nur typgeprüft, Testpunkt 56.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
@@ -788,6 +790,11 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Abmelden und wieder anmelden: Ist die App im Tray? In den Einstellungen gibt es keinen Update-Knopf.
     - Paket deinstallieren: Ist der Dienst weg?
     - Update auf ein neueres Testpaket, während die App im Tray läuft: `Add-AppxPackage … -ForceApplicationShutdown` nötig (sonst 0x80073D02). Offen: Wartet ein Update aus dem Store, bis die Tray-App beendet ist? Dann müsste die App das Update bemerken und sich beenden (`Windows.Services.Store` bzw. Paket-Update-Ereignis).
+56. Maus am Gerät hat Vorrang (Windows-Host):
+    - Während einer Sitzung die Maus am ferngesteuerten Gerät bewegen, während der Viewer seine Maus auch bewegt: Der Zeiger folgt der Person am Gerät, nicht dem Viewer. Etwa eine Sekunde nach ihrer letzten Bewegung steuert der Viewer wieder.
+    - Hält der Viewer gerade eine Taste (z. B. beim Ziehen) und die Person bewegt die Maus: Danach hängt keine Maustaste.
+    - Am Sperrbildschirm und bei UAC-Dialogen: Steuert der Viewer dort normal? (Der Hook läuft auf dem Desktop, auf dem die Sitzung begann.)
+    - Im Privatsphäre-Modus: Der Viewer steuert ohne Unterbrechung, auch wenn jemand an der gesperrten Maus wackelt.
 15. Helfer-Profil:
     - In den Einstellungen Name, Firma, Nachricht und ein Logo setzen, z. B. ein großes JPG. Die Vorschau muss stimmen.
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.
