@@ -792,7 +792,7 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Festes Passwort setzen (UAC-Abfrage) und danach damit verbinden.
     - Abmelden und wieder anmelden: Ist die App im Tray? In den Einstellungen gibt es keinen Update-Knopf.
     - Paket deinstallieren: Ist der Dienst weg?
-    - Update auf ein neueres Testpaket, während die App im Tray läuft: `Add-AppxPackage … -ForceApplicationShutdown` nötig (sonst 0x80073D02). Offen: Wartet ein Update aus dem Store, bis die Tray-App beendet ist? Dann müsste die App das Update bemerken und sich beenden (`Windows.Services.Store` bzw. Paket-Update-Ereignis).
+    - Update auf ein neueres Testpaket, während die App im Tray läuft: `Add-AppxPackage … -ForceApplicationShutdown` nötig (sonst 0x80073D02). Für Updates aus dem Store installiert die App sie selbst, siehe Punkt 58.
 56. Maus am Gerät hat Vorrang (Windows-Host) – **vom Nutzer am 13. Oktober bestätigt**:
     - Während einer Sitzung die Maus am ferngesteuerten Gerät bewegen, während der Viewer seine Maus auch bewegt: Der Zeiger folgt der Person am Gerät, nicht dem Viewer. Etwa eine Sekunde nach ihrer letzten Bewegung steuert der Viewer wieder.
     - Hält der Viewer gerade eine Taste (z. B. beim Ziehen) und die Person bewegt die Maus: Danach hängt keine Maustaste.
@@ -810,6 +810,12 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Mit der Schnellhilfe verbinden: Die Zugriffsanfrage zeigt die Profilkarte, danach steht „Verbunden mit <Profil>“ dort.
     - Mit einem Gerät mit Dienst verbinden: Das Banner im Hauptfenster zeigt Profilname und Logo.
     - Profil leeren und speichern: Danach erscheint wieder nur „benutzer (PC)“.
+
+58. Store-Update aus dem Tray (erst testbar, wenn zwei Versionen im Store sind):
+    - CTXRemote aus dem Store installiert, App nur im Tray, keine Sitzung, Hauptfenster zu. Eine neuere Version im Store freigeben lassen.
+    - Nach spätestens 6 Stunden (oder App neu starten und 5 Minuten warten): Ist die neue Version installiert (Einstellungen → Info bzw. Apps-Liste)? Ist die App wieder im Tray und das Gerät mit derselben ID online?
+    - Läuft der Dienst „CTXRemote“ danach wieder (services.msc)? Falls nicht: Windows startet Paketdienste nach einem Update nicht selbst, dann muss die App ihn anstoßen.
+    - Während einer Sitzung oder bei offenem Hauptfenster darf nichts passieren; das Update kommt erst danach.
 
 ## Nächste Schritte
 

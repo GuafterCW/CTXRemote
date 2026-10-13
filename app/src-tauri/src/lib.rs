@@ -6,6 +6,8 @@ mod login_item;
 mod quick;
 #[cfg(not(feature = "quick"))]
 mod service;
+#[cfg(all(desktop, not(feature = "quick")))]
+mod store;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -1821,6 +1823,16 @@ pub fn run() {
                     if let Some(service) = service::Service::detect(app.handle()).await {
                         return Side::Service(service);
                     }
+                    // The Store package always brings the service. Right after a
+                    // package update Windows may start the app before the service.
+                    if ctxremote_core::update::packaged() {
+                        for _ in 0..20 {
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                            if let Some(service) = service::Service::detect(app.handle()).await {
+                                return Side::Service(service);
+                            }
+                        }
+                    }
                 }
                 Side::Local(Host::start(config.clone()))
             });
@@ -1852,6 +1864,9 @@ pub fn run() {
             if matches!(app.state::<AppState>().host, Side::Local(_)) {
                 watch_updates(app.handle());
             }
+            // The Microsoft Store package: Windows replaces it, the app picks the moment.
+            #[cfg(all(desktop, not(feature = "quick")))]
+            store::watch(app.handle());
 
             // Follows the app if it was moved, and the setting if changed elsewhere.
             #[cfg(all(any(target_os = "macos", target_os = "linux"), not(feature = "quick")))]
