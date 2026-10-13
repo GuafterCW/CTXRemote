@@ -111,6 +111,7 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 **Offen beim Nutzer:**
 - **Android-Signaturschlüssel** als Secrets `ANDROID_KEYSTORE` (base64 der .jks) und `ANDROID_KEYSTORE_PASSWORD`. Ohne sie signiert die CI jede APK mit einem Wegwerf-Schlüssel, vor jedem Update muss die alte App deinstalliert werden, und es entsteht kein App-Bundle für Google Play.
 - **Google-Play-Konto** (25 $, Identitätsprüfung) und Store-Eintrag, siehe `docs/DEPLOY.md`.
+- **Schnellhilfe und SmartScreen:** bleibt vorerst die unsignierte EXE (Entscheidung 13. Oktober). Später: zweite Store-App „CTXRemote Hilfe“ (MSIX ohne Dienst) oder Code-Signatur der EXE.
 - **Partner-Center-Konto** für den Microsoft Store, danach die Variablen `MSIX_IDENTITY_NAME`, `MSIX_PUBLISHER`, `MSIX_PUBLISHER_DISPLAY_NAME` und nach der Freigabe `MSSTORE_URL`, siehe `docs/DEPLOY.md`.
 - **Apple-Entwicklerkonto** (99 $ im Jahr): für iOS und für einen Mac-Download ohne Warnung.
 - **Code-Signatur Windows:** siehe „Offene Entscheidungen“.
