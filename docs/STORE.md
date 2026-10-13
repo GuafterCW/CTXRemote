@@ -105,6 +105,20 @@ Fernwartung, Fernzugriff, Remote Desktop, Fernsteuerung, Bildschirmfreigabe, Sup
 
 ## Begründung der eingeschränkten Fähigkeiten
 
-Im Partner Center unter „Einreichungsoptionen“ → „Eingeschränkte Fähigkeiten“:
+Das Partner Center fragt je Fähigkeit einzeln (Englisch, für die Prüfer):
 
-> CTXRemote ist eine Fernwartungs-App. Für den unbeaufsichtigten Zugriff auf eigene Geräte läuft ein Windows-Dienst als LocalSystem (packagedServices, localSystemServices). Nur so lassen sich Anmeldebildschirm, Sperrbildschirm und Dialoge der Benutzerkontensteuerung übertragen und Strg+Alt+Entf auslösen. Der Dienst nimmt Verbindungen nur mit dem Einmal-Passwort und Bestätigung am Gerät oder mit einem festen Passwort an, das der Administrator setzt. allowElevation wird für genau diese Einstellung genutzt (festes Passwort, Server): Die App startet dafür den Dienst mit einer Abfrage der Benutzerkontensteuerung. runFullTrust ist für die Desktop-App nötig.
+**runFullTrust**
+
+> CTXRemote is a remote support and remote desktop application built as a Win32 desktop app (Tauri/WebView2). runFullTrust is required to run the desktop executable itself: it captures the screen with DXGI, encodes video with Media Foundation, injects mouse and keyboard input, accesses the clipboard, and opens network connections to the CTXRemote relay server and directly to other devices. None of this is possible from an AppContainer.
+
+**packagedServices**
+
+> For unattended access to the user's own computers, CTXRemote installs a Windows service (ctxremote-service.exe, declared with desktop6:Service). The service starts at boot, keeps the device reachable before anyone signs in, and starts the screen agent in the active console session when a session begins. Without a service, remote access would only work while a user is signed in and the app is open. The service only accepts connections with a one-time password confirmed by the person at the device, or with a fixed password set by an administrator.
+
+**localSystemServices**
+
+> The service must run as LocalSystem because only SYSTEM can show and control the Windows sign-in screen, the lock screen and User Account Control prompts (the secure desktop), and can trigger Ctrl+Alt+Del via SendSAS. It also needs SeTcbPrivilege to start the screen agent in the console session (CreateProcessAsUser with the console session id). Its configuration (device key, fixed password) is stored in ProgramData, readable only by SYSTEM and administrators. All sessions are end-to-end encrypted.
+
+**allowElevation**
+
+> Security-relevant settings of the service (the fixed password for unattended access, the server address, and which devices of the user's account may connect without a password) may only be changed by an administrator. When the user changes them in the app, the app starts ctxremote-service.exe from the package with a UAC prompt (ShellExecute "runas"). The elevated process writes the settings to the service's protected configuration and exits. Nothing else runs elevated.
