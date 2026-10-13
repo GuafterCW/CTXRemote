@@ -4,11 +4,10 @@
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap10 desktop desktop6 rescap">
+  IgnorableNamespaces="uap desktop desktop6 rescap">
 
   <Identity Name="$IDENTITY_NAME$" Publisher="$PUBLISHER$" Version="$VERSION$" ProcessorArchitecture="x64" />
 
@@ -38,25 +37,14 @@
         Square44x44Logo="Assets\Square44x44Logo.png" />
       <Extensions>
         <!-- The service the NSIS installer sets up with its install option. -->
-        <desktop6:Extension Category="windows.service" Executable="ctxremote-service.exe" EntryPoint="Windows.FullTrustApplication">
-          <desktop6:Service Name="CTXRemote" StartupType="auto" StartAccount="localSystem" Arguments="--service" />
-        </desktop6:Extension>
-      </Extensions>
-    </Application>
-
-    <!-- The app in the tray at sign-in, like the Run key of the NSIS install. -->
-    <Application Id="Tray" Executable="ctxremote.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--tray">
-      <uap:VisualElements
-        DisplayName="CTXRemote"
-        Description="Fernzugriff auf eigene Geräte"
-        BackgroundColor="transparent"
-        Square150x150Logo="Assets\Square150x150Logo.png"
-        Square44x44Logo="Assets\Square44x44Logo.png"
-        AppListEntry="none" />
-      <Extensions>
+        <!-- The app in the tray at sign-in, like the Run key of the NSIS install.
+             A startup task passes no arguments; the app asks Windows how it was started. -->
         <desktop:Extension Category="windows.startupTask" Executable="ctxremote.exe" EntryPoint="Windows.FullTrustApplication">
           <desktop:StartupTask TaskId="CTXRemoteTray" Enabled="true" DisplayName="CTXRemote" />
         </desktop:Extension>
+        <desktop6:Extension Category="windows.service" Executable="ctxremote-service.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop6:Service Name="CTXRemote" StartupType="auto" StartAccount="localSystem" Arguments="--service" />
+        </desktop6:Extension>
       </Extensions>
     </Application>
   </Applications>

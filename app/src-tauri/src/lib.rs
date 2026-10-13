@@ -824,6 +824,23 @@ fn session_label(app: &AppHandle, number: u32) -> String {
     }
 }
 
+/// Started to stay in the tray: `--tray` from the service after an update or
+/// from the Mac's login item, or the MSIX package's startup task at sign-in,
+/// which cannot pass arguments.
+fn started_for_tray() -> bool {
+    if std::env::args().any(|a| a == "--tray") {
+        return true;
+    }
+    #[cfg(windows)]
+    if ctxremote_core::update::packaged() {
+        use windows::ApplicationModel::{Activation::ActivationKind, AppInstance};
+        return AppInstance::GetActivatedEventArgs()
+            .and_then(|args| args.Kind())
+            .is_ok_and(|kind| kind == ActivationKind::StartupTask);
+    }
+    false
+}
+
 /// Label of the window that holds sessions as tabs.
 #[cfg(desktop)]
 const TABS: &str = "sessions";
@@ -1838,9 +1855,7 @@ pub fn run() {
             login_item::sync(
                 app.state::<AppState>().config.read().unwrap().permanent_password.as_deref().is_some_and(|p| !p.is_empty()),
             );
-            // `--tray`: started by the service after an update, or at login on a
-            // Mac; stay in the tray.
-            if !std::env::args().any(|a| a == "--tray") {
+            if !started_for_tray() {
                 show_main(app.handle());
             }
             Ok(())

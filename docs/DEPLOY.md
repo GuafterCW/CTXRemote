@@ -400,7 +400,7 @@ Jedes Release packt App und Dienst zusätzlich als MSIX (`app/msix/`, Artefakt `
 
 Im Paket ist alles wie beim NSIS-Installer, nur auf anderem Weg:
 - Windows richtet den Dienst `CTXRemote` (LocalSystem, automatisch) aus dem Manifest ein. Was sonst `--install` macht (Strg+Alt+Entf-Richtlinie, Firewall-Regel), erledigt der Dienst bei jedem Start (`packaged_setup` in `crates/service/src/win.rs`).
-- Der Start im Tray bei der Anmeldung ist eine StartupTask (zweite Application „Tray“ mit `--tray`). Windows schaltet sie erst nach dem ersten Start der App ein.
+- Der Start im Tray bei der Anmeldung ist eine StartupTask der App. Sie übergibt keine Argumente; die App fragt Windows nach der Startart (`started_for_tray` in `app/src-tauri/src/lib.rs`). Eine zweite, unsichtbare Application lehnt der Store ab („App ohne Benutzeroberfläche“). Windows schaltet die StartupTask erst nach dem ersten Start der App ein.
 - Der eigene Updater ist aus, sobald die App aus einem Paket läuft (`update::packaged()`).
 - Eingeschränkte Fähigkeiten: `packagedServices`, `localSystemServices`, `allowElevation`, `runFullTrust`. Für die ersten beiden fragt der Store nach einer Begründung, zum Beispiel: „Fernwartung braucht einen Dienst als LocalSystem, um Anmeldebildschirm, Sperrbildschirm und UAC-Dialoge zu übertragen und Strg+Alt+Entf auszulösen.“
 
