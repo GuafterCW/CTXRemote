@@ -99,12 +99,15 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 **Neu am 7. Oktober (Cloud-Sitzung), noch nicht ausgeliefert und nicht an Geräten geprüft:**
 - **Grafikkarten-Encoder unter Windows** (`crates/core/src/encoder_mf.rs`): Media Foundation sucht einen Hardware-Encoder (NVIDIA, AMD, Intel). Er bekommt NV12 und liefert H.264 Baseline wie bisher, damit alle Viewer es weiter dekodieren. Fehlt er, lehnt er das Format ab oder fällt er in der Sitzung aus, geht es mit OpenH264 und einem Keyframe weiter. Danach versucht es der Prozess nicht mehr. `CTXREMOTE_SOFTWARE_ENCODER` schaltet die Grafikkarte ab. Nur typgeprüft, Testpunkt 53.
 - **Sitzungen als Tabs:** Neue Sitzungen öffnen sich als Tabs im Fenster „sessions“ (`app/src/Tabs.svelte`). Ereignisse an eine Sitzung heißen jetzt `chat-<Nummer>` usw., damit sich die Tabs nicht vermischen. Einstellung „Jede Sitzung in eigenem Fenster“ (`Config::separate_windows`). Mit Playwright geprüft: Tab-Leiste, Chat landet im richtigen Tab, Schließen beendet die richtige Sitzung. Testpunkt 54.
-- **Release #43 (Version 0.1.43, 7. Oktober, 07:07 Uhr) ausgeliefert**, alle Jobs grün: alles bis zur Server-Sicherheitsdurchsicht. Der Nutzer hat dafür Pull Request #1 gemergt, weil der Push nach `master` aus der Cloud-Sitzung blockiert ist. So auch künftig: PR von diesem Branch nach `master`, der Nutzer mergt. Die beiden Punkte darüber sind nicht in 0.1.43.
+- **Release #43 (Version 0.1.43, 7. Oktober, 07:07 Uhr) ausgeliefert**, alle Jobs grün: alles bis zur Server-Sicherheitsdurchsicht. Der Nutzer hat dafür Pull Request #1 gemergt, weil der Push nach `master` aus der Cloud-Sitzung blockiert ist. Seit 13. Oktober darf direkt nach `master` gepusht werden (Nutzer-Freigabe, alles Testbetrieb); falls der Push blockiert ist, PR anlegen. Die beiden Punkte darüber sind nicht in 0.1.43.
+
+- **Android im Release (13. Oktober):** Der Release-Lauf baut jetzt auch Android (Job `client-android`): eine APK und, mit Signaturschlüssel, ein App-Bundle für Google Play. Die App zeigt auf den Projektserver; die APK aus der CI tut das nicht (dort steht `localhost`). Der `versionCode` ist die Laufnummer. Einrichtung in `docs/DEPLOY.md`, „Android und Google Play“. Der Nutzer pusht auch direkt nach `master`, es ist alles noch Testbetrieb.
 
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
-- **Android-Signaturschlüssel** als Secrets `ANDROID_KEYSTORE` (base64 der .jks) und `ANDROID_KEYSTORE_PASSWORD`. Ohne sie signiert die CI jede APK mit einem Wegwerf-Schlüssel, und vor jedem Update muss die alte App deinstalliert werden.
+- **Android-Signaturschlüssel** als Secrets `ANDROID_KEYSTORE` (base64 der .jks) und `ANDROID_KEYSTORE_PASSWORD`. Ohne sie signiert die CI jede APK mit einem Wegwerf-Schlüssel, vor jedem Update muss die alte App deinstalliert werden, und es entsteht kein App-Bundle für Google Play.
+- **Google-Play-Konto** (25 $, Identitätsprüfung) und Store-Eintrag, siehe `docs/DEPLOY.md`.
 - **Apple-Entwicklerkonto** (99 $ im Jahr): für iOS und für einen Mac-Download ohne Warnung.
 - **Code-Signatur Windows:** siehe „Offene Entscheidungen“.
 

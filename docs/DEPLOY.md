@@ -372,6 +372,26 @@ Danach `systemctl restart ctxremote-server`. Ohne diese Zeilen läuft der Server
 
 Die Web-API glaubt die Adresse aus `CF-Connecting-IP` nur, wenn die Anfrage laut Caddy von Cloudflare kam (Liste in `crates/server/src/cloudflare.rs`). Wer Caddy direkt anspricht, kann sich so keine fremde Adresse geben. Ändert Cloudflare seine Adressen (https://www.cloudflare.com/ips/), die Liste anpassen. Bis dahin zählt für neue Cloudflare-Adressen die Adresse des Cloudflare-Knotens.
 
+## Android und Google Play
+
+Jedes Release baut im Job `client-android` die Android-App gegen den Projektserver (Artefakt `client-android`):
+- `CTXRemote.apk` zum direkten Installieren.
+- `CTXRemote-<Version>.aab` für Google Play. Das App-Bundle entsteht nur, wenn die Secrets `ANDROID_KEYSTORE` und `ANDROID_KEYSTORE_PASSWORD` gesetzt sind. Der erste Upload legt bei Google den Upload-Schlüssel fest, ein Wegwerf-Schlüssel würde uns aussperren.
+
+Die Laufnummer des Release ist der `versionCode`, also kann jedes Release hochgeladen werden. Gebaut wird nur für arm64 (alle aktuellen Handys).
+
+### Einmalig einrichten
+
+1. Schlüssel erzeugen und **sicher aufheben** (geht er verloren, muss man den Upload-Schlüssel bei Google zurücksetzen lassen):
+   `keytool -genkeypair -keystore ctxremote.jks -alias ctxremote -keyalg RSA -keysize 3072 -validity 10000`
+   Der Alias muss `ctxremote` heißen.
+2. In GitHub unter Settings → Secrets → Actions: `ANDROID_KEYSTORE` = Ausgabe von `base64 -w0 ctxremote.jks`, `ANDROID_KEYSTORE_PASSWORD` = das Passwort.
+3. Play Console (play.google.com/console, 25 $ einmalig, Identitätsprüfung): App anlegen, Paketname `info.philippdev.ctxremote`. „Play App-Signatur“ annehmen (Google signiert die ausgelieferte App, unser Schlüssel ist nur der Upload-Schlüssel).
+4. Testen → Interner Test → Tester (eigene Google-Mail) eintragen → neues Release → das `.aab` aus dem Artefakt hochladen.
+5. Für den Store-Eintrag: Datenschutzerklärung `https://ctxremote.ctx.ink/datenschutz.html`, Altersfreigabe-Fragebogen, Datensicherheit, Icon 512×512, Grafik 1024×500, mindestens zwei Screenshots.
+
+Private Konten brauchen vor der Freigabe im Store einen geschlossenen Test mit mindestens 12 Testern über 14 Tage. Der interne Test geht sofort.
+
 ## Sicherung der Serverdaten
 
 Im Datenordner `/var/lib/ctxremote` liegt alles, was sich nicht neu erzeugen lässt:
