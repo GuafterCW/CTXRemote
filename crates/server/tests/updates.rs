@@ -49,8 +49,12 @@ async fn start(data: &std::path::Path) -> (Server, String) {
         .unwrap();
     let addr = format!("127.0.0.1:{port}");
     for _ in 0..50 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            break;
+        // Connecting to a free local port can connect the socket to itself
+        // (same source and target port), which looks like a listening server.
+        if let Ok(stream) = tokio::net::TcpStream::connect(&addr).await {
+            if stream.local_addr().ok() != stream.peer_addr().ok() {
+                break;
+            }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
