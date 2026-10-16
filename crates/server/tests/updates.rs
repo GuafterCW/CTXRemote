@@ -43,18 +43,16 @@ fn publish(data: &std::path::Path, version: &str, installer: &[u8], secret: &str
 async fn start(data: &std::path::Path) -> (Server, String) {
     let port = free_port();
     let child = Command::new(env!("CARGO_BIN_EXE_ctxremote-server"))
-        .args(["--listen", &format!("127.0.0.1:{port}"), "--data"])
+        .args(["--listen", &format!("127.0.0.1:{port}"), "--no-http", "--data"])
         .arg(data)
         .spawn()
         .unwrap();
     let addr = format!("127.0.0.1:{port}");
+    // Ready once the server answers an update check: a bare TCP connect can
+    // succeed against something else (e.g. the socket connecting to itself).
     for _ in 0..50 {
-        // Connecting to a free local port can connect the socket to itself
-        // (same source and target port), which looks like a listening server.
-        if let Ok(stream) = tokio::net::TcpStream::connect(&addr).await {
-            if stream.local_addr().ok() != stream.peer_addr().ok() {
-                break;
-            }
+        if check_with(&addr, "windows-x86_64", "0.0.0", &public_key()).await.is_ok() {
+            break;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
