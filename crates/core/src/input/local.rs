@@ -49,3 +49,95 @@ pub(super) fn waits(event: &ctxremote_proto::session::InputEvent) -> bool {
     };
     pressing && busy()
 }
+
+/// In attended sessions the viewer may not operate CTXRemote's own windows
+/// (rights, settings, ending the session), as on Windows. The backends post
+/// the viewer's input themselves, so they ask before each press where it
+/// would land, instead of catching it afterwards.
+#[derive(Default)]
+pub(super) struct OwnUi {
+    pub on: bool,
+    /// Presses that were swallowed; their releases are swallowed, too.
+    buttons: std::collections::HashSet<ctxremote_proto::session::MouseButton>,
+    keys: std::collections::HashSet<String>,
+    /// When the viewer last hit CTXRemote's windows, for the faded pointer.
+    hit: Option<Instant>,
+}
+
+impl OwnUi {
+    /// Whether to drop the viewer's `event`. `under_pointer` and `in_front`
+    /// tell whether the window under the pointer, or in front, is CTXRemote's;
+    /// they are asked only when it matters.
+    pub fn swallow(&mut self, event: &ctxremote_proto::session::InputEvent, under_pointer: impl FnOnce() -> bool, in_front: impl FnOnce() -> bool) -> bool {
+        use ctxremote_proto::session::InputEvent;
+        if !self.on {
+            return false;
+        }
+        let swallowed = match event {
+            InputEvent::MouseButton { button, down: true } => {
+                let own = under_pointer();
+                if own {
+                    self.buttons.insert(*button);
+                }
+                own
+            }
+            InputEvent::MouseButton { button, down: false } => return self.buttons.remove(button),
+            InputEvent::Wheel { .. } => under_pointer(),
+            InputEvent::Key { code, down: true } => {
+                let own = in_front();
+                if own {
+                    self.keys.insert(code.clone());
+                }
+                own
+            }
+            InputEvent::Key { code, down: false } => return self.keys.remove(code),
+            InputEvent::Text(_) => in_front(),
+            InputEvent::ReleaseAll => {
+                self.buttons.clear();
+                self.keys.clear();
+                false
+            }
+            InputEvent::MouseMove { .. } => false,
+        };
+        if swallowed {
+            self.hit = Some(Instant::now());
+        }
+        swallowed
+    }
+
+    /// The viewer hit CTXRemote's windows a moment ago.
+    pub fn recently_hit(&self) -> bool {
+        self.on && self.hit.is_some_and(|at| at.elapsed() < PRIORITY)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OwnUi;
+    use ctxremote_proto::session::{InputEvent, MouseButton};
+
+    #[test]
+    fn own_windows_are_off_limits() {
+        let press = |down| InputEvent::MouseButton { button: MouseButton::Left, down };
+        let key = |down| InputEvent::Key { code: "KeyA".into(), down };
+        let mut ui = OwnUi::default();
+        assert!(!ui.swallow(&press(true), || true, || true), "off: everything passes");
+
+        ui.on = true;
+        assert!(!ui.swallow(&press(true), || false, || true), "a click elsewhere passes");
+        assert!(!ui.swallow(&press(false), || true, || true), "so does its release");
+        assert!(!ui.recently_hit());
+
+        assert!(ui.swallow(&press(true), || true, || false), "a click on CTXRemote is dropped");
+        assert!(ui.recently_hit());
+        assert!(ui.swallow(&press(false), || false, || false), "and its release, wherever");
+        assert!(!ui.swallow(&InputEvent::MouseMove { x: 1, y: 1 }, || true, || true), "moving stays allowed");
+        assert!(ui.swallow(&InputEvent::Wheel { dx: 0, dy: 120 }, || true, || false));
+
+        assert!(ui.swallow(&key(true), || false, || true), "typing into CTXRemote is dropped");
+        assert!(ui.swallow(&key(false), || false, || false));
+        assert!(!ui.swallow(&key(true), || true, || false), "typing elsewhere passes");
+        assert!(!ui.swallow(&key(false), || true, || true));
+        assert!(ui.swallow(&InputEvent::Text("x".into()), || false, || true));
+    }
+}

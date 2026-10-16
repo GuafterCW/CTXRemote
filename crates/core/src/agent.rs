@@ -65,10 +65,7 @@ pub async fn run(
         })?;
 
     let mut injector = Injector::new(&active);
-    #[cfg(windows)]
     injector.protect_own_ui(options.protect_own_ui);
-    #[cfg(not(windows))]
-    let _ = options;
     // Whether the viewer's mouse is ignored right now; the viewer is told on change.
     let mut input_paused = false;
     let mut pause_poll = tokio::time::interval(Duration::from_millis(150));

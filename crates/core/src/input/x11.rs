@@ -7,6 +7,9 @@
 //! The person at the computer keeps the mouse, as on Windows: while they move
 //! or click it, the viewer's mouse waits. XInput 2 raw events name the device
 //! they came from; XTest's own devices are the viewer's (or another program's).
+//!
+//! In attended sessions the viewer's presses on CTXRemote's own windows are
+//! dropped (see [`super::local::OwnUi`]); windows are told apart by `_NET_WM_PID`.
 
 use std::collections::HashSet;
 use std::sync::Once;
@@ -14,7 +17,7 @@ use std::time::Duration;
 
 use ctxremote_proto::session::{InputEvent, MouseButton};
 use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{ConnectionExt as _, Keysym, BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, MOTION_NOTIFY_EVENT};
+use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, Keysym, Window, BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, MOTION_NOTIFY_EVENT};
 use x11rb::protocol::xinput::{self, ConnectionExt as _};
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::protocol::Event;
@@ -41,6 +44,7 @@ pub struct Injector {
     buttons: HashSet<MouseButton>,
     /// Wheel movement below a whole notch, kept for the next event.
     wheel_rest: (i32, i32),
+    own_ui: super::local::OwnUi,
 }
 
 impl Injector {
@@ -54,9 +58,15 @@ impl Injector {
             keys: HashSet::new(),
             buttons: HashSet::new(),
             wheel_rest: (0, 0),
+            own_ui: Default::default(),
         };
         injector.set_display(display);
         injector
+    }
+
+    /// In attended sessions the viewer's input does not reach CTXRemote's own windows.
+    pub fn protect_own_ui(&mut self, on: bool) {
+        self.own_ui.on = on;
     }
 
     pub fn set_display(&mut self, display: &Display) {
@@ -66,6 +76,11 @@ impl Injector {
 
     pub fn apply(&mut self, event: &InputEvent) {
         if super::local::waits(event) {
+            return;
+        }
+        let screen = &self.screen;
+        let own = |find: fn(&Screen) -> Option<u32>| screen.as_ref().and_then(find).is_some_and(own_process);
+        if self.own_ui.swallow(event, || own(pid_under_pointer), || own(pid_in_front)) {
             return;
         }
         match event {
@@ -104,7 +119,7 @@ impl Injector {
     /// Whether the viewer's mouse is being ignored right now, for the viewer
     /// to show a faded pointer.
     pub fn input_paused(&self) -> bool {
-        super::local::busy()
+        super::local::busy() || self.own_ui.recently_hit()
     }
 
     pub fn release_all(&mut self) {
@@ -250,6 +265,73 @@ impl Injector {
     }
 }
 
+fn atom(conn: &impl Connection, name: &[u8]) -> Option<u32> {
+    conn.intern_atom(false, name).ok()?.reply().ok().map(|r| r.atom)
+}
+
+/// The process that made `window`, as it says itself.
+fn window_pid(conn: &impl Connection, window: Window) -> Option<u32> {
+    let property = atom(conn, b"_NET_WM_PID")?;
+    let reply = conn.get_property(false, window, property, AtomEnum::CARDINAL, 0, 1).ok()?.reply().ok()?;
+    let pid = reply.value32()?.next();
+    pid
+}
+
+/// The program window under the pointer. A window manager's frame (title
+/// bar, close button) counts as the window it holds.
+fn pid_under_pointer(screen: &Screen) -> Option<u32> {
+    let conn = &screen.conn;
+    let mut window = screen.root;
+    for _ in 0..8 {
+        let child = conn.query_pointer(window).ok()?.reply().ok()?.child;
+        if child == x11rb::NONE {
+            return None;
+        }
+        window = child;
+        if let Some(pid) = window_pid(conn, window) {
+            return Some(pid);
+        }
+        let children = conn.query_tree(window).ok()?.reply().ok()?.children;
+        if let Some(pid) = children.iter().find_map(|&c| window_pid(conn, c)) {
+            return Some(pid);
+        }
+    }
+    None
+}
+
+/// The program window that gets the keys: the window manager's active one,
+/// or else the one with the input focus and its parents.
+fn pid_in_front(screen: &Screen) -> Option<u32> {
+    let conn = &screen.conn;
+    let active = atom(conn, b"_NET_ACTIVE_WINDOW").and_then(|property| {
+        let reply = conn.get_property(false, screen.root, property, AtomEnum::WINDOW, 0, 1).ok()?.reply().ok()?;
+        let window = reply.value32()?.next();
+        window.filter(|&w| w != x11rb::NONE)
+    });
+    if let Some(pid) = active.and_then(|w| window_pid(conn, w)) {
+        return Some(pid);
+    }
+    let mut window = conn.get_input_focus().ok()?.reply().ok()?.focus;
+    for _ in 0..8 {
+        // 1 is PointerRoot: the keys go to whatever is under the pointer.
+        if window == x11rb::NONE || window == screen.root || window == 1 {
+            return None;
+        }
+        if let Some(pid) = window_pid(conn, window) {
+            return Some(pid);
+        }
+        window = conn.query_tree(window).ok()?.reply().ok()?.parent;
+    }
+    None
+}
+
+/// This process, or another CTXRemote program (app, quick helper).
+fn own_process(pid: u32) -> bool {
+    pid == std::process::id()
+        || std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .is_ok_and(|name| name.trim().to_lowercase().starts_with("ctxremote"))
+}
+
 /// Starts, once per process, a thread that notes the person's own mouse input.
 fn watch_local_mouse() {
     static START: Once = Once::new();
@@ -369,9 +451,13 @@ mod tests {
         false
     }
 
+    /// The tests share the pointer and the person's-mouse clock.
+    static X: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Needs an X server (`xvfb-run`); skipped without one.
     #[test]
     fn local_mouse_has_priority() {
+        let _x = X.lock().unwrap_or_else(|e| e.into_inner());
         let Ok(screen) = Screen::open() else {
             eprintln!("übersprungen: keine X11-Sitzung");
             return;
@@ -406,5 +492,92 @@ mod tests {
         assert_eq!(keysym_for('ü'), 0xfc);
         assert_eq!(keysym_for('€'), 0x0100_20ac);
         assert_eq!(keysym_for('😀'), 0x0101_f600);
+    }
+
+    /// A mapped window that says it belongs to `pid` and reports presses.
+    fn window(screen: &Screen, x: i16, pid: u32) -> Window {
+        use x11rb::protocol::xproto::{CreateWindowAux, EventMask, PropMode, WindowClass};
+        let conn = &screen.conn;
+        let id = conn.generate_id().unwrap();
+        let aux = CreateWindowAux::new().event_mask(EventMask::BUTTON_PRESS | EventMask::KEY_PRESS);
+        conn.create_window(0, id, screen.root, x, 100, 200, 200, 0, WindowClass::INPUT_OUTPUT, 0, &aux).unwrap();
+        let property = atom(conn, b"_NET_WM_PID").unwrap();
+        x11rb::wrapper::ConnectionExt::change_property32(conn, PropMode::REPLACE, id, property, AtomEnum::CARDINAL, &[pid]).unwrap();
+        conn.map_window(id).unwrap();
+        conn.flush().unwrap();
+        id
+    }
+
+    /// Windows that got a press since the last call.
+    fn pressed(screen: &Screen) -> Vec<(&'static str, Window)> {
+        screen.conn.sync().unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let mut got = Vec::new();
+        while let Some(event) = screen.conn.poll_for_event().unwrap() {
+            match event {
+                Event::ButtonPress(e) => got.push(("click", e.event)),
+                Event::KeyPress(e) => got.push(("key", e.event)),
+                _ => {}
+            }
+        }
+        got
+    }
+
+    fn activate(screen: &Screen, window: Window) {
+        use x11rb::protocol::xproto::{InputFocus, PropMode};
+        let conn = &screen.conn;
+        let property = atom(conn, b"_NET_ACTIVE_WINDOW").unwrap();
+        x11rb::wrapper::ConnectionExt::change_property32(conn, PropMode::REPLACE, screen.root, property, AtomEnum::WINDOW, &[window]).unwrap();
+        conn.set_input_focus(InputFocus::PARENT, window, CURRENT_TIME).unwrap();
+        conn.sync().unwrap();
+    }
+
+    /// Needs an X server (`xvfb-run`); skipped without one.
+    #[test]
+    fn own_windows_are_protected() {
+        let _x = X.lock().unwrap_or_else(|e| e.into_inner());
+        let Ok(screen) = Screen::open() else {
+            eprintln!("übersprungen: keine X11-Sitzung");
+            return;
+        };
+        // The person's mouse from the other test must not hold things up.
+        std::thread::sleep(Duration::from_millis(1100));
+        let own = window(&screen, 100, std::process::id());
+        // A process number nobody has.
+        let other = window(&screen, 400, 4_000_000);
+        pressed(&screen);
+        let display = Display { index: 0, name: "test".into(), left: 0, top: 0, width: screen.width as u32, height: screen.height as u32, primary: true };
+        let mut injector = Injector::new(&display);
+        let click = |injector: &mut Injector, x| {
+            injector.apply(&InputEvent::MouseMove { x, y: 150 });
+            injector.apply(&InputEvent::MouseButton { button: MouseButton::Left, down: true });
+            injector.apply(&InputEvent::MouseButton { button: MouseButton::Left, down: false });
+        };
+        let key = |injector: &mut Injector| {
+            injector.apply(&InputEvent::Key { code: "KeyA".into(), down: true });
+            injector.apply(&InputEvent::Key { code: "KeyA".into(), down: false });
+        };
+
+        // Unprotected (own device, fixed password): CTXRemote's window works.
+        click(&mut injector, 150);
+        assert_eq!(pressed(&screen), vec![("click", own)]);
+
+        injector.protect_own_ui(true);
+        click(&mut injector, 150);
+        assert_eq!(pressed(&screen), vec![], "a click reached CTXRemote's window");
+        assert!(injector.input_paused(), "no faded pointer after the swallowed click");
+        click(&mut injector, 450);
+        assert_eq!(pressed(&screen), vec![("click", other)], "a click elsewhere was lost");
+
+        activate(&screen, own);
+        key(&mut injector);
+        assert_eq!(pressed(&screen), vec![], "a key reached CTXRemote's window");
+        activate(&screen, other);
+        key(&mut injector);
+        assert_eq!(pressed(&screen), vec![("key", other)], "a key elsewhere was lost");
+
+        screen.conn.destroy_window(own).unwrap();
+        screen.conn.destroy_window(other).unwrap();
+        screen.conn.sync().unwrap();
     }
 }

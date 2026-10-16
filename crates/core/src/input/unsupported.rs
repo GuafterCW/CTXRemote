@@ -11,11 +11,13 @@ impl Injector {
         Self
     }
 
+    pub fn protect_own_ui(&mut self, _: bool) {}
+
     pub fn set_display(&mut self, _: &Display) {}
 
     pub fn apply(&mut self, _: &InputEvent) {}
 
-    /// Whether the viewer's mouse is being ignored; only Windows hosts do that yet.
+    /// Whether the viewer's mouse is being ignored; never without a backend.
     pub fn input_paused(&self) -> bool {
         false
     }

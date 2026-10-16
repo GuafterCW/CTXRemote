@@ -129,6 +129,8 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 
 - **Mausvorrang auch am Mac-Host (16. Oktober):** Ein lauschender Event-Tap (`CGEventTap`, nur Zuhören, Ebene Session) sieht alle Mausereignisse. Jedes Ereignis des Viewers trägt im Feld `kCGEventSourceUserData` die Markierung „CTXR“ (wie `dwExtraInfo` unter Windows); alles ohne sie gilt als Maus der Person. Der Tap braucht die Freigabe „Bedienungshilfen“, die der Mac-Host ohnehin braucht; fehlt sie, gibt es eine Warnung im Protokoll und keinen Vorrang. Gemeinsame Zeitlogik für Linux und Mac in `crates/core/src/input/local.rs`. **Nur typgeprüft** (`scripts/check-macos.sh`), Testpunkt 59.
 
+- **CTXRemote-Fenster auch auf Linux und Mac vor dem Viewer geschützt (16. Oktober):** Wie unter Windows (Variante A): In beaufsichtigten Sitzungen (Einmal-Passwort, Schnellhilfe) verwirft der Host Klicks und Mausrad des Viewers auf Fenster von CTXRemote, und Tasten und Text, solange ein CTXRemote-Fenster vorne ist; Loslassen geschluckter Tasten wird mitgeschluckt, der Viewer sieht kurz den blassen Zeiger. Weil Linux und Mac die Eingaben selbst einspielen, fragt der Host vor jedem Drücken, wohin es ginge (gemeinsame Regel `OwnUi` in `crates/core/src/input/local.rs`). Linux: Fenster unter dem Zeiger bzw. `_NET_ACTIVE_WINDOW`, Besitzer über `_NET_WM_PID`; der Rahmen des Fenstermanagers (Titelleiste, Schließen-Knopf) zählt zum Fenster. Mac: Fensterliste (`CGWindowListCopyWindowInfo`), Besitzer per Prozessnummer oder Name „CTXRemote…“; die Menüleisten-Symbole von CTXRemote sind damit auch geschützt. **Linux echt getestet auf Xvfb** (`input::x11::tests::own_windows_are_protected`: Klick und Taste auf das eigene Fenster kommen nicht an, auf ein fremdes schon; ohne Schutz kommt alles an; Gegenprobe schlägt fehl). **Mac nur typgeprüft.** Testpunkt 60.
+
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
 **Offen beim Nutzer:**
@@ -829,6 +831,13 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Bewegt nur der Viewer die Maus, wird sein Zeiger nie blass (sonst erkennt der Mac die eigenen Ereignisse nicht als die des Viewers).
     - Ziehen beim Viewer, und die Person bewegt die Maus: Danach hängt keine Maustaste.
     - Dasselbe am Linux-PC unter X11 mit echter Maus und Touchpad.
+
+60. CTXRemote-Fenster geschützt (Mac-Host und Linux-Host), wie Punkt 57:
+    - Mit Einmal-Passwort verbinden. Beim Gegenüber im CTXRemote-Fenster auf „Rechte“ und die Rechte-Symbole klicken: Nichts passiert, der Zeiger wird kurz blass.
+    - Auf die Titelleiste bzw. den Schließen-Knopf des CTXRemote-Fensters klicken: Nichts passiert.
+    - Das CTXRemote-Fenster vorne haben und tippen: Es kommt nichts an. In anderen Programmen tippt der Viewer normal.
+    - Mac: Das CTXRemote-Symbol in der Menüleiste ist für den Viewer gesperrt.
+    - Mit festem Passwort (eigenes Gerät) verbinden: Das CTXRemote-Fenster ist normal bedienbar.
 
 ## Nächste Schritte
 

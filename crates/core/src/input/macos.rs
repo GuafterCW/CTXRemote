@@ -7,14 +7,18 @@
 //! The person at the Mac keeps the mouse, as on Windows: while they move or
 //! click it, the viewer's mouse waits. A listening event tap sees all mouse
 //! events; the viewer's carry [`TAG`] in their user data.
+//!
+//! In attended sessions the viewer's presses on CTXRemote's own windows are
+//! dropped (see [`super::local::OwnUi`]); the window list names each window's owner.
 
 use std::collections::HashSet;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
-use core_foundation::base::TCFType;
+use core_foundation::base::{CFType, TCFType};
 use core_foundation::boolean::CFBoolean;
-use core_foundation::dictionary::CFDictionary;
+use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
+use core_foundation::number::CFNumber;
 use core_foundation::string::{CFString, CFStringRef};
 use core_foundation::runloop::CFRunLoop;
 use core_graphics::event::{
@@ -22,7 +26,11 @@ use core_graphics::event::{
     CGMouseButton, CallbackResult, EventField,
 };
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
-use core_graphics::geometry::CGPoint;
+use core_graphics::geometry::{CGPoint, CGRect};
+use core_graphics::window::{
+    copy_window_info, kCGNullWindowID, kCGWindowAlpha, kCGWindowBounds, kCGWindowLayer,
+    kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly, kCGWindowOwnerName, kCGWindowOwnerPID,
+};
 use ctxremote_proto::session::{InputEvent, MouseButton};
 
 use crate::capture::Display;
@@ -79,6 +87,7 @@ pub struct Injector {
     last_click: Option<(Instant, MouseButton, CGPoint, i64)>,
     /// Wheel movement below a whole line, kept for the next event.
     wheel_rest: (f64, f64),
+    own_ui: super::local::OwnUi,
 }
 
 impl Injector {
@@ -97,9 +106,15 @@ impl Injector {
             flags: CGEventFlags::empty(),
             last_click: None,
             wheel_rest: (0.0, 0.0),
+            own_ui: Default::default(),
         };
         injector.set_display(display);
         injector
+    }
+
+    /// In attended sessions the viewer's input does not reach CTXRemote's own windows.
+    pub fn protect_own_ui(&mut self, on: bool) {
+        self.own_ui.on = on;
     }
 
     pub fn set_display(&mut self, display: &Display) {
@@ -113,6 +128,13 @@ impl Injector {
 
     pub fn apply(&mut self, event: &InputEvent) {
         if super::local::waits(event) {
+            return;
+        }
+        let position = self.position;
+        let under_pointer = || windows().iter().find(|w| w.alpha > 0.0 && w.bounds.contains(&position)).is_some_and(Window::own);
+        // The frontmost app's windows come first among the normal ones (layer 0).
+        let in_front = || windows().iter().find(|w| w.layer == 0).is_some_and(Window::own);
+        if self.own_ui.swallow(event, under_pointer, in_front) {
             return;
         }
         match event {
@@ -161,7 +183,7 @@ impl Injector {
     /// Whether the viewer's mouse is being ignored right now, for the viewer
     /// to show a faded pointer.
     pub fn input_paused(&self) -> bool {
-        super::local::busy()
+        super::local::busy() || self.own_ui.recently_hit()
     }
 
     pub fn release_all(&mut self) {
@@ -277,6 +299,51 @@ fn modifier(code: &str) -> Option<CGEventFlags> {
         "AltLeft" | "AltRight" => CGEventFlags::CGEventFlagAlternate,
         _ => return None,
     })
+}
+
+/// A window on screen, as the window list describes it.
+struct Window {
+    layer: i64,
+    bounds: CGRect,
+    alpha: f64,
+    pid: i64,
+    owner: String,
+}
+
+impl Window {
+    /// This process, or another CTXRemote program (app, quick helper).
+    fn own(&self) -> bool {
+        self.pid == std::process::id() as i64 || self.owner.to_lowercase().starts_with("ctxremote")
+    }
+}
+
+/// The windows on screen, front to back. Owners and places need no
+/// permission; only window titles would.
+fn windows() -> Vec<Window> {
+    let Some(list) = copy_window_info(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID) else {
+        return Vec::new();
+    };
+    // SAFETY: framework constants, valid for the process lifetime.
+    let key = |k: CFStringRef| unsafe { CFString::wrap_under_get_rule(k) };
+    let number = |d: &CFDictionary<CFString, CFType>, k| d.find(key(k)).and_then(|v| v.downcast::<CFNumber>());
+    list.iter()
+        .filter_map(|item| {
+            // SAFETY: the list holds one dictionary per window.
+            let d: CFDictionary<CFString, CFType> = unsafe { CFDictionary::wrap_under_get_rule(*item as CFDictionaryRef) };
+            let bounds = d.find(key(unsafe { kCGWindowBounds })).and_then(|v| v.downcast::<CFDictionary>())?;
+            Some(Window {
+                layer: number(&d, unsafe { kCGWindowLayer })?.to_i64()?,
+                bounds: CGRect::from_dict_representation(&bounds)?,
+                alpha: number(&d, unsafe { kCGWindowAlpha }).and_then(|n| n.to_f64()).unwrap_or(1.0),
+                pid: number(&d, unsafe { kCGWindowOwnerPID })?.to_i64()?,
+                owner: d
+                    .find(key(unsafe { kCGWindowOwnerName }))
+                    .and_then(|v| v.downcast::<CFString>())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
 }
 
 /// Posts one of the viewer's events, marked as such.
