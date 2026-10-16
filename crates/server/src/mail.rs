@@ -3,8 +3,8 @@
 //! Configured through the environment (see `docs/DEPLOY.md`, "Mails"):
 //! `CTXREMOTE_SMTP_URL` (e.g. `smtps://user:password@smtp.example.org:465`
 //! or `smtp://user:password@smtp.example.org:587?tls=required`),
-//! `CTXREMOTE_MAIL_FROM` (e.g. `Remocto <noreply@ctx.ink>`) and
-//! `CTXREMOTE_SITE_URL` for links (default `https://ctxremote.ctx.ink`).
+//! `CTXREMOTE_MAIL_FROM` (e.g. `Remocto <noreply@remocto.com>`) and
+//! `CTXREMOTE_SITE_URL` for links (default `https://remocto.com`).
 //! Without them mails are only logged. Mails never contain anything secret
 //! besides the one-time confirmation link.
 
@@ -100,7 +100,7 @@ fn build(from: Mailbox, to: Mailbox, subject: String, body: String) -> Result<Me
 /// Starts the mail sender and returns the queue the accounts post to.
 pub fn start() -> mpsc::UnboundedSender<Mail> {
     let (tx, mut rx) = mpsc::unbounded_channel::<Mail>();
-    let site = std::env::var("CTXREMOTE_SITE_URL").unwrap_or_else(|_| "https://ctxremote.ctx.ink".into());
+    let site = std::env::var("CTXREMOTE_SITE_URL").unwrap_or_else(|_| "https://remocto.com".into());
     let site = site.trim_end_matches('/').to_string();
     let transport = std::env::var("CTXREMOTE_SMTP_URL").ok().and_then(|url| {
         match AsyncSmtpTransport::<Tokio1Executor>::from_url(&url) {

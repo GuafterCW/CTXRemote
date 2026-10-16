@@ -148,6 +148,22 @@ impl Default for Config {
 /// Set once per process, e.g. to the service's machine-wide config.
 static PATH: OnceLock<PathBuf> = OnceLock::new();
 
+/// Server names that moved, old to new.
+const MOVED_SERVERS: [(&str, &str); 1] = [("remote.ctx.ink", "remote.remocto.com")];
+
+/// `server` with a moved host name replaced; the port stays.
+fn moved_server(server: &str) -> String {
+    let trimmed = server.trim();
+    let (host, port) = match trimmed.rsplit_once(':') {
+        Some((host, port)) if port.parse::<u16>().is_ok() => (host, Some(port)),
+        _ => (trimmed, None),
+    };
+    match MOVED_SERVERS.iter().find(|(old, _)| host.eq_ignore_ascii_case(old)) {
+        Some((_, new)) => port.map_or_else(|| new.to_string(), |port| format!("{new}:{port}")),
+        None => server.to_string(),
+    }
+}
+
 /// Before the rename to Remocto the settings lived under "CTXRemote". They
 /// move over once, so the device keeps its key (and thus its ID).
 fn adopt_former_config(dir: &std::path::Path) {
@@ -207,7 +223,7 @@ impl Config {
     pub fn load() -> Result<Self> {
         let path = Self::path()?;
         match std::fs::read_to_string(&path) {
-            Ok(json) => Ok(serde_json::from_str(&json).unwrap_or_else(|e| {
+            Ok(json) => Ok(serde_json::from_str::<Self>(&json).map(Self::moved).unwrap_or_else(|e| {
                 // Starting over means a new key and thus a new device ID; keep the
                 // old file so the identity can be restored by hand.
                 let aside = path.with_extension(format!("json.broken-{}", crate::account::now_ms() / 1000));
@@ -226,6 +242,14 @@ impl Config {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// The project's server got a new name with the rename to Remocto; the
+    /// old name keeps working for a while, so saved configs move over
+    /// whenever they are read. Same machine, same key: nothing else changes.
+    fn moved(mut self) -> Self {
+        self.server = moved_server(&self.server);
+        self
     }
 
     pub fn save(&self) -> Result<()> {
@@ -592,5 +616,15 @@ mod tests {
         move_settings(&former, &dir);
         assert_eq!(std::fs::read_to_string(dir.join("config.json")).unwrap(), "{\"old\":1}");
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn old_server_name_moves() {
+        assert_eq!(moved_server("remote.ctx.ink:21300"), "remote.remocto.com:21300");
+        assert_eq!(moved_server("Remote.CTX.ink"), "remote.remocto.com");
+        assert_eq!(moved_server("remote.example.org:21300"), "remote.example.org:21300");
+        assert_eq!(moved_server("localhost:21300"), "localhost:21300");
+        let config: Config = serde_json::from_str(r#"{"server":"remote.ctx.ink:21300"}"#).map(Config::moved).unwrap();
+        assert_eq!(config.server, "remote.remocto.com:21300");
     }
 }

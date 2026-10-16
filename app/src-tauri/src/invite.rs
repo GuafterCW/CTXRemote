@@ -26,7 +26,7 @@ use crate::CmdResult;
 #[cfg(not(feature = "quick"))]
 const WEBSITE: &str = match option_env!("CTXREMOTE_WEBSITE") {
     Some(site) => site,
-    None => "https://ctxremote.ctx.ink",
+    None => "https://remocto.com",
 };
 
 /// How long a link works.

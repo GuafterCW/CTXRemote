@@ -79,7 +79,7 @@ Alles, was eine Fernwartung braucht
 • Geräteliste mit Gruppen, auf Wunsch über ein Konto auf allen Ihren Geräten
 
 Für Windows, Mac, Linux und Android
-Remocto gibt es auch für macOS, Linux und als Viewer für Android (Vorschau). Downloads unter https://ctxremote.ctx.ink
+Remocto gibt es auch für macOS, Linux und als Viewer für Android (Vorschau). Downloads unter https://remocto.com
 
 Kostenlos
 Remocto ist kostenlos, ohne Abo und ohne Werbung.
@@ -110,8 +110,8 @@ Fernwartung, Fernzugriff, Remote Desktop, Fernsteuerung, Bildschirmfreigabe, Sup
 ## Weitere Angaben
 
 - Kategorie: Dienstprogramme und Tools, sekundäre Kategorie: Produktivität. Personenbezogene Daten: „Ja“ (Konto-E-Mail, Geräteliste, IP-Adressen am Server, Sitzungsinhalte).
-- Datenschutzrichtlinie: https://ctxremote.ctx.ink/datenschutz.html
-- Website: https://ctxremote.ctx.ink
+- Datenschutzrichtlinie: https://remocto.com/datenschutz.html
+- Website: https://remocto.com
 - Support-Kontakt: die Adresse aus dem Impressum
 - Copyright: © 2026 Remocto
 - Preis: kostenlos

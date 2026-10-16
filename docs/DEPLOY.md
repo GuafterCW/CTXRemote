@@ -17,11 +17,13 @@ Ohne die Einstellungen unten laufen die Builds trotzdem. Installer und Schnellhi
 
 ## Neuer Name Remocto
 
-Das Produkt heißt jetzt Remocto. Website und Server laufen vorerst weiter unter `ctx.ink`, ebenso die technischen Namen auf dem Server (Dienst `ctxremote-server`, Benutzer `ctxremote`, Pfade `/var/www/ctxremote` und `/srv/ctxremote`). Geplant sind `remocto.com` für die Website (Cloudflare-Proxy an) und `remote.remocto.com` für die App (nur DNS, Port 21300 TCP/UDP). Dafür braucht Caddy ein Origin-Zertifikat für `remocto.com` und `*.remocto.com`. Die Umstellung folgt.
+Das Produkt heißt jetzt Remocto. Die Website liegt unter `remocto.com` (Cloudflare-Proxy an), die App spricht mit `remote.remocto.com` (nur DNS, Port 21300 TCP/UDP); Caddy hat dafür ein Origin-Zertifikat für `remocto.com` und `*.remocto.com`. Die technischen Namen auf dem Server bleiben (Dienst `ctxremote-server`, Benutzer `ctxremote`, Pfade `/var/www/ctxremote`, `/var/lib/ctxremote`).
+
+Übergang: `remote.ctx.ink` und `ctxremote.ctx.ink` zeigen weiter auf denselben Server. Installierte Apps stellen eine gespeicherte Adresse `remote.ctx.ink` beim Lesen der Einstellungen selbst auf `remote.remocto.com` um (`config::MOVED_SERVERS`). Der Server nimmt Anfragen des Webinterfaces von allen Adressen in `--web-origin` an (durch Komma getrennt), also während des Übergangs von beiden Domains. Wenn keine App mehr die alte Adresse nutzt, kann `ctx.ink` weg.
 
 ## Serveradresse ohne Port
 
-`remote.ctx.ink` reicht als Adresse, der Client ergänzt den Standardport 21300 selbst. Release-Builds haben die Adresse aus `CTXREMOTE_SERVER` schon eingebaut, auf neuen Geräten muss man also gar nichts eintragen. Bestehende Installationen behalten ihre gespeicherte Adresse.
+`remote.remocto.com` reicht als Adresse, der Client ergänzt den Standardport 21300 selbst. Release-Builds haben die Adresse aus `CTXREMOTE_SERVER` schon eingebaut, auf neuen Geräten muss man also gar nichts eintragen. Bestehende Installationen behalten ihre gespeicherte Adresse.
 
 ## Updates
 
@@ -49,7 +51,7 @@ Einmalig nötig, etwa 30 Minuten. Du brauchst:
 - **Server:** einen Linux-Server mit systemd (Debian, Ubuntu o. ä.) und Zugang als root per SSH.
 - **Windows-PC:** Git, Rust und das Repo. OpenSSH (`ssh`, `scp`, `ssh-keygen`) ist in Windows 10/11 eingebaut.
 
-In den Befehlen steht `remote.ctx.ink` für deinen Server; ggf. ersetzen. Befehle mit `PS>` gehören in die PowerShell auf deinem PC, Befehle mit `#` laufen als root auf dem Server.
+In den Befehlen steht `remote.remocto.com` für deinen Server; ggf. ersetzen. Befehle mit `PS>` gehören in die PowerShell auf deinem PC, Befehle mit `#` laufen als root auf dem Server.
 
 **Neuer Server ohne bisherige Remocto-Installation?** Dann Schritt 1 und 4 überspringen und in Schritt 5 den zweiten Parameter (Datenordner) weglassen.
 
@@ -58,7 +60,7 @@ In den Befehlen steht `remote.ctx.ink` für deinen Server; ggf. ersetzen. Befehl
 Der Server merkt sich in `devices.json`, welche Geräte-ID zu welchem Gerät gehört. Diese Datei muss erhalten bleiben, sonst bekommen alle Geräte neue IDs.
 
 ```bash
-ssh root@remote.ctx.ink
+ssh root@remote.remocto.com
 # find / -name devices.json -not -path "*/proc/*" 2>/dev/null
 ```
 
@@ -84,7 +86,7 @@ Danach liegen dort zwei Dateien: `ctxremote-deploy` (privat) und `ctxremote-depl
 Im Repo-Ordner auf deinem PC:
 
 ```powershell
-PS> scp -r deploy root@remote.ctx.ink:/root/ctxremote-deploy
+PS> scp -r deploy root@remote.remocto.com:/root/ctxremote-deploy
 ```
 
 ### Schritt 4: Alten Server stoppen
@@ -128,7 +130,7 @@ UDP 21300 braucht nur die Direktverbindung durch NAT (siehe `docs/DIRECT.md`). O
 Vom PC aus. Das muss **ohne** Passwortabfrage `ok` ausgeben:
 
 ```powershell
-PS> ssh -i C:\ctxremote-keys\ctxremote-deploy ctxremote@remote.ctx.ink "echo ok"
+PS> ssh -i C:\ctxremote-keys\ctxremote-deploy ctxremote@remote.remocto.com "echo ok"
 ```
 
 Wird nach einem Passwort gefragt, stimmt der Schlüssel in Schritt 5 nicht. Den Befehl aus Schritt 5 dann mit der richtigen Zeile wiederholen; das Skript darf mehrfach laufen.
@@ -136,7 +138,7 @@ Wird nach einem Passwort gefragt, stimmt der Schlüssel in Schritt 5 nicht. Den 
 ### Schritt 7: Fingerabdruck des Servers holen
 
 ```powershell
-PS> ssh-keyscan remote.ctx.ink
+PS> ssh-keyscan remote.remocto.com
 ```
 
 Die ganze Ausgabe (mehrere Zeilen) kopieren, sie wird in Schritt 9 gebraucht.
@@ -168,8 +170,8 @@ Reiter **Variables**, je „New repository variable“:
 | Name | Inhalt |
 |---|---|
 | `CTXREMOTE_UPDATE_KEY` | **öffentlicher** Schlüssel aus Schritt 8 |
-| `CTXREMOTE_SERVER` | `remote.ctx.ink` |
-| `DEPLOY_HOST` | `remote.ctx.ink` (oder die IP des Servers) |
+| `CTXREMOTE_SERVER` | `remote.remocto.com` |
+| `DEPLOY_HOST` | `remote.remocto.com` (oder die IP des Servers) |
 
 Danach die privaten Schlüsseldateien in `C:\ctxremote-keys` löschen oder sicher verwahren. Sie liegen jetzt in GitHub.
 
@@ -242,9 +244,9 @@ Seit Oktober 2026 verschlüsseln die Clients ihre Verbindung zum Server, also An
 - `tunnel.key` gehört in die Datensicherung des Servers.
 - Geht er verloren oder wird er getauscht, erreichen die ausgelieferten Clients den Server nicht mehr. Dann bleibt nur, alle Geräte von Hand neu zu installieren.
 
-## Website (https://ctxremote.ctx.ink)
+## Website (https://remocto.com)
 
-**Warum nicht `remote.ctx.ink`:** Die Adresse der App muss bei Cloudflare auf „Nur DNS“ stehen, weil Port 21300 nicht durch den Proxy geht. Caddy hat beim Nutzer aber das Cloudflare-Origin-Zertifikat für `*.ctx.ink` geladen und holt deshalb für `remote.ctx.ink` kein eigenes. Der Browser bekäme also das Origin-Zertifikat zu sehen und lehnt es ab. Die Website läuft deshalb unter `ctxremote.ctx.ink` **mit** Cloudflare-Proxy, wie die anderen Seiten auch. `remote.ctx.ink` bleibt allein für die App. Ausprobiert, aber verworfen:
+**Warum nicht `remote.remocto.com`:** Die Adresse der App muss bei Cloudflare auf „Nur DNS“ stehen, weil Port 21300 nicht durch den Proxy geht. Caddy hat beim Nutzer aber das Cloudflare-Origin-Zertifikat für `*.remocto.com` geladen und holt deshalb für `remote.remocto.com` kein eigenes. Der Browser bekäme also das Origin-Zertifikat zu sehen und lehnt es ab. Die Website läuft deshalb unter `remocto.com` **mit** Cloudflare-Proxy, wie die anderen Seiten auch. `remote.remocto.com` bleibt allein für die App. Ausprobiert, aber verworfen:
 - `tls { issuer … }` im Block hilft nicht.
 - `auto_https ignore_loaded_certs` würde Zertifikate für alle Seiten anfordern.
 
@@ -259,19 +261,19 @@ Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werd
 ### Einmalig einrichten
 
 1. **Firewall des Anbieters** (Hetzner Robot): TCP **80** und **443** eingehend freigeben. Port 80 braucht Caddy für das Zertifikat.
-2. **DNS:** `remote.ctx.ink` zeigt schon auf den Server. Bei Cloudflare muss der Eintrag auf „Nur DNS“ (graue Wolke) bleiben, sonst kommen weder die App (Port 21300) noch die Zertifikatsabfrage durch.
+2. **DNS:** `remote.remocto.com` zeigt schon auf den Server. Bei Cloudflare muss der Eintrag auf „Nur DNS“ (graue Wolke) bleiben, sonst kommen weder die App (Port 21300) noch die Zertifikatsabfrage durch.
 3. **Auf dem Server** als root, aus dem Ordner mit den Einrichtungsdateien (Schritt 3 oben; `deploy/setup-website.sh` vorher mit hineinkopieren):
 
    ```bash
-   # bash setup-website.sh ctxremote.ctx.ink
+   # bash setup-website.sh remocto.com
    ```
 
-   Erwartet: „Website eingerichtet für https://ctxremote.ctx.ink“. Läuft Caddy dort schon als Dienst, bleiben deine bestehenden Seiten unverändert: Das Skript legt nur `/etc/caddy/ctxremote.caddy` an, hängt eine `import`-Zeile an die `Caddyfile` und nimmt beides zurück, falls die Konfiguration danach ungültig wäre.
+   Erwartet: „Website eingerichtet für https://remocto.com“. Läuft Caddy dort schon als Dienst, bleiben deine bestehenden Seiten unverändert: Das Skript legt nur `/etc/caddy/ctxremote.caddy` an, hängt eine `import`-Zeile an die `Caddyfile` und nimmt beides zurück, falls die Konfiguration danach ungültig wäre.
 
    **Caddy im Docker-Container** (so beim Nutzer): stattdessen
 
    ```bash
-   # bash setup-website.sh --docker ctxremote.ctx.ink
+   # bash setup-website.sh --docker remocto.com
    ```
 
    Das legt nur den Ordner `/var/www/ctxremote` an und gibt zwei Dinge aus, die du selbst einträgst. Am Server selbst ändert es nichts.
@@ -280,7 +282,7 @@ Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werd
 
    Danach den Container mit dem neuen Volume neu erstellen (`docker compose up -d caddy`). Der Symlink `site` ist relativ, funktioniert also auch unter dem anderen Pfad im Container.
 
-### Webinterface „Konto“ (https://ctxremote.ctx.ink/konto/)
+### Webinterface „Konto“ (https://remocto.com/konto/)
 
 Das Webinterface ist eine Svelte-App aus `web/`. Die Pipeline baut sie nach `website/konto/`, sie wird also mit der Website ausgeliefert. Seine Anfragen gehen an `/api/…`. Caddy reicht sie an die Web-API des Remocto-Servers weiter (`--http`, Standard `127.0.0.1:21380`). Alles Kryptografische passiert im Browser, der Server sieht nur abgeleitete Werte und verschlüsselte Daten (`docs/ACCOUNTS.md`).
 
@@ -298,7 +300,7 @@ Das Webinterface ist eine Svelte-App aus `web/`. Die Pipeline baut sie nach `web
    [Service]
    EnvironmentFile=-/etc/ctxremote/mail.env
    ExecStart=
-   ExecStart=/opt/ctxremote/ctxremote-server --listen 0.0.0.0:21300 --data /var/lib/ctxremote --http 172.17.0.1:21380 --web-origin https://ctxremote.ctx.ink
+   ExecStart=/opt/ctxremote/ctxremote-server --listen 0.0.0.0:21300 --data /var/lib/ctxremote --http 172.17.0.1:21380 --web-origin https://remocto.com,https://www.remocto.com,https://remocto.com
    ```
 
    Die Zeile `EnvironmentFile` gehört zu den Mails (nächster Abschnitt). Ohne diese Datei läuft der Server trotzdem.
@@ -311,17 +313,17 @@ Das Webinterface ist eine Svelte-App aus `web/`. Die Pipeline baut sie nach `web
      - "host.docker.internal:host-gateway"
    ```
 
-3. Den Block für `ctxremote.ctx.ink` in der Caddyfile durch den neuen ersetzen. `bash setup-website.sh --docker ctxremote.ctx.ink` gibt ihn aus. Neu sind darin `handle /api/*` mit `reverse_proxy host.docker.internal:21380` und `script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'` in der CSP; die Schlüsselableitung braucht WebAssembly.
+3. Den Block für `remocto.com` in der Caddyfile durch den neuen ersetzen. `bash setup-website.sh --docker remocto.com` gibt ihn aus. Neu sind darin `handle /api/*` mit `reverse_proxy host.docker.internal:21380` und `script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'` in der CSP; die Schlüsselableitung braucht WebAssembly.
 4. `docker compose up -d caddy`.
 5. Ist `ufw` aktiv, den Zugriff aus den Docker-Netzen erlauben: `ufw allow from 172.16.0.0/12 to any port 21380 proto tcp`.
 
-Prüfen: `curl -s https://ctxremote.ctx.ink/api/account` muss `{"error":"Bitte erneut anmelden"}` liefern. Die Antwort kommt also vom Server, nicht von Caddy.
+Prüfen: `curl -s https://remocto.com/api/account` muss `{"error":"Bitte erneut anmelden"}` liefern. Die Antwort kommt also vom Server, nicht von Caddy.
 
 Ohne Docker trägt `setup-website.sh` den Block mit `reverse_proxy 127.0.0.1:21380` ein. Die Systemd-Unit hat `--http 127.0.0.1:21380` schon.
-4. **Einmal nach `master` pushen** (oder den Release-Workflow von Hand starten). Danach zeigt https://ctxremote.ctx.ink die Seite.
+4. **Einmal nach `master` pushen** (oder den Release-Workflow von Hand starten). Danach zeigt https://remocto.com die Seite.
 5. **Vor dem Veröffentlichen** in `website/impressum.html` und `website/datenschutz.html` die markierten Platzhalter ersetzen, also Name, Anschrift und E-Mail. Bei Hetzner im Robot den **Vertrag zur Auftragsverarbeitung** abschließen, die Datenschutzerklärung verweist darauf.
 
-Prüfen: `curl -I https://ctxremote.ctx.ink` muss `HTTP/2 200` liefern, `ls -l /var/www/ctxremote` zeigt `site -> site-…` und `download/`.
+Prüfen: `curl -I https://remocto.com` muss `HTTP/2 200` liefern, `ls -l /var/www/ctxremote` zeigt `site -> site-…` und `download/`.
 
 Ohne `setup-website.sh` lässt die Pipeline die Website einfach aus. Server und Updates laufen wie bisher.
 
@@ -344,8 +346,8 @@ Inhalt, mit den Daten deines Mailanbieters:
 
 ```ini
 CTXREMOTE_SMTP_URL=smtps://BENUTZER:PASSWORT@smtp.example.org:465
-CTXREMOTE_MAIL_FROM=Remocto <noreply@ctx.ink>
-CTXREMOTE_SITE_URL=https://ctxremote.ctx.ink
+CTXREMOTE_MAIL_FROM=Remocto <noreply@remocto.com>
+CTXREMOTE_SITE_URL=https://remocto.com
 ```
 
 - Port 465 (TLS) nimmt `smtps://`, Port 587 (STARTTLS) nimmt `smtp://BENUTZER:PASSWORT@smtp.example.org:587?tls=required`.
@@ -392,7 +394,7 @@ Die Laufnummer des Release ist der `versionCode`, also kann jedes Release hochge
 2. In GitHub unter Settings → Secrets → Actions: `ANDROID_KEYSTORE` = Ausgabe von `base64 -w0 ctxremote.jks`, `ANDROID_KEYSTORE_PASSWORD` = das Passwort.
 3. Play Console (play.google.com/console, 25 $ einmalig, Identitätsprüfung): App anlegen, Paketname `info.philippdev.ctxremote`. „Play App-Signatur“ annehmen (Google signiert die ausgelieferte App, unser Schlüssel ist nur der Upload-Schlüssel).
 4. Testen → Interner Test → Tester (eigene Google-Mail) eintragen → neues Release → das `.aab` aus dem Artefakt hochladen.
-5. Für den Store-Eintrag: Datenschutzerklärung `https://ctxremote.ctx.ink/datenschutz.html`, Altersfreigabe-Fragebogen, Datensicherheit, Icon 512×512, Grafik 1024×500, mindestens zwei Screenshots.
+5. Für den Store-Eintrag: Datenschutzerklärung `https://remocto.com/datenschutz.html`, Altersfreigabe-Fragebogen, Datensicherheit, Icon 512×512, Grafik 1024×500, mindestens zwei Screenshots.
 
 Private Konten brauchen vor der Freigabe im Store einen geschlossenen Test mit mindestens 12 Testern über 14 Tage. Der interne Test geht sofort.
 

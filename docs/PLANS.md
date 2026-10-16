@@ -4,7 +4,7 @@ Stand: 5. Oktober 2026. Noch nichts davon ist gebaut. Das Konzept dient als Grun
 
 ## Ausgangslage
 
-- **Lizenz:** Der Code steht unter AGPL-3.0. Wer selbst einen Server betreibt, kann jede Sperre im Code entfernen. Pläne wirken deshalb vor allem auf **deinem gehosteten Dienst** (`remote.ctx.ink`). Für Selbsthoster gibt es zwei Wege:
+- **Lizenz:** Der Code steht unter AGPL-3.0. Wer selbst einen Server betreibt, kann jede Sperre im Code entfernen. Pläne wirken deshalb vor allem auf **deinem gehosteten Dienst** (`remote.remocto.com`). Für Selbsthoster gibt es zwei Wege:
   - alles frei lassen (wie heute),
   - oder **Doppellizenz**: AGPL für alle, dazu eine kaufbare kommerzielle Lizenz für Firmen, die die AGPL-Pflichten (Quellcode offenlegen bei Änderungen) nicht wollen. Das geht nur, solange du alle Rechte am Code hältst. Fremde Beiträge bräuchten dann eine Rechteübertragung (CLA).
 - **Heute gibt es keine Konten:** Geräte melden sich nur mit ihrem Geräteschlüssel an (ID, Alias). Pläne brauchen Konten, an denen die Geräte hängen.
@@ -55,7 +55,7 @@ Gewählt wurde „jeder Kunde sein eigenes Branding“. Zwei Wege:
   - Updates müssten je Kunde gebaut werden.
 - **B: Eine Datei, Branding zur Laufzeit (Empfehlung):**
   - Es gibt nur eine signierte Schnellhilfe.
-  - Der Kunde lädt sie über seinen Link herunter, z. B. `ctxremote.ctx.ink/h/ecker-it`.
+  - Der Kunde lädt sie über seinen Link herunter, z. B. `remocto.com/h/ecker-it`.
   - Der Server hängt ein kleines, signiertes Branding-Paket an die Datei an (Name, Logo, Farbe, Texte, Telefonnummer), ohne die Code-Signatur zu brechen. Windows erlaubt Daten im Signatur-Bereich am Dateiende, wie es Chrome bei Installer-Tags macht.
   - Beim Start liest die Schnellhilfe das Paket, prüft die Signatur des Servers und zeigt das Branding.
   - Ohne gültiges Paket erscheint das normale Remocto-Aussehen.
@@ -110,7 +110,7 @@ Jeder Schritt ist für sich nutzbar:
 ## Entscheidungen des Nutzers (5. Oktober 2026)
 
 - **Noch keine Firma.** Verkauft wird erst, wenn es eine gibt. Bis dahin baue ich nichts, was Geld annimmt.
-- **Später über die eigene Website mit Stripe**, noch nicht endgültig festgelegt. Die Website gibt es jetzt (`website/`, https://ctxremote.ctx.ink). Konten und Kundenbereich gehören später dorthin.
+- **Später über die eigene Website mit Stripe**, noch nicht endgültig festgelegt. Die Website gibt es jetzt (`website/`, https://remocto.com). Konten und Kundenbereich gehören später dorthin.
 - **Free nur für private Nutzung**, gewerblich nicht. Das steht so auf der Preisseite. Durchsetzen lässt es sich erst mit Konten und AGB.
 - **Selbst-Hosting wird erst einmal nicht angeboten.** Die Website erwähnt es nicht. Der Code bleibt AGPL, die Frage nach einer kommerziellen Lizenz stellt sich damit vorerst nicht.
 

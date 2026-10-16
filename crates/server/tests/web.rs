@@ -176,3 +176,15 @@ async fn status_counts_devices_and_sessions() {
     drop(session);
     drop(server);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn several_web_origins() {
+    let (_server, _addr, http) = start_server_with_web(Some("https://neu.example, https://alt.example/")).await;
+    let http = http.unwrap();
+    let (status, _, _) = call(&http, "POST", "/api/register", None, "https://alt.example", Some(setup("alt@example.org", 4))).await;
+    assert_eq!(status, 200, "the old address still works");
+    let (status, _, _) = call(&http, "POST", "/api/register", None, "https://neu.example", Some(setup("neu@example.org", 5))).await;
+    assert_eq!(status, 200);
+    let (status, _, _) = call(&http, "POST", "/api/register", None, "https://evil.example", Some(setup("x@example.org", 6))).await;
+    assert_eq!(status, 403);
+}

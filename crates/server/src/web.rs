@@ -221,13 +221,21 @@ impl From<SetupJson> for LoginSetup {
 struct Api {
     server: Arc<Server>,
     sessions: Arc<Sessions>,
-    /// The website's origin; other origins are refused (besides SameSite cookies).
-    origin: Option<String>,
+    /// The website's origins (several while it moves to a new address);
+    /// other origins are refused (besides SameSite cookies).
+    origins: Vec<String>,
 }
 
 /// Serves the API on `addr` until the process ends.
 pub async fn serve(server: Arc<Server>, addr: SocketAddr, origin: Option<String>) -> anyhow::Result<()> {
-    let api = Api { server, sessions: Arc::default(), origin };
+    // `--web-origin` takes a comma-separated list.
+    let origins = origin
+        .iter()
+        .flat_map(|list| list.split(','))
+        .map(|o| o.trim().trim_end_matches('/').to_string())
+        .filter(|o| !o.is_empty())
+        .collect();
+    let api = Api { server, sessions: Arc::default(), origins };
     let app = Router::new()
         .route("/api/prelogin", post(prelogin))
         .route("/api/register", post(register))
@@ -288,8 +296,8 @@ impl Api {
             return Err(AccountError::RateLimited.into());
         }
         if method != Method::GET {
-            if let (Some(expected), Some(origin)) = (&self.origin, headers.get(header::ORIGIN)) {
-                if origin.to_str().ok() != Some(expected.as_str()) {
+            if let (false, Some(origin)) = (self.origins.is_empty(), headers.get(header::ORIGIN)) {
+                if !origin.to_str().is_ok_and(|o| self.origins.iter().any(|allowed| allowed == o)) {
                     return Err(ApiError(StatusCode::FORBIDDEN, "Fremde Herkunft".into()));
                 }
             }
