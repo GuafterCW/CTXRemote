@@ -7,6 +7,7 @@
   <meta name="description" content="CTXRemote: Fernwartung für Windows, Mac und Linux. Ende-zu-Ende verschlüsselt, Schnellhilfe ohne Installation, direkte Verbindungen.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/site.js"></script>
 </head>
 <body>
   <header class="top">
@@ -16,6 +17,7 @@
         <a href="/" aria-current="page">Start</a>
         <a href="/download.html">Download</a>
         <a href="/konto/">Konto</a>
+        <a class="status-link" href="/status.html"><span class="live" aria-hidden="true"></span>Status</a>
         <a class="btn btn-primary" href="/download.html">Herunterladen</a>
       </nav>
     </div>
@@ -23,33 +25,41 @@
       <a href="/" aria-current="page">Start</a>
       <a href="/download.html">Download</a>
       <a href="/konto/">Konto</a>
+      <a href="/status.html">Status</a>
     </nav>
   </header>
   <main>
     <section class="hero">
+      <div class="backdrop" aria-hidden="true"><div class="grid"></div><div class="blob blob-a"></div><div class="blob blob-b"></div><div class="blob blob-c"></div></div>
       <div class="wrap hero-grid">
         <div>
-          <p class="eyebrow">Fernwartung für Windows, Mac und Linux</p>
-          <h1>Helfen, als säßen Sie daneben.</h1>
-          <p class="lead">CTXRemote verbindet Sie mit Ihren eigenen Geräten und mit Menschen, denen Sie helfen wollen. Schnell, Ende-zu-Ende verschlüsselt und ohne Kontoanmeldung.</p>
-          <div class="actions">
-            <a class="btn btn-primary" href="/download.html">Kostenlos herunterladen</a>
+          <a class="pill" href="/status.html" data-reveal><b>Live</b><span class="live" aria-hidden="true"></span>Status aller Dienste<svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <p class="eyebrow" data-reveal style="--d: 80ms">Fernwartung für Windows, Mac und Linux</p>
+          <h1 data-reveal style="--d: 140ms">Helfen, als säßen Sie <span class="grad">daneben.</span></h1>
+          <p class="lead" data-reveal style="--d: 220ms">CTXRemote verbindet Sie mit Ihren eigenen Geräten und mit Menschen, denen Sie helfen wollen. Schnell, Ende-zu-Ende verschlüsselt und ohne Kontoanmeldung.</p>
+          <div class="actions" data-reveal style="--d: 300ms">
+            <a class="btn btn-primary btn-shine" href="/download.html">Kostenlos herunterladen</a>
+            <a class="btn btn-ghost" href="#so-gehts">So funktioniert es</a>
           </div>
-          <ul class="platforms" aria-label="Systeme">
+          <ul class="platforms" aria-label="Systeme" data-reveal style="--d: 360ms">
             <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Windows</li>
             <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 19h18"/></svg>macOS</li>
             <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>Linux</li>
           </ul>
         </div>
-        <div>
+        <div class="hero-visual" data-reveal style="--d: 200ms">
+          <div class="chip chip-b"><span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg></span><span>Ende-zu-Ende<small>verschlüsselt</small></span></div>
+          <div class="chip chip-a"><span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span><span>Direkt verbunden<small>ohne Umweg über den Server</small></span></div>
+          <div class="window">
           <img class="shot shot-light" src="/img/app-light.png" width="940" height="600" alt="Das Hauptfenster von CTXRemote mit eigener ID, Einmal-Passwort und Verbindungsfeld">
           <img class="shot shot-dark" src="/img/app-dark.png" width="940" height="600" alt="Das Hauptfenster von CTXRemote im dunklen Design">
+          </div>
         </div>
       </div>
     </section>
 
     <div class="wrap">
-      <ul class="facts">
+      <ul class="facts" data-stagger>
         <li><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M12 15v2"/></svg></span><span><strong>Ende-zu-Ende verschlüsselt</strong>auch unser Server sieht nichts</span></li>
         <li><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span><span><strong>In einer Minute verbunden</strong>ID und Passwort genügen</span></li>
         <li><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span><strong>Ohne Konto nutzbar</strong>Ihr Gegenüber richtet nichts ein</span></li>
@@ -59,48 +69,48 @@
 
     <section>
       <div class="wrap">
-        <div class="center">
+        <div class="center" data-reveal>
           <p class="eyebrow">Funktionen</p>
           <h2>Alles, was eine Fernwartung braucht.</h2>
           <p class="lead">Und nichts, was im Weg steht.</p>
         </div>
-        <div class="features">
-          <div class="feature">
+        <div class="features" data-stagger>
+          <div class="feature spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h6l2-3 2 6 2-3h4"/></svg></span>
             <h3>Direkt statt über Umwege</h3>
             <p>Sobald es geht, wechselt die Sitzung auf eine direkte Verbindung, auch zwischen zwei Heimnetzen ohne Portfreigabe. Das spart Wege und macht das Bild flüssiger.</p>
           </div>
-          <div class="feature">
+          <div class="feature spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg></span>
             <h3>Schnellhilfe ohne Installation</h3>
             <p>Ihr Gegenüber startet eine einzelne Datei, nennt ID und Passwort und bestätigt Ihren Zugriff. Danach bleibt nichts zurück.</p>
           </div>
-          <div class="feature">
+          <div class="feature spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h6l2 2h8v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg></span>
             <h3>Dateien in beide Richtungen</h3>
             <p>Eigener Dateibrowser für das ferne Gerät. Ordner und große Dateien hoch- und herunterladen oder einfach ins Fenster ziehen.</p>
           </div>
-          <div class="feature">
+          <div class="feature spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h14v10H9l-4 4z"/></svg></span>
             <h3>Chat in der Sitzung</h3>
             <p>Kurze Nachrichten, ohne dass etwas auf dem fernen Bildschirm landet. Praktisch, wenn am anderen Ende niemand telefonieren kann.</p>
           </div>
-          <div class="feature">
+          <div class="feature spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>
             <h3>Ihr Name statt einer Nummer</h3>
             <p>Bei der Zugriffsanfrage sieht Ihr Gegenüber Ihren Namen, Ihre Firma und Ihr Logo. Dazu ein eigener Alias statt der neunstelligen ID.</p>
           </div>
-          <div class="feature">
+          <div class="feature spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
             <h3>Unbeaufsichtigter Zugriff</h3>
             <p>Auf eigenen Geräten läuft CTXRemote als Dienst, auch am Sperrbildschirm, mit Strg+Alt+Entf und Neustart aus der Ferne.</p>
           </div>
-          <div class="feature">
+          <div class="feature spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/><path d="M3 21v-5h5"/></svg></span>
             <h3>Updates von selbst</h3>
             <p>Neue Versionen sind signiert und installieren sich im Hintergrund. Sie müssen sich um nichts kümmern.</p>
           </div>
-          <div class="feature">
+          <div class="feature spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="9" height="7" rx="1.5"/><rect x="13" y="5" width="9" height="7" rx="1.5"/><path d="M6.5 15v4M17.5 15v4M4 19h16"/></svg></span>
             <h3>Mehrere Bildschirme</h3>
             <p>Zwischen den Monitoren des fernen Geräts umschalten, Bildqualität wählen, Mauszeiger sehen wie vor Ort.</p>
@@ -109,23 +119,52 @@
       </div>
     </section>
 
+    <section class="alt" id="verbindung">
+      <div class="wrap">
+        <div class="center" data-reveal>
+          <p class="eyebrow">Unter der Haube</p>
+          <h2>Der Server stellt vor. Das Bild geht direkt.</h2>
+          <p class="lead">Unser Server bringt die beiden Geräte nur zusammen. Was danach fließt, ist verschlüsselt, und wo es geht, nimmt es den kürzesten Weg.</p>
+        </div>
+        <div class="flow" data-reveal>
+          <svg class="beams" viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true">
+            <path class="wire" d="M167 300 C167 160 330 70 440 70"/>
+            <path class="wire" d="M560 70 C670 70 833 160 833 300"/>
+            <path class="wire" d="M260 340 L740 340"/>
+            <path class="pulse" pathLength="1000" d="M167 300 C167 160 330 70 440 70"/>
+            <path class="pulse late" pathLength="1000" d="M560 70 C670 70 833 160 833 300"/>
+            <path class="pulse direct" pathLength="1000" d="M260 340 L740 340"/>
+          </svg>
+          <div class="node node-viewer"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg></span><strong>Ihr Computer</strong><span>sieht und steuert</span></div>
+          <div class="node node-server"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="7" rx="1.5"/><rect x="4" y="14" width="16" height="7" rx="1.5"/><path d="M8 6.5h.01M8 17.5h.01"/></svg></span><strong>CTXRemote-Server</strong><span>vermittelt nur und sieht nichts</span></div>
+          <div class="node node-host"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span><strong>Gerät Ihres Gegenübers</strong><span>zeigt seinen Bildschirm</span></div>
+          <span class="lock"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg>Ende-zu-Ende verschlüsselt</span>
+        </div>
+        <ol class="flow-notes" data-stagger>
+          <li><strong>Vorstellen</strong>Beide Geräte melden sich beim Server. Er kennt nur die ID, nie das Passwort.</li>
+          <li><strong>Verschlüsseln</strong>Aus dem Passwort entsteht auf beiden Seiten ein Schlüssel. Der Server reicht nur Unlesbares weiter.</li>
+          <li><strong>Direkt verbinden</strong>Sobald es geht, wechselt die Sitzung auf den direkten Weg, auch zwischen zwei Heimnetzen.</li>
+        </ol>
+      </div>
+    </section>
+
     <section class="deep">
       <div class="wrap">
-        <p class="eyebrow">Sicherheit</p>
-        <h2>Ihr Bildschirm gehört Ihnen.</h2>
-        <p class="lead">Niemand kommt ohne Ihr Wissen auf ein Gerät, und was übertragen wird, bleibt zwischen den beiden Geräten.</p>
-        <div class="deep-grid">
-          <div class="deep-card">
+        <p class="eyebrow" data-reveal>Sicherheit</p>
+        <h2 data-reveal>Ihr Bildschirm gehört Ihnen.</h2>
+        <p class="lead" data-reveal>Niemand kommt ohne Ihr Wissen auf ein Gerät, und was übertragen wird, bleibt zwischen den beiden Geräten.</p>
+        <div class="deep-grid" data-stagger>
+          <div class="deep-card spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M12 15v2"/></svg></span>
             <h3>Ende-zu-Ende verschlüsselt</h3>
             <p>Jede Sitzung wird mit dem Passwort verschlüsselt (SPAKE2, ChaCha20-Poly1305). Der Server vermittelt nur und sieht ausschließlich verschlüsselte Daten.</p>
           </div>
-          <div class="deep-card">
+          <div class="deep-card spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v5"/><path d="M12 10V4a1.5 1.5 0 0 1 3 0v6"/><path d="M15 10V6a1.5 1.5 0 0 1 3 0v7a7 7 0 0 1-7 7h-1a6 6 0 0 1-5-3l-2.5-4a1.5 1.5 0 0 1 2.5-1.6L9 14"/></svg></span>
             <h3>Sie bestimmen, was geht</h3>
             <p>Zugriff nur nach Bestätigung oder mit Ihrem festen Passwort, auf Wunsch mit Zwei-Faktor-Code. Pro Sitzung legen Sie fest, ob gesteuert, kopiert oder übertragen werden darf.</p>
           </div>
-          <div class="deep-card">
+          <div class="deep-card spot">
             <span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="m9 15 2 2 4-4"/></svg></span>
             <h3>Signierte Updates</h3>
             <p>Neue Versionen sind digital signiert und werden vor der Installation geprüft. Eine untergeschobene Datei wird nicht ausgeführt.</p>
@@ -136,27 +175,27 @@
 
     <section class="alt">
       <div class="wrap">
-        <div class="center">
+        <div class="center" data-reveal>
           <p class="eyebrow">Plattformen</p>
           <h2>Auf den Geräten, die Sie haben.</h2>
         </div>
-        <div class="os-grid">
-          <a class="os" href="/download.html"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span><h3>Windows</h3><p>Windows 10 und 11, als Dienst auch am Sperrbildschirm.</p></a>
-          <a class="os" href="/download.html"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 19h18"/></svg></span><h3>macOS</h3><p>Ab macOS 11, Apple-Chips und Intel. Vorschau.</p></a>
-          <a class="os" href="/download.html"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></span><h3>Linux</h3><p>AppImage und Paket für Ubuntu/Debian. Vorschau.</p></a>
-          <a class="os" href="/download.html"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg></span><h3>Android</h3><p>Ihre Geräte vom Handy aus steuern. Vorschau.</p></a>
+        <div class="os-grid" data-stagger>
+          <a class="os spot" href="/download.html"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span><h3>Windows</h3><p>Windows 10 und 11, als Dienst auch am Sperrbildschirm.</p></a>
+          <a class="os spot" href="/download.html"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 19h18"/></svg></span><h3>macOS</h3><p>Ab macOS 11, Apple-Chips und Intel. Vorschau.</p></a>
+          <a class="os spot" href="/download.html"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></span><h3>Linux</h3><p>AppImage und Paket für Ubuntu/Debian. Vorschau.</p></a>
+          <a class="os spot" href="/download.html"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg></span><h3>Android</h3><p>Ihre Geräte vom Handy aus steuern. Vorschau.</p></a>
         </div>
       </div>
     </section>
 
-    <section>
+    <section id="so-gehts">
       <div class="wrap split">
-        <div>
+        <div data-reveal>
           <p class="eyebrow">So funktioniert es</p>
           <h2>In einer Minute verbunden.</h2>
           <p class="lead">Ihr Gegenüber braucht kein Konto und muss nichts einrichten.</p>
         </div>
-        <ol class="steps">
+        <ol class="steps" data-stagger>
           <li><strong>Schnellhilfe starten.</strong> Ihr Gegenüber lädt die Schnellhilfe herunter und öffnet sie. Eine Installation ist nicht nötig.</li>
           <li><strong>ID und Passwort durchgeben.</strong> Die neunstellige ID und das Einmal-Passwort stehen groß im Fenster.</li>
           <li><strong>Zugriff bestätigen.</strong> Ihr Gegenüber sieht, wer sich verbinden will, und klickt auf „Zulassen“.</li>
@@ -167,11 +206,11 @@
 
     <section class="cta">
       <div class="wrap">
-        <div class="cta-box">
+        <div class="cta-box" data-reveal>
           <h2>Jetzt kostenlos loslegen.</h2>
           <p>CTXRemote ist kostenlos, ohne Abo und ohne Werbung. Wenn es Ihnen hilft, freuen wir uns über einen Kaffee.</p>
           <div class="actions">
-            <a class="btn btn-light" href="/download.html">CTXRemote herunterladen</a>
+            <a class="btn btn-light btn-shine" href="/download.html">CTXRemote herunterladen</a>
             <a class="btn btn-ghost-light" href="https://ko-fi.com/P7A628U46S" rel="noopener">Projekt unterstützen</a>
           </div>
         </div>
@@ -190,6 +229,7 @@
           <ul>
             <li><a href="/download.html">Download</a></li>
             <li><a href="/konto/">Konto</a></li>
+            <li><a href="/status.html">Status</a></li>
             <li><a href="https://ko-fi.com/P7A628U46S" rel="noopener">Unterstützen</a></li>
           </ul>
         </div>

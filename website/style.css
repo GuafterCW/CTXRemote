@@ -870,3 +870,1231 @@ a.os:hover {
     display: flex;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Motion and effects (site.js adds "js" to <html>). Everything below  */
+/* rests when the system asks for reduced motion.                       */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --grid-line: rgb(16 32 27 / 0.06);
+  --blob-a: #2f9a7a;
+  --blob-b: #3c9fc4;
+  --blob-c: #8fd6a8;
+  --blob-opacity: 0.28;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Status (fixed, never themed); always shown with an icon and a word. */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --no-data: #d6dad6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --grid-line: rgb(255 255 255 / 0.05);
+    --blob-opacity: 0.4;
+    --no-data: #2e3532;
+  }
+}
+
+@property --angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* Reveal on scroll: rises, sharpens and fades in. */
+.js [data-reveal] {
+  opacity: 0;
+  transform: translateY(22px);
+  filter: blur(6px);
+  transition:
+    opacity 0.8s var(--ease-out) var(--d, 0ms),
+    transform 0.8s var(--ease-out) var(--d, 0ms),
+    filter 0.8s var(--ease-out) var(--d, 0ms);
+}
+
+.js [data-reveal].in {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+.top {
+  transition: border-color 0.3s, background 0.3s;
+}
+
+.js .top:not(.scrolled) {
+  border-bottom-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+/* Hero: a fine grid and slowly drifting light behind the text. */
+.hero {
+  isolation: isolate;
+  padding-top: 72px;
+}
+
+.hero::before {
+  content: none;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  /* Fades out before the section ends, so no edge shows. */
+  -webkit-mask-image: linear-gradient(#000 60%, transparent);
+  mask-image: linear-gradient(#000 60%, transparent);
+}
+
+.backdrop .grid {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 65% at 60% 30%, #000 25%, transparent 75%);
+  mask-image: radial-gradient(ellipse 75% 65% at 60% 30%, #000 25%, transparent 75%);
+}
+
+.backdrop .blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: var(--blob-opacity);
+  animation: drift 20s ease-in-out infinite alternate;
+}
+
+.blob-a {
+  top: -220px;
+  right: -60px;
+  width: 560px;
+  height: 560px;
+  background: var(--blob-a);
+}
+
+.blob-b {
+  top: 160px;
+  right: 30%;
+  width: 380px;
+  height: 380px;
+  background: var(--blob-b);
+  opacity: calc(var(--blob-opacity) * 0.7);
+  animation-duration: 26s;
+  animation-delay: -8s;
+}
+
+.blob-c {
+  bottom: -260px;
+  left: -160px;
+  width: 520px;
+  height: 520px;
+  background: var(--blob-c);
+  opacity: calc(var(--blob-opacity) * 0.6);
+  animation-duration: 30s;
+}
+
+@keyframes drift {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-70px, 50px) scale(1.12);
+  }
+  100% {
+    transform: translate(50px, -30px) scale(0.94);
+  }
+}
+
+/* A small announcement above the headline. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 24px;
+  padding: 5px 14px 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.pill:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.pill b {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pill .arrow {
+  transition: transform 0.2s var(--ease-out);
+}
+
+.pill:hover .arrow {
+  transform: translateX(3px);
+}
+
+/* A live dot that sends out a ring. */
+.live {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  /* The brand color, not "good": a page link does not know the state. */
+  background: var(--accent-bright);
+}
+
+.live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes ping {
+  75%,
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
+/* Headline words with a slow sheen. */
+.grad {
+  background: linear-gradient(100deg, var(--accent) 10%, var(--accent-bright) 35%, var(--blob-b) 55%, var(--accent) 80%);
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sheen 8s linear infinite;
+}
+
+@keyframes sheen {
+  to {
+    background-position: -220% center;
+  }
+}
+
+/* Buttons: a light sweep now and then, and a little lift. */
+.btn {
+  position: relative;
+  overflow: hidden;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s var(--ease-out), box-shadow 0.2s;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 35%, transparent);
+  transform: translateY(-1px);
+}
+
+.btn-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 35%, rgb(255 255 255 / 0.4) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: shine 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes shine {
+  0%,
+  55% {
+    transform: translateX(-120%);
+  }
+  85%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+.btn-ghost {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+/* The app window in the hero, with a light running round its edge. */
+.hero-visual {
+  position: relative;
+}
+
+.window {
+  position: relative;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+
+.window::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  z-index: 1;
+  border-radius: calc(var(--radius) + 1.5px);
+  padding: 1.5px;
+  background: conic-gradient(from var(--angle), transparent 0 68%, var(--accent-bright) 80%, #9df0d3 86%, transparent 94%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: spin 7s linear infinite;
+  pointer-events: none;
+}
+
+.window::after {
+  content: "";
+  position: absolute;
+  inset: 12% 8% -6%;
+  z-index: -1;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  filter: blur(70px);
+  opacity: 0.25;
+}
+
+.window .shot {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+@keyframes spin {
+  to {
+    --angle: 360deg;
+  }
+}
+
+.chip {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  animation: float 7s ease-in-out infinite;
+}
+
+.chip small {
+  display: block;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chip .icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+.chip-a {
+  bottom: 14%;
+  left: -34px;
+}
+
+.chip-b {
+  top: -24px;
+  right: -20px;
+  animation-delay: -3.5s;
+}
+
+@keyframes float {
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Cards that light up under the pointer (site.js sets --mx/--my). */
+.spot {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transition: transform 0.35s var(--ease-out), border-color 0.35s, box-shadow 0.35s;
+}
+
+.spot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, -60%), color-mix(in srgb, var(--accent-bright) 16%, transparent), transparent 45%);
+  opacity: 0;
+  transition: opacity 0.35s;
+  pointer-events: none;
+}
+
+.spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, -60%), var(--accent-bright), transparent 60%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.35s;
+  pointer-events: none;
+}
+
+.spot:hover {
+  transform: translateY(-4px);
+}
+
+.spot:hover::before,
+.spot:hover::after {
+  opacity: 1;
+}
+
+.spot .icon {
+  transition: transform 0.35s var(--ease-out);
+}
+
+.spot:hover .icon {
+  transform: scale(1.08) rotate(-4deg);
+}
+
+/* How a connection runs: viewer, server and host with light on the wires. */
+.flow {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: auto 110px auto;
+  margin-top: 56px;
+}
+
+.flow .beams {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.beams path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.beams .wire {
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 6;
+}
+
+.beams .pulse {
+  stroke: var(--accent-bright);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 60 940;
+  animation: travel 3.2s linear infinite;
+  filter: drop-shadow(0 0 6px var(--accent-bright));
+}
+
+.beams .direct.pulse {
+  stroke-dasharray: 90 910;
+  animation-duration: 2.2s;
+}
+
+.beams .late {
+  animation-delay: -1.6s;
+}
+
+@keyframes travel {
+  from {
+    stroke-dashoffset: 1000;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.node {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  justify-self: center;
+  width: min(250px, 100%);
+  padding: 22px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.node strong {
+  margin-top: 8px;
+  font-size: 17px;
+}
+
+.node span:not(.icon) {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.node-viewer {
+  grid-area: 3 / 1;
+}
+
+.node-server {
+  grid-area: 1 / 2;
+}
+
+.node-host {
+  grid-area: 3 / 3;
+}
+
+.lock {
+  z-index: 1;
+  grid-area: 3 / 2;
+  align-self: center;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent-bright) 40%, var(--line));
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 0 0 6px var(--bg-alt);
+}
+
+.flow-notes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin: 48px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: note;
+}
+
+.flow-notes li {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 16px;
+  counter-increment: note;
+}
+
+.flow-notes li::before {
+  content: "0" counter(note);
+  display: block;
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.flow-notes strong {
+  display: block;
+  color: var(--ink);
+}
+
+/* The security band gets a slow aurora. */
+.deep {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.deep::before {
+  content: "";
+  position: absolute;
+  inset: -40% -20% auto;
+  z-index: -1;
+  height: 120%;
+  background:
+    radial-gradient(40% 50% at 20% 40%, rgb(47 154 122 / 0.35), transparent 70%),
+    radial-gradient(35% 45% at 80% 30%, rgb(60 159 196 / 0.22), transparent 70%);
+  filter: blur(20px);
+  animation: drift 24s ease-in-out infinite alternate;
+}
+
+.deep-card.spot::before {
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, -60%), rgb(111 211 178 / 0.14), transparent 45%);
+}
+
+.deep-card.spot::after {
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, -60%), #6fd3b2, transparent 60%);
+}
+
+/* Steps light up one after the other. */
+.steps li::before {
+  transition: background 0.5s, color 0.5s, box-shadow 0.5s;
+}
+
+.js .steps li.in::before {
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent-bright) 18%, transparent);
+}
+
+/* The call to action: a moving gradient. */
+.cta-box {
+  background: linear-gradient(120deg, #0d5c4b, #13795f, #2f9a7a, #1f7f8f, #0d5c4b);
+  background-size: 300% 300%;
+  animation: pan 16s ease-in-out infinite;
+}
+
+.cta-box::before {
+  content: "";
+  position: absolute;
+  top: -140px;
+  left: 40%;
+  width: 300px;
+  height: 300px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 50%;
+  animation: float 9s ease-in-out infinite;
+}
+
+@keyframes pan {
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.cta-box .btn-light.btn-shine::after {
+  background: linear-gradient(110deg, transparent 35%, rgb(47 154 122 / 0.25) 50%, transparent 65%);
+}
+
+/* Header link to the status page. */
+.nav .status-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 960px) {
+  .chip-a {
+    left: -8px;
+  }
+
+  .chip-b {
+    right: -6px;
+  }
+}
+
+@media (max-width: 640px) {
+  .flow {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    gap: 44px;
+  }
+
+  .flow .beams {
+    display: none;
+  }
+
+  .node-viewer,
+  .node-server,
+  .node-host,
+  .lock {
+    grid-area: auto;
+  }
+
+  .node-viewer {
+    order: 1;
+  }
+
+  .node-server {
+    order: 2;
+  }
+
+  .node-host {
+    order: 3;
+  }
+
+  .lock {
+    order: 4;
+  }
+
+  /* A short wire between the stacked boxes. */
+  .node-server::before,
+  .node-host::before {
+    content: "";
+    position: absolute;
+    top: -45px;
+    left: 50%;
+    width: 2px;
+    height: 44px;
+    background: linear-gradient(var(--accent-bright), var(--accent-bright)) 0 -44px / 2px 22px no-repeat, var(--line-strong);
+    animation: drip 1.6s linear infinite;
+  }
+
+  .flow-notes {
+    grid-template-columns: 1fr;
+  }
+
+  .chip {
+    font-size: 13px;
+  }
+
+  .chip-a {
+    bottom: -18px;
+    left: 8px;
+  }
+
+  .chip-b {
+    top: -18px;
+    right: 8px;
+  }
+}
+
+@keyframes drip {
+  to {
+    background-position: 0 44px, 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  .js [data-reveal] {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Status page                                                          */
+/* ------------------------------------------------------------------ */
+
+.status-page {
+  --state: var(--ink-3);
+}
+
+.status-page[data-state="ok"] {
+  --state: var(--good);
+}
+
+.status-page[data-state="degraded"] {
+  --state: var(--warning);
+}
+
+.status-page[data-state="down"] {
+  --state: var(--critical);
+}
+
+.status-hero {
+  padding: 80px 0 64px;
+  text-align: center;
+}
+
+.status-hero .blob-a {
+  right: 25%;
+  background: var(--state);
+  transition: background 1s;
+}
+
+.status-hero .lead {
+  margin-inline: auto;
+  font-size: 18px;
+}
+
+/* A glowing orb in the state's color, sending out rings. */
+.orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  margin: 0 auto 32px;
+}
+
+.orb .core {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--state) 60%, #fff), var(--state) 70%);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--state) 18%, transparent), 0 12px 50px color-mix(in srgb, var(--state) 55%, transparent);
+  color: #fff;
+  transition: background 0.8s, box-shadow 0.8s;
+  animation: breathe 3.2s ease-in-out infinite;
+}
+
+.orb .ring {
+  position: absolute;
+  inset: 14px;
+  border: 2px solid var(--state);
+  border-radius: 50%;
+  opacity: 0;
+  animation: ripple 3.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+
+.orb .ring:nth-child(2) {
+  animation-delay: 1.2s;
+}
+
+.orb .ring:nth-child(3) {
+  animation-delay: 2.4s;
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.3);
+    opacity: 0;
+  }
+}
+
+@keyframes breathe {
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+.orb svg path {
+  display: none;
+}
+
+[data-state="ok"] .orb .ico-ok,
+[data-state="degraded"] .orb .ico-warn,
+[data-state="down"] .orb .ico-down {
+  display: inline;
+}
+
+[data-state="loading"] .orb .core {
+  background: conic-gradient(from var(--angle), var(--line-strong), var(--accent-bright), var(--line-strong));
+  animation: spin 1.4s linear infinite;
+}
+
+[data-state="loading"] .orb .ring {
+  display: none;
+}
+
+/* Without an answer from the server there is nothing to chart. */
+.status-page:not(.drawn) [data-chart] {
+  display: none;
+}
+
+.status-body {
+  display: grid;
+  gap: 24px;
+  padding-bottom: 96px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 22px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.tile-label {
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tile strong {
+  font-family: var(--font-display);
+  font-size: clamp(30px, 3.4vw, 40px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.tile small {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.panel {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 20px;
+}
+
+.panel h2 {
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.panel-figure {
+  color: var(--ink-2);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.services {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.services li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.services li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.svc-name {
+  display: grid;
+}
+
+.svc-name small {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+/* The badge carries an icon and a word, never color alone. */
+.badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.badge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+[data-ok="yes"] .badge {
+  border-color: color-mix(in srgb, var(--good) 35%, var(--line));
+  color: var(--ink);
+}
+
+[data-ok="yes"] .badge::before {
+  background: var(--good);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 20%, transparent);
+}
+
+[data-ok="no"] .badge {
+  border-color: color-mix(in srgb, var(--critical) 45%, var(--line));
+  color: var(--ink);
+}
+
+[data-ok="no"] .badge::before {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--critical);
+  transform: rotate(45deg);
+}
+
+/* 90 thin bars per chart; each grows in, one after the other. */
+.bars,
+.columns {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 48px;
+}
+
+.columns-wrap {
+  position: relative;
+  padding-top: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.columns {
+  height: 120px;
+}
+
+.ymax {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  flex: 1 1 0;
+  min-width: 0;
+  height: calc(var(--h, 1) * 100%);
+  border-radius: 4px;
+  background: var(--no-data);
+  outline-offset: 2px;
+  transform-origin: bottom;
+  transition: filter 0.2s, transform 0.2s;
+  cursor: default;
+}
+
+.bar.good {
+  background: var(--good);
+}
+
+.bar.warning {
+  background: var(--warning);
+}
+
+.bar.serious {
+  background: var(--serious);
+}
+
+.bar.critical {
+  background: var(--critical);
+}
+
+.bar.count {
+  min-height: 3px;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent-bright);
+}
+
+.bar.count.zero {
+  min-height: 2px;
+  background: var(--line-strong);
+}
+
+.bar:hover,
+.bar:focus-visible {
+  filter: brightness(1.15);
+  transform: scaleY(1.06);
+}
+
+.drawn .bar {
+  animation: grow 0.7s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 8ms);
+}
+
+@keyframes grow {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 18px 0 0;
+  padding: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  list-style: none;
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sw {
+  width: 10px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--no-data);
+}
+
+.sw.good {
+  background: var(--good);
+}
+
+.sw.warning {
+  background: var(--warning);
+}
+
+.sw.serious {
+  background: var(--serious);
+}
+
+.sw.critical {
+  background: var(--critical);
+}
+
+.tip {
+  position: absolute;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  color: var(--ink-2);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.tip strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.table-view {
+  padding: 18px 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.table-view summary {
+  color: var(--ink-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.table-scroll {
+  max-height: 360px;
+  margin-top: 14px;
+  overflow: auto;
+}
+
+.table-view table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table-view th,
+.table-view td {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.table-view th:not(:first-child),
+.table-view td:not(:first-child) {
+  text-align: right;
+}
+
+.status-note {
+  max-width: 46em;
+  margin: 8px auto 0;
+  color: var(--ink-3);
+  font-size: 14px;
+  text-align: center;
+}
+
+@media (max-width: 960px) {
+  .tiles {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .status-hero {
+    padding: 56px 0 40px;
+  }
+
+  .tile {
+    padding: 18px;
+  }
+
+  .panel,
+  .table-view {
+    padding: 20px;
+  }
+
+  .bars,
+  .columns {
+    gap: 1px;
+  }
+
+  .bar {
+    border-radius: 2px;
+  }
+
+  .bar.count {
+    border-radius: 2px 2px 0 0;
+  }
+}

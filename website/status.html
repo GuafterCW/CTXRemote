@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Status – CTXRemote</title>
+  <meta name="description" content="Läuft CTXRemote gerade? Live-Status des Servers, der Website und der Downloads, mit der Verfügbarkeit der letzten 90 Tage.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/site.js"></script>
+  <script src="/status.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/"><svg width="24" height="24" viewBox="0 0 20 20" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="7.5" width="12" height="9" rx="2" fill="var(--accent)"/></svg><span>CTXRemote</span></a>
+      <nav class="nav" aria-label="Hauptmenü">
+        <a href="/">Start</a>
+        <a href="/download.html">Download</a>
+        <a href="/konto/">Konto</a>
+        <a class="status-link" href="/status.html" aria-current="page"><span class="live" aria-hidden="true"></span>Status</a>
+        <a class="btn btn-primary" href="/download.html">Herunterladen</a>
+      </nav>
+    </div>
+    <nav class="subnav" aria-label="Seiten">
+      <a href="/">Start</a>
+      <a href="/download.html">Download</a>
+      <a href="/konto/">Konto</a>
+      <a href="/status.html" aria-current="page">Status</a>
+    </nav>
+  </header>
+  <main class="status-page" data-state="loading">
+    <section class="hero status-hero">
+      <div class="backdrop" aria-hidden="true"><div class="grid"></div><div class="blob blob-a"></div><div class="blob blob-b"></div></div>
+      <div class="wrap center">
+        <div class="orb" aria-hidden="true"><span class="ring"></span><span class="ring"></span><span class="ring"></span><span class="core"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="ico-ok" d="M20 6 9 17l-5-5"/><path class="ico-warn" d="M12 7v6M12 17h.01"/><path class="ico-down" d="M18 6 6 18M6 6l12 12"/></svg></span></div>
+        <h1 id="headline" aria-live="polite">Status wird geprüft …</h1>
+        <p class="lead" id="subline">Einen Moment, wir fragen den Server.</p>
+      </div>
+    </section>
+
+    <div class="wrap status-body">
+      <div class="tiles" data-stagger>
+        <div class="tile spot"><span class="tile-label">Geräte online</span><strong id="online">–</strong><small>gerade mit dem Server verbunden</small></div>
+        <div class="tile spot"><span class="tile-label">Sitzungen jetzt</span><strong id="relaying">–</strong><small>über den Server weitergeleitet</small></div>
+        <div class="tile spot"><span class="tile-label">Verfügbarkeit</span><strong id="uptime">–</strong><small>in den letzten 90 Tagen</small></div>
+        <div class="tile spot"><span class="tile-label">Läuft seit</span><strong id="since">–</strong><small id="version">&nbsp;</small></div>
+      </div>
+
+      <section class="panel" data-reveal>
+        <div class="panel-head"><h2>Dienste</h2></div>
+        <ul class="services">
+          <li data-service="server"><span class="svc-name"><strong>Server</strong><small>Vermittlung, Weiterleitung, Konten und Updates</small></span><span class="badge">wird geprüft</span></li>
+          <li data-service="web"><span class="svc-name"><strong>Website</strong><small>diese Seiten und das Webinterface</small></span><span class="badge">wird geprüft</span></li>
+          <li data-service="download"><span class="svc-name"><strong>Downloads</strong><small>Installer und Schnellhilfe</small></span><span class="badge">wird geprüft</span></li>
+        </ul>
+      </section>
+
+      <section class="panel" data-reveal data-chart>
+        <div class="panel-head"><h2>Verfügbarkeit</h2><span class="panel-figure" id="uptime-figure"></span></div>
+        <div class="bars" id="uptime-bars"></div>
+        <div class="axis"><span>vor 90 Tagen</span><span>heute</span></div>
+        <ul class="legend">
+          <li><span class="sw good"></span>voll verfügbar</li>
+          <li><span class="sw warning"></span>kurze Ausfälle</li>
+          <li><span class="sw serious"></span>längere Ausfälle</li>
+          <li><span class="sw critical"></span>großteils ausgefallen</li>
+          <li><span class="sw none"></span>noch keine Daten</li>
+        </ul>
+      </section>
+
+      <section class="panel" data-reveal data-chart>
+        <div class="panel-head"><h2>Sitzungen pro Tag</h2><span class="panel-figure" id="sessions-figure"></span></div>
+        <div class="columns-wrap"><span class="ymax" id="sessions-max"></span><div class="columns" id="session-bars"></div></div>
+        <div class="axis"><span>vor 90 Tagen</span><span>heute</span></div>
+      </section>
+
+      <details class="table-view" data-reveal data-chart>
+        <summary>Alle Tage als Tabelle</summary>
+        <div class="table-scroll"><table><thead><tr><th scope="col">Tag</th><th scope="col">Verfügbar</th><th scope="col">Sitzungen</th></tr></thead><tbody id="days-table"></tbody></table></div>
+      </details>
+
+      <p class="status-note">Die Seite fragt alle 30 Sekunden nach. Der Server zählt nur Minuten und Sitzungen, nichts über Geräte oder Personen. Direkte Verbindungen im eigenen Netz laufen ohne den Server und fehlen deshalb in den Sitzungen.</p>
+    </div>
+    <div class="tip" id="tip" role="tooltip" hidden></div>
+  </main>
+  <footer class="foot">
+    <div class="wrap">
+      <div class="foot-grid">
+        <div>
+          <a class="brand" href="/"><svg width="24" height="24" viewBox="0 0 20 20" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="7.5" width="12" height="9" rx="2" fill="#4fb495"/></svg><span>CTXRemote</span></a>
+          <p>Fernwartung für Windows, Mac und Linux. Ende-zu-Ende verschlüsselt, Schnellhilfe ohne Installation.</p>
+        </div>
+        <div>
+          <h4>Produkt</h4>
+          <ul>
+            <li><a href="/download.html">Download</a></li>
+            <li><a href="/konto/">Konto</a></li>
+            <li><a href="/status.html">Status</a></li>
+            <li><a href="https://ko-fi.com/P7A628U46S" rel="noopener">Unterstützen</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Rechtliches</h4>
+          <ul>
+            <li><a href="/impressum.html">Impressum</a></li>
+            <li><a href="/datenschutz.html">Datenschutz</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot-bottom">© 2026 CTXRemote</div>
+    </div>
+  </footer>
+</body>
+</html>

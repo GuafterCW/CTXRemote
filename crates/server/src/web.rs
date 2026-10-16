@@ -244,6 +244,7 @@ pub async fn serve(server: Arc<Server>, addr: SocketAddr, origin: Option<String>
         .route("/api/pairing", post(pairing))
         .route("/api/verify", post(verify))
         .route("/api/verify/resend", post(resend_verification))
+        .route("/api/status", get(status))
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(api);
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -614,4 +615,26 @@ mod tests {
         assert_eq!(ip(&[("x-forwarded-for", "172.70.1.2"), ("cf-connecting-ip", "203.0.113.9")], "198.51.100.7:4000"), "198.51.100.7");
         assert_eq!(ip(&[], "172.17.0.2:4000"), "172.17.0.2");
     }
+}
+
+/// For the public status page: counts only, nothing about devices or
+/// people. Cheap enough to need no rate limit; the page asks twice a minute.
+async fn status(State(api): State<Api>) -> Response {
+    let server = &api.server;
+    let now = crate::status::now();
+    let days = server.status.days(now);
+    let (up, possible) = days.iter().filter_map(|(_, share, _)| *share).fold((0.0, 0), |(sum, n), s| (sum + s, n + 1));
+    let body = json!({
+        "version": crate::status::version(),
+        "started": server.status.started,
+        "now": now,
+        "online": server.online.lock().unwrap().len(),
+        "relaying": server.status.relaying.load(std::sync::atomic::Ordering::Relaxed),
+        "uptime": if possible == 0 { None } else { Some(up / possible as f64) },
+        "days": days
+            .iter()
+            .map(|(start, share, sessions)| json!({ "day": start, "up": share, "sessions": sessions }))
+            .collect::<Vec<_>>(),
+    });
+    ([(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))], Json(body)).into_response()
 }

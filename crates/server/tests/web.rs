@@ -156,3 +156,23 @@ async fn an_older_session_needs_the_password_to_change_the_login() {
     let login = json!({ "email": "alt@example.org", "auth": b64(&[2; 32]) });
     assert_eq!(call(&http, "POST", "/api/login", None, ORIGIN, Some(login)).await.0, 200);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn status_counts_devices_and_sessions() {
+    let (server, addr, http) = start_server_with_web(Some(ORIGIN)).await;
+    let http = http.unwrap();
+    let (_, _, body) = call(&http, "GET", "/api/status", None, ORIGIN, None).await;
+    assert_eq!(body["online"], 0, "{body}");
+    assert_eq!(body["days"].as_array().map(Vec::len), Some(90));
+    assert!(body["version"].as_str().is_some_and(|v| !v.is_empty()));
+    assert!(body["started"].as_u64() <= body["now"].as_u64());
+
+    let (host, id) = start_host(&addr, false).await;
+    let (session, _events) = connect(&addr, &host, id).await;
+    let (_, _, body) = call(&http, "GET", "/api/status", None, ORIGIN, None).await;
+    assert_eq!(body["online"], 1, "{body}");
+    assert_eq!(body["relaying"], 1, "{body}");
+    assert_eq!(body["days"][89]["sessions"], 1, "{body}");
+    drop(session);
+    drop(server);
+}

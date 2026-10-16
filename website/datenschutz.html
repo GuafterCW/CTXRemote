@@ -7,6 +7,7 @@
   <meta name="description" content="Datenschutzerklärung von CTXRemote.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/site.js"></script>
 </head>
 <body>
   <header class="top">
@@ -16,6 +17,7 @@
         <a href="/">Start</a>
         <a href="/download.html">Download</a>
         <a href="/konto/">Konto</a>
+        <a class="status-link" href="/status.html"><span class="live" aria-hidden="true"></span>Status</a>
         <a class="btn btn-primary" href="/download.html">Herunterladen</a>
       </nav>
     </div>
@@ -23,6 +25,7 @@
       <a href="/">Start</a>
       <a href="/download.html">Download</a>
       <a href="/konto/">Konto</a>
+      <a href="/status.html">Status</a>
     </nav>
   </header>
   <main>
@@ -37,6 +40,7 @@
         <h2>2. Diese Website</h2>
         <p>Die Website läuft auf einem eigenen Server bei der Hetzner Online GmbH, Industriestr. 25, 91710 Gunzenhausen, mit der ein Vertrag zur Auftragsverarbeitung besteht. Beim Aufruf verarbeitet der Server technisch notwendig Ihre IP-Adresse, um die Seite auszuliefern (Art. 6 Abs. 1 lit. f DSGVO). Zugriffe werden nicht protokolliert.</p>
         <p>Die Website (nicht die Verbindungen der App) wird über das Netzwerk der Cloudflare, Inc., 101 Townsend St, San Francisco, CA 94107, USA, ausgeliefert. Cloudflare schützt sie vor Angriffen und verarbeitet dafür Ihre IP-Adresse und die technischen Angaben Ihres Aufrufs, als Auftragsverarbeiter auf Grundlage unseres berechtigten Interesses an einer sicheren und erreichbaren Website (Art. 6 Abs. 1 lit. f DSGVO). Cloudflare ist nach dem EU-US Data Privacy Framework zertifiziert (Art. 45 DSGVO), zusätzlich gelten die Standardvertragsklauseln der EU-Kommission. Die Website setzt keine Cookies (Ausnahme: das Konto, siehe unten), lädt keine Inhalte von fremden Servern (auch keine Schriften) und verwendet keine Analyse- oder Tracking-Werkzeuge.</p>
+        <p>Die Statusseite fragt den Server alle 30 Sekunden, ob er läuft. Der Server zählt dafür nur, in wie vielen Minuten eines Tages er lief, wie viele Geräte gerade verbunden sind und wie viele Sitzungen er an einem Tag vermittelt hat. Er speichert dabei nichts über einzelne Geräte, Personen oder Aufrufe.</p>
         <p>Der Link „Unterstützen“ führt zu Ko-fi (Ko-fi Labs Limited, Vereinigtes Königreich). Er ist ein einfacher Link: Ko-fi wird erst geladen, wenn Sie ihn anklicken. Was Sie dort angeben, etwa bei einer Unterstützung, verarbeitet Ko-fi in eigener Verantwortung nach seiner Datenschutzerklärung. Wir erhalten von Ko-fi nur die Angaben, die Sie bei der Unterstützung selbst machen.</p>
 
         <h2>3. Nutzung von CTXRemote</h2>
@@ -86,6 +90,7 @@
           <ul>
             <li><a href="/download.html">Download</a></li>
             <li><a href="/konto/">Konto</a></li>
+            <li><a href="/status.html">Status</a></li>
             <li><a href="https://ko-fi.com/P7A628U46S" rel="noopener">Unterstützen</a></li>
           </ul>
         </div>

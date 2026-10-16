@@ -15,6 +15,7 @@ mod cloudflare;
 mod mail;
 mod web;
 mod registry;
+mod status;
 mod updates;
 
 use std::collections::HashMap;
@@ -78,6 +79,7 @@ struct Server {
     open: Mutex<OpenConnections>,
     updates: updates::Store,
     downloads: tokio::sync::Semaphore,
+    status: status::Status,
 }
 
 #[tokio::main]
@@ -132,7 +134,20 @@ async fn main() -> Result<()> {
         open: Mutex::default(),
         updates: updates::Store::new(data.join("updates")),
         downloads: tokio::sync::Semaphore::new(PARALLEL_DOWNLOADS),
+        status: status::Status::open(Some(data.join("status.json"))),
     });
+    // Uptime for the status page: one tick a minute while the server runs.
+    {
+        let server = server.clone();
+        tokio::spawn(async move {
+            let mut minute = tokio::time::interval(Duration::from_secs(60));
+            minute.tick().await;
+            loop {
+                minute.tick().await;
+                server.status.tick(status::now());
+            }
+        });
+    }
 
     // The web interface's API, behind Caddy; only reachable on a private address.
     if let Some(addr) = http {
@@ -396,6 +411,8 @@ impl Server {
         framing::send(&mut viewer, &ServerMsg::Ready).await?;
         framing::send(&mut host, &ServerMsg::Ready).await?;
         info!(%target, "Sitzung wird weitergeleitet");
+        self.status.session(status::now());
+        let _relaying = status::Relaying::start(&self.status.relaying);
         let (up, down) = relay(viewer, host).await?;
         info!(%target, up, down, "Sitzung beendet");
         Ok(())

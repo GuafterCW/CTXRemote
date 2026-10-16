@@ -7,6 +7,7 @@
   <meta name="description" content="CTXRemote für Windows herunterladen: Installation für eigene Geräte und Schnellhilfe ohne Installation.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/site.js"></script>
 </head>
 <body>
   <header class="top">
@@ -16,6 +17,7 @@
         <a href="/">Start</a>
         <a href="/download.html" aria-current="page">Download</a>
         <a href="/konto/">Konto</a>
+        <a class="status-link" href="/status.html"><span class="live" aria-hidden="true"></span>Status</a>
         <a class="btn btn-primary" href="/download.html">Herunterladen</a>
       </nav>
     </div>
@@ -23,16 +25,18 @@
       <a href="/">Start</a>
       <a href="/download.html" aria-current="page">Download</a>
       <a href="/konto/">Konto</a>
+      <a href="/status.html">Status</a>
     </nav>
   </header>
   <main>
     <section class="hero">
+      <div class="backdrop" aria-hidden="true"><div class="grid"></div><div class="blob blob-a"></div><div class="blob blob-b"></div></div>
       <div class="wrap">
         <p class="eyebrow">Download</p>
         <h1>CTXRemote herunterladen</h1>
         <p class="lead">Version <!--version-->aktuell<!--/version--> für Windows 10 und 11 (64 Bit), dazu Mac, Linux und Android als Vorschau.</p>
-        <div class="cards">
-          <div class="card card-accent">
+        <div class="cards" data-stagger>
+          <div class="card card-accent spot">
             <span class="tag">Für Ihre Geräte</span>
             <h3>CTXRemote installieren</h3>
             <p>Zum Verbinden mit anderen und für den Zugriff auf eigene Geräte, auch unbeaufsichtigt. Läuft als Dienst im Hintergrund und hält sich selbst aktuell.</p>
@@ -41,21 +45,21 @@
               <a class="btn" href="/download/CTXRemote-Setup.exe" download data-direct>Installer herunterladen</a>
             </div>
           </div>
-          <div class="card">
+          <div class="card spot">
             <span class="tag">Für Ihr Gegenüber</span>
             <h3>Schnellhilfe</h3>
             <p>Eine einzelne Datei ohne Installation. Ihr Gegenüber startet sie, nennt ID und Passwort und bestätigt Ihren Zugriff. Schicken Sie einfach den Link zu dieser Seite.</p>
             <a class="btn" href="/download/CTXRemote-Hilfe.exe" download>Schnellhilfe herunterladen</a>
           </div>
         </div>
-        <div class="cards">
-          <div class="card">
+        <div class="cards" data-stagger>
+          <div class="card spot">
             <span class="tag">Vorschau</span>
             <h3>CTXRemote für Mac</h3>
             <p>Andere Geräte steuern und den Mac selbst fernsteuern lassen, ab macOS 11, für Apple-Chips und Intel. Damit der Mac gesteuert werden kann, beim ersten Start „Bildschirmaufnahme“ und „Bedienungshilfen“ erlauben; die App führt direkt zu den Einstellungen. Noch ohne Ton vom Mac und ohne Privatsphäre-Modus.</p>
             <a class="btn" href="/download/CTXRemote.dmg" download>Für Mac herunterladen</a>
           </div>
-          <div class="card">
+          <div class="card spot">
             <span class="tag">Vorschau</span>
             <h3>CTXRemote für Linux</h3>
             <p>Andere Geräte steuern und den Linux-PC selbst fernsteuern lassen. Fernsteuern geht in einer X11-Sitzung („Xorg“ beim Anmelden wählen); unter Wayland sind nur ältere Programme zu sehen. Das AppImage läuft ohne Installation auf den meisten Systemen: herunterladen, ausführbar machen, starten.</p>
@@ -66,7 +70,7 @@
           </div>
         </div>
         <div class="cards" data-android>
-          <div class="card">
+          <div class="card spot">
             <span class="tag">Vorschau</span>
             <h3>CTXRemote für Android</h3>
             <p>Ihre Geräte vom Handy aus steuern, mit Touch-Gesten, Bildschirmtastatur und Sondertasten. Ab Android 7. Das Handy selbst lässt sich nicht fernsteuern.</p>
@@ -94,6 +98,7 @@
           <ul>
             <li><a href="/download.html">Download</a></li>
             <li><a href="/konto/">Konto</a></li>
+            <li><a href="/status.html">Status</a></li>
             <li><a href="https://ko-fi.com/P7A628U46S" rel="noopener">Unterstützen</a></li>
           </ul>
         </div>
