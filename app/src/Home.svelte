@@ -14,6 +14,7 @@
     type Presence,
   } from "./lib/api";
   import { formatId, isCompleteId, isPublicAlias } from "./lib/format";
+  import { MOBILE } from "./lib/platform";
   import RightsMenu from "./lib/RightsMenu.svelte";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
@@ -31,6 +32,61 @@
   let accountOpen = $state(false);
   let historyOpen = $state(false);
   let chatOpen = $state<Record<number, boolean>>({});
+
+  // Invitation link dialog (desktop only).
+  let inviteOpen = $state(false);
+  let inviteLink = $state("");
+  let inviteError = $state("");
+  let inviteBusy = $state(false);
+  let inviteCopied = $state(false);
+
+  async function openInvite() {
+    if (!myId) return;
+    inviteOpen = true;
+    inviteLink = "";
+    inviteError = "";
+    inviteCopied = false;
+    inviteBusy = true;
+    try {
+      inviteLink = await api.createInvite(myId);
+    } catch (e) {
+      inviteError = errorText(e);
+    } finally {
+      inviteBusy = false;
+    }
+  }
+
+  async function copyInvite() {
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      inviteCopied = true;
+      setTimeout(() => (inviteCopied = false), 1400);
+    } catch (e) {
+      inviteError = errorText(e);
+    }
+  }
+
+  const inviteMail = $derived(
+    `mailto:?subject=${encodeURIComponent("Fernhilfe mit CTXRemote")}&body=${encodeURIComponent(
+      `Guten Tag,\n\nbitte öffnen Sie diesen Link, damit ich Ihnen per Fernhilfe helfen kann:\n${inviteLink}\n`,
+    )}`,
+  );
+
+  // Help requests sent by invited people; the password is kept but never shown.
+  type HelpRequest = { id: string; password: string; name: string };
+  let helpRequests = $state<HelpRequest[]>([]);
+
+  function connectRequest(r: HelpRequest) {
+    helpRequests = helpRequests.filter((x) => x.id !== r.id);
+    target = { id: r.id, label: r.name || null };
+    password = r.password;
+    query = "";
+    step = "password";
+    codeAsked = false;
+    code = "";
+    error = "";
+    connect();
+  }
 
   // Chat history per session number; it goes away with the session.
   let chats = $state<Record<number, ChatMessage[]>>({});
@@ -107,6 +163,9 @@
       }),
       // The address book changed through the account's sync.
       listen("peers-changed", () => refresh()),
+      listen<HelpRequest>("help-request", (e) => {
+        helpRequests = [e.payload, ...helpRequests.filter((r) => r.id !== e.payload.id)];
+      }),
       listen<HostEvent>("host-event", (e) => {
         const event = e.payload;
         if (event.kind === "sessionStarted")
@@ -302,6 +361,8 @@
   );
 </script>
 
+<svelte:window onkeydown={(e) => e.key === "Escape" && inviteOpen && (inviteOpen = false)} />
+
 <div class="shell">
   {#if hosted.length > 0}
     <div class="banner">
@@ -372,6 +433,25 @@
     </div>
   </header>
 
+  {#if !MOBILE && helpRequests.length > 0}
+    <div class="requests">
+      {#each helpRequests as r (r.id)}
+        <div class="request">
+          <div class="request-text">
+            <strong>{r.name || "Jemand"} bittet um Hilfe</strong>
+            <span class="request-id">ID {r.id}</span>
+          </div>
+          <button class="btn btn-quiet" type="button" onclick={() => (helpRequests = helpRequests.filter((x) => x.id !== r.id))}>
+            Ablehnen
+          </button>
+          <button class="btn btn-primary" type="button" disabled={connecting} onclick={() => connectRequest(r)}>
+            Verbinden
+          </button>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   <main>
     <section class="this-device">
       <div class="label">Dieses Gerät</div>
@@ -434,6 +514,9 @@
               <Icon name="plus" size={14} /> Alias festlegen
             </button>
           {/if}
+        {/if}
+        {#if !MOBILE && myId}
+          <button class="link-btn" type="button" onclick={openInvite}>Einladungslink</button>
         {/if}
       </div>
 
@@ -600,6 +683,28 @@
     </section>
   </main>
 </div>
+
+{#if inviteOpen}
+  <div class="scrim" role="presentation" onclick={() => (inviteOpen = false)}></div>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="invite-title">
+    <h2 id="invite-title">Einladungslink</h2>
+    <p class="dialog-text">
+      Schicken Sie diesen Link der Person, der Sie helfen wollen. Sie lädt darüber die Schnellhilfe und kann Ihnen
+      ID und Passwort mit einem Klick senden. Der Link gilt 7 Tage.
+    </p>
+    <input class="field" readonly value={inviteBusy ? "Link wird erstellt …" : inviteLink} onfocus={(e) => e.currentTarget.select()} />
+    {#if inviteError}<p class="error">{inviteError}</p>{/if}
+    <div class="dialog-actions">
+      <button class="btn btn-quiet" type="button" onclick={() => (inviteOpen = false)}>Schließen</button>
+      {#if inviteLink}
+        <a class="btn btn-quiet mail" href={inviteMail}>Per E-Mail</a>
+        <button class="btn btn-primary" type="button" onclick={copyInvite}>
+          {inviteCopied ? "Kopiert" : "Kopieren"}
+        </button>
+      {/if}
+    </div>
+  </div>
+{/if}
 
 {#if accountOpen && overview}
   <Account
@@ -1146,7 +1251,90 @@
     background: var(--surface);
   }
 
+  .requests {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .request {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--accent-soft);
+  }
+
+  .request-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .request-id {
+    color: var(--ink-3);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scrim {
+    position: fixed;
+    inset: 0;
+    background: color-mix(in srgb, #000 28%, transparent);
+  }
+
+  .dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: min(460px, calc(100% - 32px));
+    padding: 24px;
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+
+  .dialog h2 {
+    margin: 0;
+    font-size: 18px;
+  }
+
+  .dialog-text {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+
+  .dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .dialog-actions a {
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
+  }
+
   .banner-btn:hover {
     background: color-mix(in srgb, var(--bg) 12%, transparent);
+  }
+
+  /* A link styled as a button keeps the button's color, visited or not. */
+  .dialog-actions a.mail,
+  .dialog-actions a.mail:visited {
+    color: inherit;
+    text-decoration: none;
   }
 </style>

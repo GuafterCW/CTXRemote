@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import {
     api,
+    errorText,
     hostedLabel,
     profileLabel,
     type ApprovalRequest,
@@ -31,6 +32,23 @@
     chats[session] = [...(chats[session] ?? []), { mine: true, text, at: Date.now() }];
   }
 
+  // Invitation: the helper whose link this quick help was downloaded from.
+  let inviter = $state<{ id: string } | null>(null);
+  let sendState = $state<"idle" | "sending" | "sent" | "failed">("idle");
+  let sendError = $state("");
+
+  async function sendHelp() {
+    sendState = "sending";
+    sendError = "";
+    try {
+      await api.sendHelp();
+      sendState = "sent";
+    } catch (e) {
+      sendError = errorText(e);
+      sendState = "failed";
+    }
+  }
+
   const myId = $derived(presence.state === "online" ? presence.id : null);
   const request = $derived(requests[0] ?? null);
 
@@ -42,6 +60,10 @@
 
   onMount(() => {
     refresh();
+    api
+      .invitation()
+      .then((i) => (inviter = i))
+      .catch(() => {});
     const subscriptions = [
       listen<Presence>("presence", (e) => (presence = e.payload)),
       listen<HostEvent>("host-event", (e) => {
@@ -173,6 +195,23 @@
               {/if}
             </div>
           {/each}
+        </section>
+      {/if}
+
+      {#if inviter}
+        <section class="invite">
+          <strong>Sie wurden zur Fernhilfe eingeladen</strong>
+          <span class="hint">von ID {inviter.id}</span>
+          {#if sendState === "sent"}
+            <p class="invite-ok">Gesendet. Ihr Helfer verbindet sich gleich, Sie bestätigen den Zugriff wie gewohnt.</p>
+          {:else}
+            {#if sendState === "failed"}
+              <p class="invite-bad">{sendError.replace(/[.!]?$/, ".")} Lesen Sie ID und Passwort einfach vor.</p>
+            {/if}
+            <button class="btn btn-primary" disabled={!myId || sendState === "sending"} onclick={sendHelp}>
+              {sendState === "sending" ? "Wird gesendet …" : sendState === "failed" ? "Nochmal senden" : "Zugangsdaten senden"}
+            </button>
+          {/if}
         </section>
       {/if}
 
@@ -406,6 +445,30 @@
     grid-template-columns: 1fr 1fr;
     gap: 10px;
     margin-top: 16px;
+  }
+
+  .invite {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 14px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--accent-soft);
+  }
+
+  .invite .btn {
+    margin-top: 6px;
+  }
+
+  .invite p {
+    margin: 0;
+    font-size: 13.5px;
+  }
+
+  .invite-bad {
+    color: var(--bad);
   }
 
   .rec-tag {

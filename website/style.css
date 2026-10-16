@@ -2098,3 +2098,129 @@ a.os:hover {
     border-radius: 2px 2px 0 0;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Invitation page                                                      */
+/* ------------------------------------------------------------------ */
+
+.invite-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 56px;
+}
+
+.helper-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 28px;
+  padding: 12px 18px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+}
+
+.helper-card[hidden],
+.invite-broken[hidden],
+.other-os[hidden] {
+  display: none;
+}
+
+.helper-card small {
+  display: block;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.helper-card strong {
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.invite-broken {
+  max-width: 34em;
+  margin-top: 24px;
+  padding: 14px 18px;
+  border: 1px solid color-mix(in srgb, var(--warning) 50%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+}
+
+.invite-steps {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.invite-steps li {
+  display: flex;
+  gap: 18px;
+  padding: 22px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.invite-steps .num {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 800;
+}
+
+.invite-steps li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.invite-steps h3 {
+  margin-top: 6px;
+}
+
+.invite-steps p {
+  margin: 6px 0 0;
+  color: var(--ink-2);
+  font-size: 16px;
+}
+
+.invite-steps .btn {
+  margin-top: 16px;
+}
+
+.invite-steps .other-os {
+  font-size: 15px;
+}
+
+.invite-facts {
+  border: 0;
+  padding: 0;
+}
+
+@media (max-width: 960px) {
+  .invite-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+}
+
+@media (max-width: 640px) {
+  .invite-steps li {
+    padding: 18px;
+  }
+
+  .invite-steps .btn {
+    width: 100%;
+  }
+}

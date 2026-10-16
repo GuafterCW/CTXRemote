@@ -418,6 +418,12 @@ export const api = {
   reveal: (path: string) => invoke<void>("reveal", { path }),
   /** Quick build only. */
   answerApproval: (id: number, allow: boolean) => invoke<void>("answer_approval", { id, allow }),
+  /** Normal app: a link that leads a helped person to the quick help; `id` is this device's ID. */
+  createInvite: (id: string) => invoke<string>("create_invite", { id }),
+  /** Quick build: the ID of the helper who sent the download link, if any. */
+  invitation: () => invoke<{ id: string } | null>("invitation"),
+  /** Quick build: sends ID and password to the inviting helper; rejects with the reason. */
+  sendHelp: () => invoke<void>("send_help"),
 };
 
 export function errorText(e: unknown): string {

@@ -129,6 +129,9 @@ fn establish(
                         crate::show_main(&app);
                     }
                 }
+                Some(UiEvent::Host(HostEvent::HelpRequest { from, hint, sealed })) => {
+                    crate::invite::on_request(&app, &from, hint, &sealed);
+                }
                 Some(UiEvent::Host(event)) => {
                     if matches!(event, HostEvent::SessionStarted { .. } | HostEvent::Chat { .. }) {
                         crate::show_main(&app);

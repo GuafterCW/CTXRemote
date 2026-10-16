@@ -1,5 +1,6 @@
 #[cfg(not(feature = "quick"))]
 mod account;
+mod invite;
 #[cfg(all(any(target_os = "macos", target_os = "linux"), not(feature = "quick")))]
 mod login_item;
 #[cfg(feature = "quick")]
@@ -1747,6 +1748,12 @@ fn forward_local_events(app: &AppHandle, host: &Host) {
         use tokio::sync::broadcast::error::RecvError;
         loop {
             match events.recv().await {
+                Ok(ctxremote_core::host::HostEvent::HelpRequest { from, hint, sealed }) => {
+                    #[cfg(not(feature = "quick"))]
+                    invite::on_request(&handle, &from, hint, &sealed);
+                    #[cfg(feature = "quick")]
+                    let _ = (from, hint, sealed);
+                }
                 Ok(event) => {
                     if matches!(event, ctxremote_core::host::HostEvent::SessionStarted { .. } | ctxremote_core::host::HostEvent::Chat { .. }) {
                         show_main(&handle);
@@ -1784,9 +1791,10 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)));
     }
     #[cfg(feature = "quick")]
-    let commands: fn(tauri::ipc::Invoke) -> bool = handlers![quick::answer_approval];
+    let commands: fn(tauri::ipc::Invoke) -> bool = handlers![quick::answer_approval, invite::invitation, invite::send_help];
     #[cfg(not(feature = "quick"))]
     let commands: fn(tauri::ipc::Invoke) -> bool = handlers![
+        invite::create_invite,
         account::account_create,
         account::account_pairing_code,
         account::account_join,

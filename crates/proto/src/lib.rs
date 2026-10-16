@@ -7,6 +7,7 @@
 
 pub mod account;
 pub mod framing;
+pub mod invite;
 pub mod reflect;
 pub mod rendezvous;
 pub mod secure;

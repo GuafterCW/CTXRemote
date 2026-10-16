@@ -71,7 +71,14 @@ pub enum HostEvent {
     Rights { session: u64, rights: Permissions, privacy: bool },
     /// The viewer of `session` started or stopped recording it.
     Recording { session: u64, on: bool },
+    /// Someone this device invited offers access (see
+    /// `ctxremote_proto::invite`). Sealed: only the app that holds the
+    /// invitation's token can read it.
+    HelpRequest { from: String, hint: [u8; 4], sealed: Vec<u8> },
 }
+
+/// A message for the server on the control connection, and where its answer goes.
+type ControlRequest = (ClientMsg, tokio::sync::oneshot::Sender<Result<(), ctxremote_proto::rendezvous::ServerError>>);
 
 /// A running session as the rest of the host sees it.
 struct SessionHandle {
@@ -106,6 +113,8 @@ struct Shared {
     history: History,
     /// The step of the last accepted authenticator code; each counts once.
     last_code_step: Mutex<Option<u64>>,
+    /// Messages for the server while registered.
+    control: Mutex<Option<mpsc::Sender<ControlRequest>>>,
 }
 
 #[derive(Clone)]
@@ -138,6 +147,7 @@ impl Host {
             direct_turn: tokio::sync::Mutex::new(()),
             history: History::open(Config::path().ok().map(|p| History::path_for(&p))),
             last_code_step: Mutex::new(None),
+            control: Mutex::new(None),
         });
         tokio::spawn(presence_loop(shared.clone()));
         let (enabled, port, extra, listen) = {
@@ -175,6 +185,30 @@ impl Host {
 
     pub fn events(&self) -> broadcast::Receiver<HostEvent> {
         self.shared.events.subscribe()
+    }
+
+    /// Sends this device's ID and one-time password to the device that
+    /// invited it, sealed with the invitation's token, so the person there
+    /// can connect without anything read out over the phone.
+    pub async fn offer_help(&self, inviter: DeviceId, token: &str, name: &str) -> Result<(), String> {
+        use ctxremote_proto::invite;
+        use ctxremote_proto::rendezvous::ServerError;
+        let from = self.shared.config.read().unwrap().device_id.ok_or("Noch nicht mit dem Server verbunden")?;
+        let offer = invite::HelpOffer {
+            from,
+            password: self.password(),
+            name: name.chars().take(40).collect(),
+        };
+        let request = ClientMsg::HelpRequest { to: inviter, hint: invite::hint(token), sealed: invite::seal(token, &offer) };
+        let control = self.shared.control.lock().unwrap().clone().ok_or("Noch nicht mit dem Server verbunden")?;
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        control.send((request, reply)).await.map_err(|_| "Verbindung zum Server getrennt")?;
+        match timeout(Duration::from_secs(15), answer).await {
+            Ok(Ok(Ok(()))) => Ok(()),
+            Ok(Ok(Err(ServerError::Offline))) => Err("Ihr Helfer ist gerade nicht online".into()),
+            Ok(Ok(Err(e))) => Err(e.to_string()),
+            _ => Err("Der Server hat nicht geantwortet".into()),
+        }
     }
 
     pub fn password(&self) -> String {
@@ -380,10 +414,25 @@ async fn stay_registered(shared: &Arc<Shared>) -> Result<()> {
         });
     }
 
+    let (control, mut requests) = mpsc::channel::<ControlRequest>(4);
+    *shared.control.lock().unwrap() = Some(control);
+    let result = stay_online(shared, &mut t, &mut requests, id).await;
+    *shared.control.lock().unwrap() = None;
+    result
+}
+
+/// The registered control connection: sessions come in, pings and requests go out.
+async fn stay_online(shared: &Arc<Shared>, t: &mut Transport, requests: &mut mpsc::Receiver<ControlRequest>, id: DeviceId) -> Result<()> {
+    // The answer to the last request sent; the server answers in order.
+    let mut waiting: Option<tokio::sync::oneshot::Sender<_>> = None;
     let mut ping = tokio::time::interval(PING_INTERVAL);
     loop {
         tokio::select! {
-            _ = ping.tick() => framing::send(&mut t, &ClientMsg::Ping).await?,
+            _ = ping.tick() => framing::send(&mut *t, &ClientMsg::Ping).await?,
+            Some((message, reply)) = requests.recv(), if waiting.is_none() => {
+                framing::send(&mut *t, &message).await?;
+                waiting = Some(reply);
+            }
             _ = shared.reconnect.notified() => return Ok(()),
             frame = t.next() => match framing::decode::<ServerMsg>(&frame.context("Server hat getrennt")??)? {
                 ServerMsg::Incoming { session } => {
@@ -401,6 +450,15 @@ async fn stay_registered(shared: &Arc<Shared>) -> Result<()> {
                         Ok(_) => info!("Weckpaket für ein Gerät des Kontos gesendet"),
                         Err(e) => debug!("Wecken nicht möglich: {e:#}"),
                     });
+                }
+                ServerMsg::HelpSent(result) => {
+                    if let Some(reply) = waiting.take() {
+                        let _ = reply.send(result);
+                    }
+                }
+                // Someone this device invited; only the app can open it.
+                ServerMsg::HelpRequest { from, hint, sealed } => {
+                    let _ = shared.events.send(HostEvent::HelpRequest { from: from.to_string(), hint, sealed });
                 }
                 ServerMsg::Error(e) => return Err(e.into()),
                 other => bail!("unerwartete Serverantwort: {other:?}"),

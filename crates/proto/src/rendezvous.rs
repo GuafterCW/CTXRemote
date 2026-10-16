@@ -57,6 +57,12 @@ pub enum ServerMsg {
     /// the Wake-on-LAN packet for these MACs into its networks, for another
     /// device of its account.
     Wake { macs: Vec<String> },
+    /// To a registered device that takes them ([`HostCaps::HELP`]): someone
+    /// it invited offers access. `from` is the sender's registered ID.
+    HelpRequest { from: DeviceId, hint: [u8; 4], sealed: Vec<u8> },
+    /// Answer to `ClientMsg::HelpRequest`: `Offline` if the inviting device
+    /// is not reachable right now.
+    HelpSent(Result<(), ServerError>),
 }
 
 /// What a registering host can do beyond the first version, sent as a
@@ -68,7 +74,9 @@ pub struct HostCaps(pub u32);
 impl HostCaps {
     /// Understands `ServerMsg::Wake`.
     pub const WAKE: u32 = 1 << 0;
-    pub const CURRENT: Self = Self(Self::WAKE);
+    /// Understands `ServerMsg::HelpRequest`.
+    pub const HELP: u32 = 1 << 1;
+    pub const CURRENT: Self = Self(Self::WAKE | Self::HELP);
 
     pub fn has(self, cap: u32) -> bool {
         self.0 & cap == cap
@@ -133,6 +141,10 @@ pub enum ClientMsg {
     /// `docs/ACCOUNTS.md`, "Zugriff ohne Passwort"). Servers from before
     /// this close the connection.
     SameAccount { a: [u8; 32], b: [u8; 32] },
+    /// On the control connection of a registered device (the quick helper):
+    /// forward this offer to `to`, whose invitation link it came from (see
+    /// [`crate::invite`]). The server answers `HelpSent`.
+    HelpRequest { to: DeviceId, hint: [u8; 4], sealed: Vec<u8> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]

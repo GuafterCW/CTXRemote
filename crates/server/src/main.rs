@@ -71,6 +71,8 @@ struct Server {
     online: Mutex<HashMap<DeviceId, mpsc::Sender<ServerMsg>>>,
     /// Online hosts that understand `ServerMsg::Wake` (see `HostCaps`).
     wakers: Mutex<std::collections::HashSet<DeviceId>>,
+    /// Online devices that understand `ServerMsg::HelpRequest`.
+    helpers: Mutex<std::collections::HashSet<DeviceId>>,
     pending: Mutex<HashMap<SessionId, oneshot::Sender<Transport>>>,
     rate: Mutex<HashMap<IpAddr, (Instant, u32)>>,
     /// The web API counts on its own, so it cannot use up an app's quota.
@@ -128,6 +130,7 @@ async fn main() -> Result<()> {
         tunnel,
         online: Mutex::default(),
         wakers: Mutex::default(),
+        helpers: Mutex::default(),
         pending: Mutex::default(),
         rate: Mutex::default(),
         web_rate: Mutex::default(),
@@ -233,6 +236,10 @@ impl Server {
 
         match first {
             ClientMsg::Tunnel { .. } => bail!("doppelter Verbindungsaufbau"),
+            // Only from a registered device, whose ID the server vouches for.
+            ClientMsg::HelpRequest { .. } => {
+                framing::send(&mut t, &ServerMsg::HelpSent(Err(ServerError::BadSignature))).await
+            }
             ClientMsg::Register { id, public_key, signature } => {
                 if !verify_challenge(&public_key, &nonce, &signature) {
                     framing::send(&mut t, &ServerMsg::Error(ServerError::BadSignature)).await?;
@@ -352,6 +359,11 @@ impl Server {
         } else {
             self.wakers.lock().unwrap().remove(&id);
         }
+        if caps.has(HostCaps::HELP) {
+            self.helpers.lock().unwrap().insert(id);
+        } else {
+            self.helpers.lock().unwrap().remove(&id);
+        }
         info!(%id, %peer, "Gerät online");
 
         let result = async {
@@ -364,6 +376,10 @@ impl Server {
                     frame = timeout(IDLE_TIMEOUT, t.next()) => match frame? {
                         Some(frame) => match framing::decode(&frame?)? {
                             ClientMsg::Ping => framing::send(&mut t, &ServerMsg::Pong).await?,
+                            ClientMsg::HelpRequest { to, hint, sealed } => {
+                                let sent = self.forward_help(id, peer, to, hint, sealed);
+                                framing::send(&mut t, &ServerMsg::HelpSent(sent)).await?;
+                            }
                             other => bail!("unerwartete Nachricht: {other:?}"),
                         },
                         None => return Ok(()),
@@ -377,6 +393,7 @@ impl Server {
         if online.get(&id).is_some_and(|current| current.same_channel(&tx)) {
             online.remove(&id);
             self.wakers.lock().unwrap().remove(&id);
+            self.helpers.lock().unwrap().remove(&id);
             info!(%id, "Gerät offline");
         }
         result
@@ -415,6 +432,24 @@ impl Server {
         let _relaying = status::Relaying::start(&self.status.relaying);
         let (up, down) = relay(viewer, host).await?;
         info!(%target, up, down, "Sitzung beendet");
+        Ok(())
+    }
+
+    /// Passes a sealed help offer from `from` to the device that invited it.
+    /// The server cannot read it (see `ctxremote_proto::invite`).
+    fn forward_help(&self, from: DeviceId, peer: SocketAddr, to: DeviceId, hint: [u8; 4], sealed: Vec<u8>) -> Result<(), ServerError> {
+        if !self.allow_connect(peer.ip()) {
+            return Err(ServerError::RateLimited);
+        }
+        if sealed.len() > ctxremote_proto::invite::MAX_SEALED || to == from {
+            return Err(ServerError::Offline);
+        }
+        if !self.helpers.lock().unwrap().contains(&to) {
+            return Err(ServerError::Offline);
+        }
+        let target = self.online.lock().unwrap().get(&to).cloned().ok_or(ServerError::Offline)?;
+        target.try_send(ServerMsg::HelpRequest { from, hint, sealed }).map_err(|_| ServerError::Offline)?;
+        info!(%from, %to, "Hilfe-Anfrage weitergegeben");
         Ok(())
     }
 
