@@ -74,9 +74,15 @@ pub fn paste_dir(root: &Path) -> Result<PathBuf> {
         }
     }
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
-    let dir = root.join(free_name(root, &stamp.to_string()));
-    std::fs::create_dir(&dir)?;
-    Ok(dir)
+    // Two pastes in the same millisecond pick the same free name; whoever
+    // comes second simply takes the next one.
+    loop {
+        let dir = root.join(free_name(root, &stamp.to_string()));
+        match std::fs::create_dir(&dir) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            result => return result.map(|()| dir).map_err(Into::into),
+        }
+    }
 }
 
 /// Everything directly in `dir`, for the clipboard.

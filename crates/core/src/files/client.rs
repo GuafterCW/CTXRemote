@@ -914,19 +914,22 @@ mod tests {
         let src = temp_dir("paste-src");
         let (tree, big) = make_tree(&src);
         let single = src.join("notiz.txt");
-        std::fs::write(&single, "hallo").unwrap();
+        // Unique, so leftovers of earlier runs are not taken for this one.
+        let note = format!("hallo {:?}", std::time::SystemTime::now());
+        std::fs::write(&single, &note).unwrap();
         let result = rig.client.paste_to_host(vec![tree, single]).await;
         let error = result.expect_err("ohne Agent keine Zwischenablage");
         assert!(format!("{error:#}").contains("Zwischenablage"), "{error:#}");
         let root = super::super::UserContext::current().paste_root();
+        // Other tests paste into the same root at the same time: ours is the
+        // folder holding our note.
         let newest = std::fs::read_dir(&root)
             .unwrap()
             .flatten()
-            .max_by_key(|e| e.metadata().unwrap().modified().unwrap())
-            .unwrap()
-            .path();
+            .map(|e| e.path())
+            .find(|dir| std::fs::read_to_string(dir.join("notiz.txt")).is_ok_and(|text| text == note))
+            .expect("paste folder");
         assert_eq!(std::fs::read(newest.join("Projekt/sub/big.bin")).unwrap(), big);
-        assert_eq!(std::fs::read_to_string(newest.join("notiz.txt")).unwrap(), "hallo");
         assert_eq!(super::super::entries_of(&newest).unwrap().len(), 2);
         let _ = std::fs::remove_dir_all(&newest);
     }
