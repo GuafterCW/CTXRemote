@@ -88,6 +88,14 @@ Remocto ist kostenlos, ohne Abo und ohne Werbung.
 
 Erste Version im Microsoft Store.
 
+Für die Umbenennung (Update nach 0.1.50):
+
+> CTXRemote heißt jetzt Remocto: neuer Name, neues Logo, neue Website remocto.com. Ihre ID, Ihre Geräte und Einstellungen bleiben. Neu: Einladungslinks, über die Ihr Gegenüber Ihnen mit einem Klick ID und Passwort schickt, und eine Status-Seite unter remocto.com/status.html.
+
+## Umbenennung im Partner Center
+
+Die Paket-Identität `PhilippEcker.CTXRemote` und die Store-ID bleiben, damit ist es ein Update und kein neues Produkt. Der `DisplayName` im Paket („Remocto“) muss aber ein für diese App reservierter Name sein, sonst lehnt das Partner Center das Paket beim Hochladen ab. Deshalb zuerst unter Produktverwaltung → Produktidentität „Remocto“ als weiteren Namen reservieren, dann in der Einreichung Paket, Produktname im Store-Eintrag, Texte, Screenshots und Logos tauschen.
+
 ## Produktfeatures (je max. 200 Zeichen, bis zu 20)
 
 - Ende-zu-Ende verschlüsselt: Der Server sieht nur verschlüsselte Daten
