@@ -50,7 +50,7 @@ pub(super) fn waits(event: &ctxremote_proto::session::InputEvent) -> bool {
     pressing && busy()
 }
 
-/// In attended sessions the viewer may not operate CTXRemote's own windows
+/// In attended sessions the viewer may not operate Remocto's own windows
 /// (rights, settings, ending the session), as on Windows. The backends post
 /// the viewer's input themselves, so they ask before each press where it
 /// would land, instead of catching it afterwards.
@@ -60,13 +60,13 @@ pub(super) struct OwnUi {
     /// Presses that were swallowed; their releases are swallowed, too.
     buttons: std::collections::HashSet<ctxremote_proto::session::MouseButton>,
     keys: std::collections::HashSet<String>,
-    /// When the viewer last hit CTXRemote's windows, for the faded pointer.
+    /// When the viewer last hit Remocto's windows, for the faded pointer.
     hit: Option<Instant>,
 }
 
 impl OwnUi {
     /// Whether to drop the viewer's `event`. `under_pointer` and `in_front`
-    /// tell whether the window under the pointer, or in front, is CTXRemote's;
+    /// tell whether the window under the pointer, or in front, is Remocto's;
     /// they are asked only when it matters.
     pub fn swallow(&mut self, event: &ctxremote_proto::session::InputEvent, under_pointer: impl FnOnce() -> bool, in_front: impl FnOnce() -> bool) -> bool {
         use ctxremote_proto::session::InputEvent;
@@ -105,7 +105,7 @@ impl OwnUi {
         swallowed
     }
 
-    /// The viewer hit CTXRemote's windows a moment ago.
+    /// The viewer hit Remocto's windows a moment ago.
     pub fn recently_hit(&self) -> bool {
         self.on && self.hit.is_some_and(|at| at.elapsed() < PRIORITY)
     }
@@ -128,13 +128,13 @@ mod tests {
         assert!(!ui.swallow(&press(false), || true, || true), "so does its release");
         assert!(!ui.recently_hit());
 
-        assert!(ui.swallow(&press(true), || true, || false), "a click on CTXRemote is dropped");
+        assert!(ui.swallow(&press(true), || true, || false), "a click on Remocto is dropped");
         assert!(ui.recently_hit());
         assert!(ui.swallow(&press(false), || false, || false), "and its release, wherever");
         assert!(!ui.swallow(&InputEvent::MouseMove { x: 1, y: 1 }, || true, || true), "moving stays allowed");
         assert!(ui.swallow(&InputEvent::Wheel { dx: 0, dy: 120 }, || true, || false));
 
-        assert!(ui.swallow(&key(true), || false, || true), "typing into CTXRemote is dropped");
+        assert!(ui.swallow(&key(true), || false, || true), "typing into Remocto is dropped");
         assert!(ui.swallow(&key(false), || false, || false));
         assert!(!ui.swallow(&key(true), || true, || false), "typing elsewhere passes");
         assert!(!ui.swallow(&key(false), || true, || true));

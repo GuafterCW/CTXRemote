@@ -153,7 +153,7 @@ unsafe impl Send for Capturer {}
 impl Capturer {
     pub fn new(index: u8) -> Result<Self> {
         if !screen_permission(true) {
-            bail!("Bitte CTXRemote in den Systemeinstellungen unter Datenschutz & Sicherheit → Bildschirmaufnahme erlauben");
+            bail!("Bitte Remocto in den Systemeinstellungen unter Datenschutz & Sicherheit → Bildschirmaufnahme erlauben");
         }
         let display = displays()?.into_iter().find(|d| d.index == index).context("Bildschirm nicht gefunden")?;
         let (id, _) = display_geometry(index).context("Bildschirm nicht gefunden")?;

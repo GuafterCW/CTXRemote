@@ -67,7 +67,7 @@
   }
 
   const inviteMail = $derived(
-    `mailto:?subject=${encodeURIComponent("Fernhilfe mit CTXRemote")}&body=${encodeURIComponent(
+    `mailto:?subject=${encodeURIComponent("Fernhilfe mit Remocto")}&body=${encodeURIComponent(
       `Guten Tag,\n\nbitte öffnen Sie diesen Link, damit ich Ihnen per Fernhilfe helfen kann:\n${inviteLink}\n`,
     )}`,
   );
@@ -355,7 +355,7 @@
       ? "Bereit"
       : presence.state === "connecting"
         ? "Verbinde mit Server …"
-        : presence.reason.startsWith("CTXRemote-Dienst")
+        : presence.reason.startsWith("Remocto-Dienst")
           ? "Dienst nicht erreichbar"
           : "Server nicht erreichbar",
   );
@@ -398,11 +398,8 @@
 
   <header>
     <div class="brand">
-      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-        <rect x="1.5" y="3.5" width="13" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-        <rect x="6.5" y="7.5" width="12" height="9" rx="2" fill="var(--accent)" />
-      </svg>
-      <span>CTXRemote</span>
+      <svg width="20" height="20" viewBox="250 220 640 640" aria-hidden="true"><path d="M330 760 V430 Q330 300 470 300" fill="none" stroke="currentColor" stroke-width="130" stroke-linecap="round"/><path d="M560 300 L560 700 L652 610 L716 748 L788 716 L724 580 L852 580 Z" fill="var(--accent)" stroke="var(--accent)" stroke-width="28" stroke-linejoin="round"/></svg>
+      <span>Remocto</span>
     </div>
     <div class="header-end">
       {#if overview?.update}
@@ -523,7 +520,7 @@
       {#if permissions && (!permissions.screen || !permissions.input)}
         <div class="permissions">
           <strong>Damit dieser Mac ferngesteuert werden kann</strong>
-          <p>macOS verlangt zwei Freigaben. Nach der Freigabe der Bildschirmaufnahme CTXRemote einmal neu starten.</p>
+          <p>macOS verlangt zwei Freigaben. Nach der Freigabe der Bildschirmaufnahme Remocto einmal neu starten.</p>
           <div class="permission-row">
             <span class:ok={permissions.screen}>{permissions.screen ? "✓" : "•"} Bildschirmaufnahme</span>
             {#if !permissions.screen}<button class="link-btn" onclick={() => askPermission("screen")}>Freigeben …</button>{/if}

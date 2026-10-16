@@ -5,7 +5,7 @@
 //! notices their mouse by the missing "injected" flag, whatever the screen
 //! scaling.
 //!
-//! In attended sessions the viewer may not operate CTXRemote's own windows
+//! In attended sessions the viewer may not operate Remocto's own windows
 //! (rights, settings, ending the session): the hooks swallow the viewer's
 //! clicks on them and keys while one is in front. The viewer's input is told
 //! apart from other injected input (an on-screen keyboard) by [`TAG`].
@@ -55,17 +55,18 @@ static LOCAL_MOUSE: AtomicU64 = AtomicU64::new(0);
 /// the viewer's input from that of other programs.
 const TAG: usize = 0x4354_5852; // "CTXR"
 
-/// Injectors whose session protects CTXRemote's own windows.
+/// Injectors whose session protects Remocto's own windows.
 static PROTECTING: AtomicUsize = AtomicUsize::new(0);
-/// Tick count of the viewer's last input swallowed at CTXRemote's windows.
+/// Tick count of the viewer's last input swallowed at Remocto's windows.
 static OWN_UI_HIT: AtomicU64 = AtomicU64::new(0);
 /// Mouse buttons whose press was swallowed; their release is swallowed, too.
 static HELD_BUTTONS: AtomicU32 = AtomicU32::new(0);
 /// Keys (by virtual-key code) whose press was swallowed.
 static HELD_KEYS: [AtomicU64; 4] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
 
-/// CTXRemote's programs with windows (the app and the quick helper).
-const OWN_PROGRAMS: [&str; 2] = ["ctxremote.exe", "ctxremote-hilfe.exe"];
+/// Remocto's programs with windows (the app and the quick helper), also
+/// under their former names.
+const OWN_PROGRAMS: [&str; 4] = ["remocto.exe", "remocto-hilfe.exe", "ctxremote.exe", "ctxremote-hilfe.exe"];
 
 const XBUTTON1: u32 = 1;
 const XBUTTON2: u32 = 2;
@@ -84,7 +85,7 @@ impl Injector {
         Self { origin: (display.left, display.top), keys: HashSet::new(), buttons: HashSet::new(), protecting: false }
     }
 
-    /// In attended sessions the viewer's input does not reach CTXRemote's own windows.
+    /// In attended sessions the viewer's input does not reach Remocto's own windows.
     pub fn protect_own_ui(&mut self, on: bool) {
         if on != self.protecting {
             self.protecting = on;
@@ -310,7 +311,7 @@ fn watch_local_mouse() {
                     return;
                 }
                 if let Err(e) = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), Some(module.into()), 0) {
-                    tracing::warn!("Tastatur des Viewers an CTXRemote-Fenstern nicht sperrbar: {e}");
+                    tracing::warn!("Tastatur des Viewers an Remocto-Fenstern nicht sperrbar: {e}");
                 }
                 let mut msg = MSG::default();
                 while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
@@ -335,7 +336,7 @@ unsafe extern "system" fn local_mouse_hook(code: i32, wparam: WPARAM, lparam: LP
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
-/// A viewer's press or wheel over CTXRemote's own window, or the release of a
+/// A viewer's press or wheel over Remocto's own window, or the release of a
 /// press that was swallowed.
 fn swallow_click(message: u32, event: &MSLLHOOKSTRUCT) -> bool {
     let button = match message {
@@ -377,7 +378,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
-/// A viewer's key while CTXRemote's own window is in front, or the release
+/// A viewer's key while Remocto's own window is in front, or the release
 /// of a key whose press was swallowed.
 fn swallow_key(message: u32, vk: u32) -> bool {
     let (word, bit) = ((vk as usize / 64) % 4, 1u64 << (vk % 64));
@@ -395,7 +396,7 @@ fn swallow_key(message: u32, vk: u32) -> bool {
     }
 }
 
-/// Whether `window` belongs to CTXRemote's app or quick helper. Answers per
+/// Whether `window` belongs to Remocto's app or quick helper. Answers per
 /// process are kept for a few seconds; hooks must be quick.
 fn own_window(window: HWND) -> bool {
     thread_local! {

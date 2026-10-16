@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "CTXRemote-Setup"
+name = "Remocto-Setup"
 path = "src/main.rs"
 
 [dependencies]

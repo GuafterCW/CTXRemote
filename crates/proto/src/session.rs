@@ -60,7 +60,7 @@ pub enum HostMsg {
     /// [`Features::CLIPBOARD_IMAGE`].
     ClipboardImage(Vec<u8>),
     /// The host is ignoring the viewer's mouse for now: the person there is
-    /// using theirs, or the viewer clicked at CTXRemote's own window, which
+    /// using theirs, or the viewer clicked at Remocto's own window, which
     /// only the person at the host may operate in an attended session. Sent on
     /// each change; only to viewers with [`Features::INPUT_PAUSED`].
     InputPaused(bool),
@@ -101,7 +101,7 @@ pub struct SystemInfo {
     pub uptime_secs: u64,
     pub disks: Vec<DiskInfo>,
     pub networks: Vec<NetworkInfo>,
-    /// The CTXRemote version on the host.
+    /// The Remocto version on the host.
     pub app_version: String,
 }
 

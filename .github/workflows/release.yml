@@ -97,9 +97,10 @@ jobs:
         run: |
           printf '{"version":"%s"}' "$CTXREMOTE_VERSION" > src-tauri/tauri.version.json
           npm run tauri build -- --config src-tauri/tauri.version.json
-          # Kept for the MSIX: the quick helper's build overwrites target/release/ctxremote.exe.
+          # Kept for the MSIX: the quick helper's build reuses target/release.
           mkdir -p ../msix-bin
-          cp ../target/release/ctxremote.exe ../target/release/ctxremote-service.exe ../msix-bin/
+          cp ../target/release/Remocto.exe ../msix-bin/remocto.exe
+          cp ../target/release/remocto-service.exe ../msix-bin/
       - name: Schnellhilfe
         if: vars.CTXREMOTE_SERVER != ''
         working-directory: app
@@ -118,9 +119,9 @@ jobs:
         shell: bash
         run: |
           mkdir out
-          cp target/release/bundle/nsis/*-setup.exe "out/CTXRemote-$CTXREMOTE_VERSION-setup.exe"
-          cp target/release/CTXRemote-Setup.exe out/CTXRemote-Setup.exe
-          if [ -f target/release/CTXRemote-Hilfe.exe ]; then cp target/release/CTXRemote-Hilfe.exe out/; fi
+          cp target/release/bundle/nsis/*-setup.exe "out/Remocto-$CTXREMOTE_VERSION-setup.exe"
+          cp target/release/Remocto-Setup.exe out/Remocto-Setup.exe
+          if [ -f target/release/Remocto-Hilfe.exe ]; then cp target/release/Remocto-Hilfe.exe out/; fi
       - uses: actions/upload-artifact@v4
         with:
           name: client
@@ -137,8 +138,8 @@ jobs:
         run: >-
           ./app/msix/build-msix.ps1 -Version $env:CTXREMOTE_VERSION -BinDir msix-bin -OutDir msix
           -IdentityName "${{ vars.MSIX_IDENTITY_NAME || 'CTXRemote' }}"
-          -Publisher "${{ vars.MSIX_PUBLISHER || 'CN=CTXRemote Test' }}"
-          -PublisherDisplayName "${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'CTXRemote' }}"
+          -Publisher "${{ vars.MSIX_PUBLISHER || 'CN=Remocto Test' }}"
+          -PublisherDisplayName "${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'Remocto' }}"
           -CertBase64 "$env:MSIX_CERT" -CertPassword "$env:MSIX_CERT_PASSWORD"
       - uses: actions/upload-artifact@v4
         if: steps.msix.outcome == 'success'
@@ -181,7 +182,7 @@ jobs:
       - name: Dateien einsammeln
         run: |
           mkdir out
-          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg out/CTXRemote.dmg
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg out/Remocto.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: client-macos
@@ -223,8 +224,8 @@ jobs:
       - name: Dateien einsammeln
         run: |
           mkdir out
-          cp target/release/bundle/appimage/*.AppImage out/CTXRemote.AppImage
-          cp target/release/bundle/deb/*.deb out/ctxremote.deb
+          cp target/release/bundle/appimage/*.AppImage out/Remocto.AppImage
+          cp target/release/bundle/deb/*.deb out/remocto.deb
       - uses: actions/upload-artifact@v4
         with:
           name: client-linux
@@ -291,18 +292,18 @@ jobs:
             echo "::warning::Kein ANDROID_KEYSTORE-Secret: nur eine APK mit Wegwerf-Schlüssel, kein App-Bundle für Google Play"
             pass=$(openssl rand -hex 16)
             keytool -genkeypair -keystore release.jks -storepass "$pass" -alias ctxremote \
-              -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=CTXRemote"
+              -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Remocto"
           fi
           unsigned=$(find app/src-tauri/gen/android -name '*release*.apk' | head -1)
           "$tools/zipalign" -p -f 4 "$unsigned" aligned.apk
-          "$tools/apksigner" sign --ks release.jks --ks-pass "pass:$pass" --out out/CTXRemote.apk aligned.apk
-          "$tools/apksigner" verify out/CTXRemote.apk
+          "$tools/apksigner" sign --ks release.jks --ks-pass "pass:$pass" --out out/Remocto.apk aligned.apk
+          "$tools/apksigner" verify out/Remocto.apk
           if [ -n "$KEYSTORE" ]; then
             bundle=$(find app/src-tauri/gen/android -name '*release*.aab' | head -1)
-            cp "$bundle" "out/CTXRemote-$CTXREMOTE_VERSION.aab"
+            cp "$bundle" "out/Remocto-$CTXREMOTE_VERSION.aab"
             jarsigner -keystore release.jks -storepass "$pass" -sigalg SHA256withRSA -digestalg SHA-256 \
-              "out/CTXRemote-$CTXREMOTE_VERSION.aab" ctxremote
-            jarsigner -verify "out/CTXRemote-$CTXREMOTE_VERSION.aab"
+              "out/Remocto-$CTXREMOTE_VERSION.aab" ctxremote
+            jarsigner -verify "out/Remocto-$CTXREMOTE_VERSION.aab"
           fi
           rm -f release.jks
           ls -la out
@@ -350,19 +351,19 @@ jobs:
           printf '%s' "$VERSION" > incoming/VERSION
           mkdir -p incoming/download
           # Downloads get the setup window; the bare NSIS installer stays for updates.
-          cp artifacts/client/CTXRemote-Setup.exe incoming/download/CTXRemote-Setup.exe
-          if [ -f artifacts/client/CTXRemote-Hilfe.exe ]; then
-            cp artifacts/client/CTXRemote-Hilfe.exe incoming/download/CTXRemote-Hilfe.exe
+          cp artifacts/client/Remocto-Setup.exe incoming/download/Remocto-Setup.exe
+          if [ -f artifacts/client/Remocto-Hilfe.exe ]; then
+            cp artifacts/client/Remocto-Hilfe.exe incoming/download/Remocto-Hilfe.exe
           fi
-          if [ -f artifacts/client-macos/CTXRemote.dmg ]; then
-            cp artifacts/client-macos/CTXRemote.dmg incoming/download/CTXRemote.dmg
+          if [ -f artifacts/client-macos/Remocto.dmg ]; then
+            cp artifacts/client-macos/Remocto.dmg incoming/download/Remocto.dmg
           fi
-          if [ -f artifacts/client-linux/CTXRemote.AppImage ]; then
-            cp artifacts/client-linux/CTXRemote.AppImage artifacts/client-linux/ctxremote.deb incoming/download/
+          if [ -f artifacts/client-linux/Remocto.AppImage ]; then
+            cp artifacts/client-linux/Remocto.AppImage artifacts/client-linux/remocto.deb incoming/download/
           fi
           # Android only with the real key: a throwaway one would break every update.
-          if [ "$HAS_ANDROID_KEY" = true ] && [ -f artifacts/client-android/CTXRemote.apk ]; then
-            cp artifacts/client-android/CTXRemote.apk incoming/download/CTXRemote.apk
+          if [ "$HAS_ANDROID_KEY" = true ] && [ -f artifacts/client-android/Remocto.apk ]; then
+            cp artifacts/client-android/Remocto.apk incoming/download/Remocto.apk
           fi
           # Store links once the listings exist (variables MSSTORE_URL, PLAY_URL);
           # until then the download page offers the files directly.
@@ -370,18 +371,18 @@ jobs:
           if [ -n "$MSSTORE_URL" ]; then
             sed -i "s|__MSSTORE_URL__|$MSSTORE_URL|" "$page"
           else
-            sed -i '/data-store>/d; s|class="btn" href="/download/CTXRemote-Setup.exe" download data-direct|class="btn btn-primary" href="/download/CTXRemote-Setup.exe" download data-direct|' "$page"
+            sed -i '/data-store>/d; s|class="btn" href="/download/Remocto-Setup.exe" download data-direct|class="btn btn-primary" href="/download/Remocto-Setup.exe" download data-direct|' "$page"
           fi
-          if [ -z "$PLAY_URL" ] && [ ! -f incoming/download/CTXRemote.apk ]; then
+          if [ -z "$PLAY_URL" ] && [ ! -f incoming/download/Remocto.apk ]; then
             # No way to get the Android app yet: drop its card (the marker and 10 lines).
             sed -i '/data-android>/,+10d' "$page"
           fi
           if [ -n "$PLAY_URL" ]; then sed -i "s|__PLAY_URL__|$PLAY_URL|" "$page"; else sed -i '/data-play>/d' "$page"; fi
-          [ -f incoming/download/CTXRemote.apk ] || sed -i '/data-apk>/d' "$page"
+          [ -f incoming/download/Remocto.apk ] || sed -i '/data-apk>/d' "$page"
           if [ -n "$CTXREMOTE_UPDATE_SIGNING_KEY" ]; then
             artifacts/server/ctxremote-server update-sign \
               --platform windows-x86_64 --version "$VERSION" \
-              --file "artifacts/client/CTXRemote-$VERSION-setup.exe" \
+              --file "artifacts/client/Remocto-$VERSION-setup.exe" \
               --out incoming/updates --notes "$(printf '%s' "$NOTES" | head -n 1)"
           else
             echo "::warning::Kein CTXREMOTE_UPDATE_SIGNING_KEY: Client-Update wird nicht veröffentlicht."
@@ -427,4 +428,4 @@ jobs:
         run: msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
       - name: Einreichen
         shell: pwsh
-        run: msstore publish "msix\CTXRemote-$env:VERSION-store.msix" --appId "${{ vars.MSSTORE_PRODUCT_ID }}"
+        run: msstore publish "msix\Remocto-$env:VERSION-store.msix" --appId "${{ vars.MSSTORE_PRODUCT_ID }}"

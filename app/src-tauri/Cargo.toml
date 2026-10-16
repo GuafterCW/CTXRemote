@@ -1,6 +1,6 @@
 [package]
 name = "ctxremote"
-description = "CTXRemote desktop app"
+description = "Remocto desktop app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -48,5 +48,5 @@ features = [
 ]
 
 [features]
-# Portable "CTXRemote Hilfe" build; needs CTXREMOTE_QUICK_SERVER at compile time.
+# Portable "Remocto Hilfe" build; needs CTXREMOTE_QUICK_SERVER at compile time.
 quick = []

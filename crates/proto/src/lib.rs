@@ -1,4 +1,4 @@
-//! Wire protocol shared by the CTXRemote server, host and viewer.
+//! Wire protocol shared by the Remocto server, host and viewer.
 //!
 //! Every connection starts at the rendezvous server ([`rendezvous`]). Once a
 //! viewer and a host have been paired, the server relays raw bytes and the two

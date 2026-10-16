@@ -43,7 +43,7 @@ Für den TCP-Weg muss der Server nicht aktualisiert werden, für den UDP-Weg bra
 - Das Token kommt nur innerhalb der verschlüsselten Sitzung zum Viewer, gilt einmal und verfällt mit dem Ende der Sitzung (`Drop for Offer`).
 - Wer das `DirectHello` im LAN mitliest und das Token zuerst einlöst, verhindert nur die Direktverbindung, denn der echte Viewer bekommt dann keine Bestätigung und bleibt auf dem Relay. Mitlesen oder eigene Eingaben einschleusen kann er nicht, weil alle Sitzungsdaten verschlüsselt und authentifiziert sind.
 
-## Einstellungen (`config.json` bzw. `C:\ProgramData\CTXRemote\host.json`)
+## Einstellungen (`config.json` bzw. `C:\ProgramData\Remocto\host.json`)
 
 | Feld | Standard | Bedeutung |
 |---|---|---|
@@ -51,14 +51,14 @@ Für den TCP-Weg muss der Server nicht aktualisiert werden, für den UDP-Weg bra
 | `direct_port` | `21301` | Port des Listeners. Für Direktverbindungen aus dem Internet am Router weiterleiten. |
 | `direct_addresses` | `[]` | Zusätzliche Adressen im Format `host:port`, z. B. `["meinhaus.dyndns.org:21301"]` bei Portweiterleitung |
 
-Die Felder sind in der App unter Einstellungen > Direktverbindung bearbeitbar und wirken ohne Neustart (der Listener wird neu gestartet, laufende Sitzungen bleiben). Im Dienstmodus braucht das Speichern eine Administrator-Bestätigung; der erhöhte Helfer passt dann auch die Firewall-Regel an. `ctxremote-service --install` legt die Windows-Firewall-Regel „CTXRemote Direktverbindung“ für den Dienst an, `--uninstall` entfernt sie. Ohne Dienst fragt Windows beim ersten Start nach der Firewall-Freigabe.
+Die Felder sind in der App unter Einstellungen > Direktverbindung bearbeitbar und wirken ohne Neustart (der Listener wird neu gestartet, laufende Sitzungen bleiben). Im Dienstmodus braucht das Speichern eine Administrator-Bestätigung; der erhöhte Helfer passt dann auch die Firewall-Regel an. `remocto-service --install` legt die Windows-Firewall-Regel „Remocto Direktverbindung“ für den Dienst an, `--uninstall` entfernt sie. Ohne Dienst fragt Windows beim ersten Start nach der Firewall-Freigabe.
 
 ## Fähigkeiten-Aushandlung (`Features`)
 
 - postcard kann unbekannte Enum-Varianten nicht überspringen. Eine Nachricht, die die Gegenstelle nicht kennt, beendet deshalb deren Sitzung.
 - Deshalb hängen beide Seiten an `Hello` und `Welcome` ein `Features`-Bitfeld an. Ältere Versionen ignorieren diesen Anhang.
 - Der Host schickt `Cursor` und `DirectOffer` nur an Viewer, die das jeweilige Bit gesetzt haben.
-- Der Viewer schickt Dateinachrichten, `Restart` und `SetQuality` nur an Hosts, die sie kennen. Fehlt die Fähigkeit, blendet das Sitzungsfenster den Knopf aus. Dateianfragen enden mit „braucht eine neuere CTXRemote-Version“.
+- Der Viewer schickt Dateinachrichten, `Restart` und `SetQuality` nur an Hosts, die sie kennen. Fehlt die Fähigkeit, blendet das Sitzungsfenster den Knopf aus. Dateianfragen enden mit „braucht eine neuere Remocto-Version“.
 - **Neue Funktionen:** Neue Variante anhängen, ein neues Bit in `Features` anlegen, es in `Features::CURRENT` aufnehmen und das Senden davon abhängig machen.
 
 ## Grenzen und nächste Schritte

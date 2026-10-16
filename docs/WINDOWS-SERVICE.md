@@ -14,15 +14,15 @@ Ziel: Fernzugriff auch auf Anmeldebildschirm, Sperrbildschirm und UAC-Dialoge, S
 ## Aufbau
 
 ```
-Server ◀─TCP─▶ Dienst  (ctxremote-service.exe, LocalSystem, Session 0)
+Server ◀─TCP─▶ Dienst  (remocto-service.exe, LocalSystem, Session 0)
                  │  Anmeldung beim Server, Passwörter, Sperre, SPAKE2 + E2E
-                 │  \\.\pipe\ctxremote-agent   (ACL: nur SYSTEM)
+                 │  \\.\pipe\remocto-agent   (ACL: nur SYSTEM)
                  ▼
-               Agent   (ctxremote-service.exe --agent, SYSTEM, Konsolensitzung)
+               Agent   (remocto-service.exe --agent, SYSTEM, Konsolensitzung)
                  │  DXGI-Aufnahme, H.264, SendInput, Zwischenablage
                  │  folgt dem Eingabedesktop: Default ↔ Winlogon (Sperre, UAC)
                  │
-App (Benutzer) ◀─ \\.\pipe\ctxremote-ui (ACL: angemeldete Benutzer lesen,
+App (Benutzer) ◀─ \\.\pipe\remocto-ui (ACL: angemeldete Benutzer lesen,
                     Admin-Befehle nur über einen erhöhten Aufruf)
 ```
 
@@ -30,8 +30,8 @@ App (Benutzer) ◀─ \\.\pipe\ctxremote-ui (ACL: angemeldete Benutzer lesen,
 - **Agent:** übernimmt den heutigen Sitzungsteil (`run_session` ohne Netzwerk): Aufnahme, Encoder, Eingabe, Zwischenablage. Er läuft als SYSTEM in der Konsolensitzung. Nur so darf er per `OpenInputDesktop` und `SetThreadDesktop` auf den Winlogon-Desktop wechseln. Wechselt der Eingabedesktop (`DXGI_ERROR_ACCESS_LOST`, Prüfung der Desktop-Namen), ordnen sich der Aufnahme- und der Eingabe-Thread neu zu.
 - **Agent starten:** Der Dienst dupliziert sein eigenes Token, setzt `TokenSessionId` auf `WTSGetActiveConsoleSessionId()` und startet den Agenten per `CreateProcessAsUserW` auf `winsta0\default`. Bei `WTS_CONSOLE_CONNECT`, An- und Abmeldung startet er den Agenten in der neuen Sitzung neu. Ein Agent lebt nur so lange, wie eine Sitzung läuft (Start bei Bedarf).
 - **Strg+Alt+Entf:** löst der Dienst per `SendSAS(FALSE)` aus. Dafür setzt der Installer `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\SoftwareSASGeneration = 1`. Das Protokoll bekommt dazu eine neue `ViewerMsg`-Variante.
-- **App:** Ist der Dienst erreichbar, startet die App keinen eigenen Host. Sie zeigt ID, Einmal-Passwort, Status und laufende Sitzungen über die UI-Pipe an. Für das feste Passwort und die Serveradresse startet sie `ctxremote-service.exe --configure …` mit UAC-Abfrage. Ohne Dienst, also in der Entwicklung oder mit `CTXREMOTE_CONFIG`, bleibt alles wie bisher.
-- **Konfiguration des Geräts:** liegt in `%ProgramData%\CTXRemote\host.json` und ist nur für SYSTEM und Administratoren lesbar. Enthalten sind Server, Geräte-ID, Geräteschlüssel und festes Passwort. Bei der Installation werden ID und Schlüssel aus der Benutzerkonfiguration übernommen, falls es sie schon gibt, damit die ID erhalten bleibt. Aliase und die Geräteliste bleiben pro Benutzer.
+- **App:** Ist der Dienst erreichbar, startet die App keinen eigenen Host. Sie zeigt ID, Einmal-Passwort, Status und laufende Sitzungen über die UI-Pipe an. Für das feste Passwort und die Serveradresse startet sie `remocto-service.exe --configure …` mit UAC-Abfrage. Ohne Dienst, also in der Entwicklung oder mit `CTXREMOTE_CONFIG`, bleibt alles wie bisher.
+- **Konfiguration des Geräts:** liegt in `%ProgramData%\Remocto\host.json` und ist nur für SYSTEM und Administratoren lesbar. Enthalten sind Server, Geräte-ID, Geräteschlüssel und festes Passwort. Bei der Installation werden ID und Schlüssel aus der Benutzerkonfiguration übernommen, falls es sie schon gibt, damit die ID erhalten bleibt. Aliase und die Geräteliste bleiben pro Benutzer.
 
 ## Umsetzung in Schritten
 

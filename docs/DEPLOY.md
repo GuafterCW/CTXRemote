@@ -15,20 +15,24 @@ Stand: 4. Oktober 2026. Jeder Push auf `master` startet `.github/workflows/relea
 
 Ohne die Einstellungen unten laufen die Builds trotzdem. Installer und Schnellhilfe liegen dann als Artefakte am Workflow-Lauf.
 
+## Neuer Name Remocto
+
+Das Produkt heißt jetzt Remocto. Website und Server laufen vorerst weiter unter `ctx.ink`, ebenso die technischen Namen auf dem Server (Dienst `ctxremote-server`, Benutzer `ctxremote`, Pfade `/var/www/ctxremote` und `/srv/ctxremote`). Geplant sind `remocto.com` für die Website (Cloudflare-Proxy an) und `remote.remocto.com` für die App (nur DNS, Port 21300 TCP/UDP). Dafür braucht Caddy ein Origin-Zertifikat für `remocto.com` und `*.remocto.com`. Die Umstellung folgt.
+
 ## Serveradresse ohne Port
 
 `remote.ctx.ink` reicht als Adresse, der Client ergänzt den Standardport 21300 selbst. Release-Builds haben die Adresse aus `CTXREMOTE_SERVER` schon eingebaut, auf neuen Geräten muss man also gar nichts eintragen. Bestehende Installationen behalten ihre gespeicherte Adresse.
 
 ## Updates
 
-- Die Clients holen Updates **vom eigenen CTXRemote-Server** über das normale Protokoll, nicht von GitHub. Das funktioniert auch mit privatem Repo, ohne Webserver und ohne Zertifikat.
+- Die Clients holen Updates **vom eigenen Remocto-Server** über das normale Protokoll, nicht von GitHub. Das funktioniert auch mit privatem Repo, ohne Webserver und ohne Zertifikat.
 - **Vertrauen** kommt aus einer Ed25519-Signatur, die in der Pipeline entsteht:
   - Clients prüfen sie gegen den eingebauten öffentlichen Schlüssel.
   - Sie installieren nur Signiertes und nur Versionen, die neuer sind als die eigene.
   - Ein gekaperter Server kann deshalb kein eigenes Programm verteilen.
 - **Mit Dienst** (normale Installation):
   - Der Dienst prüft 2 Minuten nach dem Start, danach stündlich. Weil ein Release den Server neu startet, prüft er außerdem 30 Sekunden bis 3,5 Minuten nachdem er wieder mit dem Server verbunden ist (zufällig verteilt, damit nicht alle Geräte gleichzeitig laden).
-  - Er lädt nach `C:\ProgramData\CTXRemote\updates`. Dort dürfen nur SYSTEM und Administratoren schreiben.
+  - Er lädt nach `C:\ProgramData\Remocto\updates`. Dort dürfen nur SYSTEM und Administratoren schreiben.
   - Er installiert still, aber nur, solange niemand verbunden ist.
   - Der Installer stoppt den Dienst, ersetzt die Dateien und startet ihn wieder.
 - **Ohne Dienst**: Die App zeigt oben „Update auf X“. Der Klick lädt das Update und startet den Installer mit UAC-Abfrage.
@@ -47,7 +51,7 @@ Einmalig nötig, etwa 30 Minuten. Du brauchst:
 
 In den Befehlen steht `remote.ctx.ink` für deinen Server; ggf. ersetzen. Befehle mit `PS>` gehören in die PowerShell auf deinem PC, Befehle mit `#` laufen als root auf dem Server.
 
-**Neuer Server ohne bisherige CTXRemote-Installation?** Dann Schritt 1 und 4 überspringen und in Schritt 5 den zweiten Parameter (Datenordner) weglassen.
+**Neuer Server ohne bisherige Remocto-Installation?** Dann Schritt 1 und 4 überspringen und in Schritt 5 den zweiten Parameter (Datenordner) weglassen.
 
 ### Schritt 1: Alten Datenordner finden und sichern
 
@@ -188,7 +192,7 @@ Auf dem Server prüfen:
 
 ```bash
 # systemctl status ctxremote-server      # „active (running)“
-# ls /var/lib/ctxremote/updates          # CTXRemote-0.1.N-windows-x86_64.exe und windows-x86_64.json
+# ls /var/lib/ctxremote/updates          # CTXRemote-0.1.N-windows-x86_64.exe (Servername bleibt) und windows-x86_64.json
 # journalctl -u ctxremote-server -n 20   # Log; hier sieht man Anmeldungen und Update-Abrufe
 ```
 
@@ -199,9 +203,9 @@ Bei einem Fehler im Job „deploy“ zeigt dessen Log den Grund. Die häufigsten
 Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb jedes Gerät einmal von Hand aktualisieren:
 
 1. Im Lauf aus Schritt 11 unten unter **Artifacts** das Paket `client` herunterladen und entpacken.
-2. `CTXRemote-0.1.N-setup.exe` auf jedem Gerät ausführen, über die alte Installation drüber. Geräte-ID und Einstellungen bleiben erhalten.
+2. `Remocto-0.1.N-setup.exe` auf jedem Gerät ausführen, über die alte Installation drüber. Geräte-ID und Einstellungen bleiben erhalten.
 
-`CTXRemote-Hilfe.exe` im selben Paket ist die neue Schnellhilfe mit eingebauter Serveradresse.
+`Remocto-Hilfe.exe` im selben Paket ist die neue Schnellhilfe mit eingebauter Serveradresse.
 
 ### Schritt 13: Automatisches Update prüfen
 
@@ -209,11 +213,11 @@ Bereits installierte Geräte kennen den Update-Schlüssel noch nicht. Deshalb je
 2. Auf einem Gerät mit Dienst (PowerShell als Administrator) den Dienst neu starten. Er prüft dann nach 2 Minuten statt erst nach bis zu einer Stunde (normalerweise ist das nicht nötig, siehe oben):
 
    ```powershell
-   PS> Restart-Service CTXRemote
+   PS> Restart-Service Remocto
    ```
 
 3. Nach etwa 3 Minuten muss die App-Version (unten in den Einstellungen) die neue Nummer zeigen.
-4. Das Protokoll steht in `C:\ProgramData\CTXRemote\logs\service.log` und enthält „Update verfügbar“ und „Update wird installiert“.
+4. Das Protokoll steht in `C:\ProgramData\Remocto\logs\service.log` und enthält „Update verfügbar“ und „Update wird installiert“.
 
 ## Verschlüsselte Verbindung zum Server (einmalig einrichten)
 
@@ -247,8 +251,8 @@ Seit Oktober 2026 verschlüsseln die Clients ihre Verbindung zum Server, also An
 Die Website liegt im Ordner `website/`: statische Seiten ohne JavaScript, im Design der App. Jeder Push nach `master` liefert sie zusammen mit dem Server aus:
 - Die Seiten gehen nach `/var/www/ctxremote/site`. Das ist ein Symlink auf die neueste Fassung und wird atomar umgeschaltet.
 - In `download.html` setzt die Pipeline die Versionsnummer ein, und zwar zwischen `<!--version-->` und `<!--/version-->`.
-- Der neueste Installer und die Schnellhilfe liegen unter festen Namen in `/var/www/ctxremote/download/` (`CTXRemote-Setup.exe`, `CTXRemote-Hilfe.exe`). Die Links auf der Website ändern sich also nie.
-- `CTXRemote-Setup.exe` ist das Setup-Fenster aus `crates/setup` mit dem NSIS-Installer darin. Automatische Updates bekommen den NSIS-Installer direkt.
+- Der neueste Installer und die Schnellhilfe liegen unter festen Namen in `/var/www/ctxremote/download/` (`Remocto-Setup.exe`, `Remocto-Hilfe.exe`). Die Links auf der Website ändern sich also nie.
+- `Remocto-Setup.exe` ist das Setup-Fenster aus `crates/setup` mit dem NSIS-Installer darin. Automatische Updates bekommen den NSIS-Installer direkt.
 
 Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werden nicht protokolliert, so steht es auch in der Datenschutzerklärung.
 
@@ -278,7 +282,7 @@ Caddy liefert alles aus und holt sich das HTTPS-Zertifikat selbst. Zugriffe werd
 
 ### Webinterface „Konto“ (https://ctxremote.ctx.ink/konto/)
 
-Das Webinterface ist eine Svelte-App aus `web/`. Die Pipeline baut sie nach `website/konto/`, sie wird also mit der Website ausgeliefert. Seine Anfragen gehen an `/api/…`. Caddy reicht sie an die Web-API des CTXRemote-Servers weiter (`--http`, Standard `127.0.0.1:21380`). Alles Kryptografische passiert im Browser, der Server sieht nur abgeleitete Werte und verschlüsselte Daten (`docs/ACCOUNTS.md`).
+Das Webinterface ist eine Svelte-App aus `web/`. Die Pipeline baut sie nach `website/konto/`, sie wird also mit der Website ausgeliefert. Seine Anfragen gehen an `/api/…`. Caddy reicht sie an die Web-API des Remocto-Servers weiter (`--http`, Standard `127.0.0.1:21380`). Alles Kryptografische passiert im Browser, der Server sieht nur abgeleitete Werte und verschlüsselte Daten (`docs/ACCOUNTS.md`).
 
 **Einmalig, mit Caddy in Docker (so beim Nutzer):**
 
@@ -340,7 +344,7 @@ Inhalt, mit den Daten deines Mailanbieters:
 
 ```ini
 CTXREMOTE_SMTP_URL=smtps://BENUTZER:PASSWORT@smtp.example.org:465
-CTXREMOTE_MAIL_FROM=CTXRemote <noreply@ctx.ink>
+CTXREMOTE_MAIL_FROM=Remocto <noreply@ctx.ink>
 CTXREMOTE_SITE_URL=https://ctxremote.ctx.ink
 ```
 
@@ -375,8 +379,8 @@ Die Web-API glaubt die Adresse aus `CF-Connecting-IP` nur, wenn die Anfrage laut
 ## Android und Google Play
 
 Jedes Release baut im Job `client-android` die Android-App gegen den Projektserver (Artefakt `client-android`):
-- `CTXRemote.apk` zum direkten Installieren.
-- `CTXRemote-<Version>.aab` für Google Play. Das App-Bundle entsteht nur, wenn die Secrets `ANDROID_KEYSTORE` und `ANDROID_KEYSTORE_PASSWORD` gesetzt sind. Der erste Upload legt bei Google den Upload-Schlüssel fest, ein Wegwerf-Schlüssel würde uns aussperren.
+- `Remocto.apk` zum direkten Installieren.
+- `Remocto-<Version>.aab` für Google Play. Das App-Bundle entsteht nur, wenn die Secrets `ANDROID_KEYSTORE` und `ANDROID_KEYSTORE_PASSWORD` gesetzt sind. Der erste Upload legt bei Google den Upload-Schlüssel fest, ein Wegwerf-Schlüssel würde uns aussperren.
 
 Die Laufnummer des Release ist der `versionCode`, also kann jedes Release hochgeladen werden. Gebaut wird nur für arm64 (alle aktuellen Handys).
 
@@ -395,11 +399,11 @@ Private Konten brauchen vor der Freigabe im Store einen geschlossenen Test mit m
 ## Microsoft Store (MSIX)
 
 Jedes Release packt App und Dienst zusätzlich als MSIX (`app/msix/`, Artefakt `client-msix`):
-- `CTXRemote-<Version>-store.msix`: unsigniert, zum Hochladen im Partner Center. Der Store signiert es selbst, damit entfällt die SmartScreen-Warnung, und Updates kommen über den Store.
-- `CTXRemote-<Version>.msix` und `CTXRemote-Test.cer`: dasselbe Paket mit Testsignatur, zum direkten Installieren.
+- `Remocto-<Version>-store.msix`: unsigniert, zum Hochladen im Partner Center. Der Store signiert es selbst, damit entfällt die SmartScreen-Warnung, und Updates kommen über den Store.
+- `Remocto-<Version>.msix` und `Remocto-Test.cer`: dasselbe Paket mit Testsignatur, zum direkten Installieren.
 
 Im Paket ist alles wie beim NSIS-Installer, nur auf anderem Weg:
-- Windows richtet den Dienst `CTXRemote` (LocalSystem, automatisch) aus dem Manifest ein. Was sonst `--install` macht (Strg+Alt+Entf-Richtlinie, Firewall-Regel), erledigt der Dienst bei jedem Start (`packaged_setup` in `crates/service/src/win.rs`).
+- Windows richtet den Dienst `Remocto` (LocalSystem, automatisch) aus dem Manifest ein. Was sonst `--install` macht (Strg+Alt+Entf-Richtlinie, Firewall-Regel), erledigt der Dienst bei jedem Start (`packaged_setup` in `crates/service/src/win.rs`).
 - Der Start im Tray bei der Anmeldung ist eine StartupTask der App. Sie übergibt keine Argumente; die App fragt Windows nach der Startart (`started_for_tray` in `app/src-tauri/src/lib.rs`). Eine zweite, unsichtbare Application lehnt der Store ab („App ohne Benutzeroberfläche“). Windows schaltet die StartupTask erst nach dem ersten Start der App ein.
 - Der eigene Updater ist aus, sobald die App aus einem Paket läuft (`update::packaged()`).
 - Updates aus dem Store: Windows ersetzt ein Paket nicht, solange eines seiner Programme läuft, und die App läuft den ganzen Tag im Tray. Deshalb fragt die App 5 Minuten nach dem Start und dann alle 6 Stunden den Store (`Windows.Services.Store`, `app/src-tauri/src/store.rs`). Liegt ein Update bereit, wartet sie, bis keine Sitzung läuft und das Hauptfenster zu ist, und installiert es still. Windows beendet dafür App und Dienst; die App startet über `RegisterApplicationRestart` mit `--tray` neu. Findet sie den Dienst danach nicht sofort, versucht sie es 20 Sekunden lang, statt selbst Host zu werden. Bei getakteter Verbindung lässt Windows kein stilles Update zu, dann bleibt es beim Store.
@@ -407,16 +411,16 @@ Im Paket ist alles wie beim NSIS-Installer, nur auf anderem Weg:
 
 ### Testpaket installieren
 
-1. `CTXRemote-Test.cer` doppelklicken → „Zertifikat installieren“ → „Lokaler Computer“ → Speicher „Vertrauenswürdige Personen“.
-2. Den alten CTXRemote (NSIS) vorher deinstallieren, sonst laufen zwei Dienste.
-3. Pakete mit Dienst lassen sich nur als Administrator installieren, der Doppelklick meldet „requires administrator privileges“. Deshalb PowerShell als Administrator öffnen und `Add-AppxPackage -Path "<Pfad>\CTXRemote-<Version>.msix"` ausführen. Aus dem Store fragt Windows selbst nach den Adminrechten. Läuft schon eine ältere Version (Tray), dazu `-ForceApplicationShutdown` anhängen.
+1. `Remocto-Test.cer` doppelklicken → „Zertifikat installieren“ → „Lokaler Computer“ → Speicher „Vertrauenswürdige Personen“.
+2. Den alten Remocto (NSIS) vorher deinstallieren, sonst laufen zwei Dienste.
+3. Pakete mit Dienst lassen sich nur als Administrator installieren, der Doppelklick meldet „requires administrator privileges“. Deshalb PowerShell als Administrator öffnen und `Add-AppxPackage -Path "<Pfad>\Remocto-<Version>.msix"` ausführen. Aus dem Store fragt Windows selbst nach den Adminrechten. Läuft schon eine ältere Version (Tray), dazu `-ForceApplicationShutdown` anhängen.
 
 Ohne Secret entsteht das Testzertifikat bei jedem Release neu, Schritt 1 ist dann jedes Mal nötig. Ein festes Zertifikat: als Secrets `MSIX_CERT` (base64 einer .pfx, deren Subject gleich dem Publisher ist) und `MSIX_CERT_PASSWORD`.
 
 ### Einmalig einrichten für den Store
 
 1. Konto im Partner Center (partner.microsoft.com, „Windows & Xbox“), für Einzelpersonen inzwischen kostenlos.
-2. App-Namen „CTXRemote“ reservieren. Unter „Produktidentität“ stehen `Package/Identity/Name`, `Package/Identity/Publisher` und `Package/Properties/PublisherDisplayName`.
+2. App-Namen „Remocto“ reservieren. Unter „Produktidentität“ stehen `Package/Identity/Name`, `Package/Identity/Publisher` und `Package/Properties/PublisherDisplayName`.
 3. Diese drei als GitHub-Variablen `MSIX_IDENTITY_NAME`, `MSIX_PUBLISHER`, `MSIX_PUBLISHER_DISPLAY_NAME` eintragen. Das nächste Release baut das Paket mit diesen Werten.
 4. Einreichung anlegen, `…-store.msix` hochladen, Store-Eintrag ausfüllen und die eingeschränkten Fähigkeiten begründen. Texte und Screenshots dafür: `docs/STORE.md`.
 5. Nach der Freigabe die Store-Adresse als Variable `MSSTORE_URL` eintragen (siehe „Download-Seite“).
@@ -437,7 +441,7 @@ Einmalig einrichten:
 Die Deploy-Stufe passt `website/download.html` an:
 - `MSSTORE_URL` gesetzt: Knopf „Im Microsoft Store“ zeigt dorthin, der direkte Installer bleibt als zweiter Knopf. Sonst fällt der Store-Knopf weg.
 - `PLAY_URL` gesetzt: Knopf „Bei Google Play“.
-- Die APK liegt nur mit dem echten Android-Schlüssel unter `/download/CTXRemote.apk`. Gibt es weder Play-Adresse noch APK, fällt die Android-Karte weg.
+- Die APK liegt nur mit dem echten Android-Schlüssel unter `/download/Remocto.apk`. Gibt es weder Play-Adresse noch APK, fällt die Android-Karte weg.
 
 ## Sicherung der Serverdaten
 

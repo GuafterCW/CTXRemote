@@ -1701,12 +1701,12 @@ fn on_run_event(_app: &AppHandle, event: RunEvent) {
 
 #[cfg(all(desktop, not(feature = "quick")))]
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "CTXRemote öffnen", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Remocto öffnen", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Beenden", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundle has an icon"))
-        .tooltip("CTXRemote")
+        .tooltip("Remocto")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -1923,6 +1923,6 @@ pub fn run() {
         })
         .invoke_handler(commands)
         .build(tauri::generate_context!())
-        .expect("CTXRemote konnte nicht gestartet werden")
+        .expect("Remocto konnte nicht gestartet werden")
         .run(on_run_event);
 }

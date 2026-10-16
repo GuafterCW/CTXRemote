@@ -93,7 +93,7 @@ async fn signed_update_is_offered_and_delivered() {
     // The release changed meanwhile: the old download request is refused.
     publish(&data, "0.1.6", b"neu", SECRET);
     assert!(download(&addr, &info, &target).await.is_err());
-    assert!(!target.join("CTXRemote-0.1.5-setup.part").exists(), "partial file removed");
+    assert!(!target.join("Remocto-0.1.5-setup.part").exists(), "partial file removed");
 
     std::fs::remove_dir_all(&data).unwrap();
 }

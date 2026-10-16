@@ -45,7 +45,7 @@ Die Postergrafik 9:16 braucht nur Xbox und bleibt leer.
 
 ## Produktname
 
-CTXRemote
+Remocto
 
 ## Kurzbeschreibung (max. 1000 Zeichen, erscheint oben)
 
@@ -53,7 +53,7 @@ Fernwartung für Ihre eigenen Geräte und für Menschen, denen Sie helfen wollen
 
 ## Beschreibung (max. 10.000 Zeichen)
 
-CTXRemote verbindet Sie mit Ihren eigenen Geräten und mit Menschen, denen Sie helfen wollen. Sie sehen den fernen Bildschirm, bedienen Maus und Tastatur und übertragen Dateien, als säßen Sie daneben.
+Remocto verbindet Sie mit Ihren eigenen Geräten und mit Menschen, denen Sie helfen wollen. Sie sehen den fernen Bildschirm, bedienen Maus und Tastatur und übertragen Dateien, als säßen Sie daneben.
 
 Verbinden in einer Minute
 Jedes Gerät hat eine neunstellige ID und ein Einmal-Passwort. Ihr Gegenüber nennt Ihnen beides, bestätigt Ihren Zugriff mit „Zulassen“, und Sie sind verbunden. Ein Konto ist dafür nicht nötig.
@@ -62,7 +62,7 @@ Ende-zu-Ende verschlüsselt
 Jede Sitzung wird mit dem Passwort verschlüsselt (SPAKE2, ChaCha20-Poly1305). Unser Server vermittelt nur die Verbindung und sieht ausschließlich verschlüsselte Daten. Wo es geht, wechselt die Sitzung auf eine direkte Verbindung zwischen den Geräten.
 
 Unbeaufsichtigter Zugriff auf eigene Geräte
-CTXRemote läuft als Windows-Dienst. Mit einem festen Passwort erreichen Sie Ihre Geräte auch, wenn niemand davor sitzt: am Anmeldebildschirm, am Sperrbildschirm und bei Abfragen der Benutzerkontensteuerung, mit Strg+Alt+Entf und Neustart aus der Ferne. Auf Wunsch zusätzlich mit einem Zwei-Faktor-Code aus einer Authenticator-App.
+Remocto läuft als Windows-Dienst. Mit einem festen Passwort erreichen Sie Ihre Geräte auch, wenn niemand davor sitzt: am Anmeldebildschirm, am Sperrbildschirm und bei Abfragen der Benutzerkontensteuerung, mit Strg+Alt+Entf und Neustart aus der Ferne. Auf Wunsch zusätzlich mit einem Zwei-Faktor-Code aus einer Authenticator-App.
 
 Sie bestimmen, was geht
 Für Sitzungen mit Einmal-Passwort und für unbeaufsichtigte Sitzungen legen Sie getrennt fest, ob die Gegenseite steuern, Dateien übertragen, die Zwischenablage nutzen oder den Ton hören darf. Während einer Sitzung lassen sich die Rechte jederzeit ändern, und jede Sitzung ist mit einem Klick beendet.
@@ -79,10 +79,10 @@ Alles, was eine Fernwartung braucht
 • Geräteliste mit Gruppen, auf Wunsch über ein Konto auf allen Ihren Geräten
 
 Für Windows, Mac, Linux und Android
-CTXRemote gibt es auch für macOS, Linux und als Viewer für Android (Vorschau). Downloads unter https://ctxremote.ctx.ink
+Remocto gibt es auch für macOS, Linux und als Viewer für Android (Vorschau). Downloads unter https://ctxremote.ctx.ink
 
 Kostenlos
-CTXRemote ist kostenlos, ohne Abo und ohne Werbung.
+Remocto ist kostenlos, ohne Abo und ohne Werbung.
 
 ## Neues in dieser Version
 
@@ -113,7 +113,7 @@ Fernwartung, Fernzugriff, Remote Desktop, Fernsteuerung, Bildschirmfreigabe, Sup
 - Datenschutzrichtlinie: https://ctxremote.ctx.ink/datenschutz.html
 - Website: https://ctxremote.ctx.ink
 - Support-Kontakt: die Adresse aus dem Impressum
-- Copyright: © 2026 CTXRemote
+- Copyright: © 2026 Remocto
 - Preis: kostenlos
 - Altersfreigabe (IARC-Fragebogen): keine Gewalt, keine Glücksspiele, kein Kauf in der App. Nutzer können miteinander kommunizieren (Chat) und Inhalte teilen (Bildschirm, Dateien), das im Fragebogen mit „Ja“ angeben.
 
@@ -123,11 +123,11 @@ Das Partner Center fragt je Fähigkeit einzeln (Englisch, für die Prüfer):
 
 **runFullTrust**
 
-> CTXRemote is a remote support and remote desktop application built as a Win32 desktop app (Tauri/WebView2). runFullTrust is required to run the desktop executable itself: it captures the screen with DXGI, encodes video with Media Foundation, injects mouse and keyboard input, accesses the clipboard, and opens network connections to the CTXRemote relay server and directly to other devices. None of this is possible from an AppContainer.
+> Remocto is a remote support and remote desktop application built as a Win32 desktop app (Tauri/WebView2). runFullTrust is required to run the desktop executable itself: it captures the screen with DXGI, encodes video with Media Foundation, injects mouse and keyboard input, accesses the clipboard, and opens network connections to the Remocto relay server and directly to other devices. None of this is possible from an AppContainer.
 
 **packagedServices**
 
-> For unattended access to the user's own computers, CTXRemote installs a Windows service (ctxremote-service.exe, declared with desktop6:Service). The service starts at boot, keeps the device reachable before anyone signs in, and starts the screen agent in the active console session when a session begins. Without a service, remote access would only work while a user is signed in and the app is open. The service only accepts connections with a one-time password confirmed by the person at the device, or with a fixed password set by an administrator.
+> For unattended access to the user's own computers, Remocto installs a Windows service (remocto-service.exe, declared with desktop6:Service). The service starts at boot, keeps the device reachable before anyone signs in, and starts the screen agent in the active console session when a session begins. Without a service, remote access would only work while a user is signed in and the app is open. The service only accepts connections with a one-time password confirmed by the person at the device, or with a fixed password set by an administrator.
 
 **localSystemServices**
 
@@ -135,4 +135,4 @@ Das Partner Center fragt je Fähigkeit einzeln (Englisch, für die Prüfer):
 
 **allowElevation**
 
-> Security-relevant settings of the service (the fixed password for unattended access, the server address, and which devices of the user's account may connect without a password) may only be changed by an administrator. When the user changes them in the app, the app starts ctxremote-service.exe from the package with a UAC prompt (ShellExecute "runas"). The elevated process writes the settings to the service's protected configuration and exits. Nothing else runs elevated.
+> Security-relevant settings of the service (the fixed password for unattended access, the server address, and which devices of the user's account may connect without a password) may only be changed by an administrator. When the user changes them in the app, the app starts remocto-service.exe from the package with a UAC prompt (ShellExecute "runas"). The elevated process writes the settings to the service's protected configuration and exits. Nothing else runs elevated.

@@ -148,6 +148,39 @@ impl Default for Config {
 /// Set once per process, e.g. to the service's machine-wide config.
 static PATH: OnceLock<PathBuf> = OnceLock::new();
 
+/// Before the rename to Remocto the settings lived under "CTXRemote". They
+/// move over once, so the device keeps its key (and thus its ID).
+fn adopt_former_config(dir: &std::path::Path) {
+    if dir.join("config.json").exists() {
+        return;
+    }
+    let Some(former) = directories::ProjectDirs::from("info", "philipp-dev", "CTXRemote") else { return };
+    move_settings(former.config_dir(), dir);
+}
+
+/// Moves the settings folder `former` to `dir`, unless `dir` already has settings.
+fn move_settings(former: &std::path::Path, dir: &std::path::Path) {
+    if dir.join("config.json").exists() || !former.join("config.json").exists() {
+        return;
+    }
+    if let Some(parent) = dir.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // A folder left empty by an earlier attempt is in the way of the rename.
+    let _ = std::fs::remove_dir(dir);
+    match std::fs::rename(former, dir) {
+        Ok(()) => tracing::info!("Einstellungen aus {} übernommen", former.display()),
+        Err(e) => {
+            // Another volume or a busy folder: the settings file is what matters.
+            let copied = std::fs::create_dir_all(dir).and_then(|()| std::fs::copy(former.join("config.json"), dir.join("config.json")));
+            match copied {
+                Ok(_) => tracing::info!("Einstellungen aus {} kopiert", former.display()),
+                Err(e2) => tracing::warn!("Einstellungen aus {} nicht übernommen: {e}; {e2}", former.display()),
+            }
+        }
+    }
+}
+
 impl Config {
     /// Pins the config file for this process. Only the first call has an effect.
     pub fn use_path(path: PathBuf) {
@@ -156,7 +189,7 @@ impl Config {
 
     /// The path pinned with [`Config::use_path`], else `CTXREMOTE_CONFIG` (useful for
     /// a second instance on one machine), else
-    /// `%APPDATA%\philipp-dev\CTXRemote\config\config.json`.
+    /// `%APPDATA%\philipp-dev\Remocto\config\config.json`.
     pub fn path() -> Result<PathBuf> {
         if let Some(path) = PATH.get() {
             return Ok(path.clone());
@@ -164,8 +197,9 @@ impl Config {
         if let Some(path) = std::env::var_os("CTXREMOTE_CONFIG") {
             return Ok(path.into());
         }
-        let dirs = directories::ProjectDirs::from("info", "philipp-dev", "CTXRemote")
+        let dirs = directories::ProjectDirs::from("info", "philipp-dev", "Remocto")
             .context("kein Benutzerverzeichnis gefunden")?;
+        adopt_former_config(dirs.config_dir());
         Ok(dirs.config_dir().join("config.json"))
     }
 
@@ -537,5 +571,26 @@ mod tests {
         let peer = config.peer(id).unwrap();
         assert_eq!(peer.alias_at, at);
         assert_eq!(peer.macs.len(), 1);
+    }
+
+    #[test]
+    fn settings_move_from_the_former_name() {
+        let base = std::env::temp_dir().join(format!("ctxremote-rename-{}", rand::random::<u32>()));
+        let former = base.join("CTXRemote").join("config");
+        let dir = base.join("Remocto").join("config");
+        std::fs::create_dir_all(&former).unwrap();
+        std::fs::write(former.join("config.json"), "{\"old\":1}").unwrap();
+        std::fs::write(former.join("history.json"), "[]").unwrap();
+        move_settings(&former, &dir);
+        assert_eq!(std::fs::read_to_string(dir.join("config.json")).unwrap(), "{\"old\":1}");
+        assert!(dir.join("history.json").exists(), "the whole folder moves");
+        assert!(!former.exists());
+
+        // Existing new settings are never replaced.
+        std::fs::create_dir_all(&former).unwrap();
+        std::fs::write(former.join("config.json"), "{\"older\":1}").unwrap();
+        move_settings(&former, &dir);
+        assert_eq!(std::fs::read_to_string(dir.join("config.json")).unwrap(), "{\"old\":1}");
+        std::fs::remove_dir_all(base).unwrap();
     }
 }

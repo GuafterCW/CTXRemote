@@ -28,7 +28,7 @@ pub fn uri(secret: &str, account: &str) -> String {
         .bytes()
         .map(|b| if b.is_ascii_alphanumeric() || b == b'-' || b == b'.' { (b as char).to_string() } else { format!("%{b:02X}") })
         .collect();
-    format!("otpauth://totp/CTXRemote:{label}?secret={secret}&issuer=CTXRemote&digits={DIGITS}&period={STEP}")
+    format!("otpauth://totp/Remocto:{label}?secret={secret}&issuer=Remocto&digits={DIGITS}&period={STEP}")
 }
 
 /// The step `code` matches, if it is valid for `secret` at `unix` seconds.
@@ -127,6 +127,6 @@ mod tests {
         assert!(check(&secret, &spaced, t).is_some(), "Leerzeichen stören nicht");
         assert!(check(&secret, "12345", t).is_none());
         assert!(check("kein base32!", &code, t).is_none());
-        assert!(uri(&secret, "Büro PC").starts_with("otpauth://totp/CTXRemote:B%C3%BCro%20PC?secret="));
+        assert!(uri(&secret, "Büro PC").starts_with("otpauth://totp/Remocto:B%C3%BCro%20PC?secret="));
     }
 }

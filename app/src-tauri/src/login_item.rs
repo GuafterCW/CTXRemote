@@ -85,7 +85,7 @@ fn desktop_entry(exe: &str) -> String {
     }
     let value = arg.replace('\\', "\\\\").replace('%', "%%");
     format!(
-        "[Desktop Entry]\nType=Application\nName=CTXRemote\nComment=Fernwartung, im Hintergrund erreichbar\nExec=\"{value}\" --tray\nIcon=ctxremote\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
+        "[Desktop Entry]\nType=Application\nName=Remocto\nComment=Fernwartung, im Hintergrund erreichbar\nExec=\"{value}\" --tray\nIcon=remocto\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
     )
 }
 

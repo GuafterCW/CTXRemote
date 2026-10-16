@@ -238,7 +238,7 @@
         </label>
         <span class="note">
           Für unbeaufsichtigten Zugriff, z. B. auf den eigenen Büro-PC. Nur Geräte, die zu diesem Zeitpunkt noch im
-          Konto sind, kommen rein. Mit dem CTXRemote-Dienst fragt Windows nach Administratorrechten.
+          Konto sind, kommen rein. Mit dem Remocto-Dienst fragt Windows nach Administratorrechten.
         </span>
       </section>
 

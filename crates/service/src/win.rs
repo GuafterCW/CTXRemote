@@ -42,7 +42,7 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 use windows_service::{define_windows_service, service_dispatcher};
 
 
-const SERVICE_NAME: &str = "CTXRemote";
+const SERVICE_NAME: &str = "Remocto";
 const SERVICE_DESCRIPTION: &str = "Fernzugriff auf dieses Gerät";
 /// Owned by Administrators; only SYSTEM and Administrators, inherited by children, nothing from the parent.
 const DATA_DIR_SDDL: &str = "O:BAG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
@@ -50,7 +50,7 @@ const ERROR_ACCESS_DENIED: i32 = 5;
 const ERROR_SERVICE_DOES_NOT_EXIST: i32 = 1060;
 const ERROR_SERVICE_ALREADY_RUNNING: i32 = 1056;
 
-const HELP: &str = "CTXRemote-Dienst
+const HELP: &str = "Remocto-Dienst
 
 Aufruf: ctxremote-service <Option>
 
@@ -97,7 +97,26 @@ pub fn run() -> i32 {
 
 fn data_dir() -> PathBuf {
     let base = std::env::var_os("ProgramData").unwrap_or_else(|| OsString::from(r"C:\ProgramData"));
-    PathBuf::from(base).join("CTXRemote")
+    PathBuf::from(base).join("Remocto")
+}
+
+/// Before the rename to Remocto the folder was `CTXRemote`. It moves over
+/// once, so the device keeps its ID, password and settings. Only a folder
+/// that passes the same checks as our own is taken; anything else stays.
+fn adopt_former_data_dir(dir: &Path) {
+    let former = dir.with_file_name("CTXRemote");
+    if dir.exists() {
+        return;
+    }
+    let Ok(meta) = std::fs::symlink_metadata(&former) else { return };
+    let reparse = meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0;
+    if reparse || !meta.is_dir() || !owned_by_system_or_admins(&former).unwrap_or(false) {
+        return;
+    }
+    match std::fs::rename(&former, dir) {
+        Ok(()) => println!("Daten aus {} übernommen.", former.display()),
+        Err(e) => eprintln!("Warnung: {} nicht übernommen: {e}", former.display()),
+    }
 }
 
 /// Creates the data directory and (re)applies owner and protected DACL.
@@ -108,6 +127,7 @@ fn data_dir() -> PathBuf {
 /// loosen the DACL again. Such a folder is moved aside, never adopted.
 fn ensure_data_dir() -> Result<PathBuf> {
     let dir = data_dir();
+    adopt_former_data_dir(&dir);
     match std::fs::symlink_metadata(&dir) {
         Ok(meta) => {
             let reparse = meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0;
@@ -199,7 +219,7 @@ fn quarantine(dir: &Path) -> Result<()> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let aside = dir.with_file_name(format!("CTXRemote.untrusted-{stamp}"));
+    let aside = dir.with_file_name(format!("Remocto.untrusted-{stamp}"));
     std::fs::rename(dir, &aside).with_context(|| {
         format!("{} gehört nicht SYSTEM/Administratoren und ließ sich nicht verschieben", dir.display())
     })?;
@@ -519,7 +539,9 @@ fn uninstall() -> Result<()> {
 }
 
 const RUN_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
-const RUN_VALUE: &str = "CTXRemote";
+const RUN_VALUE: &str = "Remocto";
+/// The entry from before the rename, removed when the new one is written.
+const FORMER_RUN_VALUE: &str = "CTXRemote";
 
 /// With the service, the app starts in the tray at every user's sign-in, so
 /// whoever sits at the computer sees running sessions and chat. Without it,
@@ -546,7 +568,7 @@ fn start_app_at_sign_in(enabled: bool) {
             .context("Autostart-Schlüssel nicht öffnbar")?;
             let result = if enabled {
                 let exe = std::env::current_exe().context("Programmpfad unbekannt")?;
-                let app = exe.with_file_name("ctxremote.exe");
+                let app = exe.with_file_name("remocto.exe");
                 let command = wide(std::ffi::OsStr::new(&format!("\"{}\" --tray", app.display())));
                 let bytes = std::slice::from_raw_parts(command.as_ptr().cast::<u8>(), command.len() * 2);
                 RegSetValueExW(key, PCWSTR(name.as_ptr()), None, REG_SZ, Some(bytes)).ok()
@@ -555,6 +577,8 @@ fn start_app_at_sign_in(enabled: bool) {
                 let _ = RegDeleteValueW(key, PCWSTR(name.as_ptr()));
                 Ok(())
             };
+            let former = wide(std::ffi::OsStr::new(FORMER_RUN_VALUE));
+            let _ = RegDeleteValueW(key, PCWSTR(former.as_ptr()));
             let _ = RegCloseKey(key);
             result.context("Autostart nicht setzbar")
         }
@@ -564,7 +588,9 @@ fn start_app_at_sign_in(enabled: bool) {
     }
 }
 
-const FIREWALL_RULE: &str = "CTXRemote Direktverbindung";
+const FIREWALL_RULE: &str = "Remocto Direktverbindung";
+/// The rule from before the rename, removed with ours.
+const FORMER_FIREWALL_RULE: &str = "CTXRemote Direktverbindung";
 
 /// Opens the direct-connection port for the service only. Failures are
 /// reported but not fatal: sessions then simply stay on the relay.
@@ -589,12 +615,14 @@ fn allow_direct_connections(enabled: bool, port: u16) {
 }
 
 fn remove_firewall_rule() {
-    let _ = std::process::Command::new("netsh")
-        .args(["advfirewall", "firewall", "delete", "rule"])
-        .arg(format!("name={FIREWALL_RULE}"))
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    for rule in [FIREWALL_RULE, FORMER_FIREWALL_RULE] {
+        let _ = std::process::Command::new("netsh")
+            .args(["advfirewall", "firewall", "delete", "rule"])
+            .arg(format!("name={rule}"))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
 }
 
 /// Enables Ctrl+Alt+Del from a service: SoftwareSASGeneration 0/missing -> 1, 2 -> 3 (1 and 3 stay).
@@ -750,7 +778,7 @@ fn relaunch_app_after_update() {
     if std::fs::remove_file(&marker).is_err() {
         return;
     }
-    let Some(app) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("ctxremote.exe"))) else {
+    let Some(app) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("remocto.exe"))) else {
         return;
     };
     std::thread::spawn(move || {

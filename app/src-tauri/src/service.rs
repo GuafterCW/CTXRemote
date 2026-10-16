@@ -1,4 +1,4 @@
-//! Service mode: the app only shows what the installed CTXRemote service hosts.
+//! Service mode: the app only shows what the installed Remocto service hosts.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::{oneshot, watch};
 
 const RECONNECT_EVERY: Duration = Duration::from_secs(5);
-const GONE: &str = "CTXRemote-Dienst nicht erreichbar";
+const GONE: &str = "Remocto-Dienst nicht erreichbar";
 
 pub struct Service {
     link: Mutex<Option<ServiceLink>>,
@@ -53,11 +53,11 @@ impl Service {
         {
             Ok(Ok(())) => Some(service),
             Ok(Err(e)) => {
-                tracing::info!("Kein CTXRemote-Dienst: {e:#}");
+                tracing::info!("Kein Remocto-Dienst: {e:#}");
                 None
             }
             Err(_) => {
-                tracing::info!("Kein CTXRemote-Dienst: Zeitüberschreitung");
+                tracing::info!("Kein Remocto-Dienst: Zeitüberschreitung");
                 None
             }
         }
@@ -242,9 +242,9 @@ async fn elevated(
     tokio::task::spawn_blocking(move || {
         let exe = std::env::current_exe()
             .map_err(|e| e.to_string())?
-            .with_file_name("ctxremote-service.exe");
+            .with_file_name("remocto-service.exe");
         if !exe.is_file() {
-            return Err("ctxremote-service.exe fehlt neben der App. Bitte CTXRemote neu installieren.".to_string());
+            return Err("remocto-service.exe fehlt neben der App. Bitte Remocto neu installieren.".to_string());
         }
         let file = request_file()?;
         let result = run(&file, &exe);
@@ -344,5 +344,5 @@ fn launch(exe: &std::path::Path, file: &std::path::Path, digest: &str) -> Result
 
 #[cfg(not(windows))]
 fn launch(_: &std::path::Path, _: &std::path::Path, _: &str) -> Result<(), String> {
-    Err("Den CTXRemote-Dienst gibt es nur unter Windows".into())
+    Err("Den Remocto-Dienst gibt es nur unter Windows".into())
 }

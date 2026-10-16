@@ -1,4 +1,4 @@
-//! The link between the app and the Windows service (`\\.\pipe\ctxremote-ui`).
+//! The link between the app and the Windows service (`\\.\pipe\remocto-ui`).
 //!
 //! Every signed-in user may see the service's ID, one-time password and
 //! sessions, renew the password and end a session. Changing settings needs an
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::DirectSettings;
 use crate::host::{HostEvent, Presence};
 
-pub const PIPE: &str = r"\\.\pipe\ctxremote-ui";
+pub const PIPE: &str = r"\\.\pipe\remocto-ui";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceState {
@@ -100,7 +100,7 @@ pub struct ServiceLink;
 #[cfg(not(windows))]
 impl ServiceLink {
     pub async fn connect(_: impl Fn(Option<UiEvent>) + Send + 'static) -> anyhow::Result<Self> {
-        anyhow::bail!("Den CTXRemote-Dienst gibt es nur unter Windows")
+        anyhow::bail!("Den Remocto-Dienst gibt es nur unter Windows")
     }
 
     pub fn send(&self, _: UiRequest) {}
@@ -441,7 +441,7 @@ mod imp {
         /// Connects to the running service. `on_event` runs on a network task and
         /// gets `None` once the link is gone (service stopped).
         pub async fn connect(on_event: impl Fn(Option<UiEvent>) + Send + 'static) -> Result<Self> {
-            let pipe = open_pipe().context("CTXRemote-Dienst nicht erreichbar")?;
+            let pipe = open_pipe().context("Remocto-Dienst nicht erreichbar")?;
             // Only the real service may answer, not a process that took the name.
             let mut server = 0;
             unsafe { GetNamedPipeServerProcessId(HANDLE(pipe.as_raw_handle()), &mut server) }?;
@@ -497,11 +497,11 @@ mod imp {
         }
     }
 
-    /// Process ID of the running CTXRemote service.
+    /// Process ID of the running Remocto service.
     fn service_pid() -> Option<u32> {
         unsafe {
             let manager = OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT).ok()?;
-            let service = OpenServiceW(manager, w!("CTXRemote"), SERVICE_QUERY_STATUS);
+            let service = OpenServiceW(manager, w!("Remocto"), SERVICE_QUERY_STATUS);
             let _ = CloseServiceHandle(manager);
             let service = service.ok()?;
             let mut status = SERVICE_STATUS_PROCESS::default();

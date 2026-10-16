@@ -44,7 +44,7 @@ pub fn run(parent: isize) -> Result<(), Error> {
         return Ok(());
     }
     let dir = std::env::temp_dir().join(format!("ctxremote-setup-{}", std::process::id()));
-    let path = dir.join("CTXRemote-Installer.exe");
+    let path = dir.join("Remocto-Installer.exe");
     std::fs::create_dir_all(&dir)
         .and_then(|()| std::fs::write(&path, PAYLOAD))
         .map_err(|e| Error::Failed(format!("Das Installationsprogramm konnte nicht entpackt werden: {e}")))?;
@@ -56,7 +56,7 @@ pub fn run(parent: isize) -> Result<(), Error> {
     }
 }
 
-/// The installed version, if CTXRemote is installed.
+/// The installed version, if Remocto is installed.
 pub fn installed_version() -> Option<String> {
     platform::uninstall_value("DisplayVersion")
 }
@@ -64,7 +64,7 @@ pub fn installed_version() -> Option<String> {
 /// The installed app's executable.
 pub fn app_path() -> Option<PathBuf> {
     let dir = platform::uninstall_value("InstallLocation")?;
-    let exe = platform::uninstall_value("MainBinaryName").unwrap_or_else(|| "CTXRemote.exe".into());
+    let exe = platform::uninstall_value("MainBinaryName").unwrap_or_else(|| "Remocto.exe".into());
     let path = PathBuf::from(dir.trim_matches('"')).join(exe.trim_matches('"'));
     path.exists().then_some(path)
 }
@@ -138,7 +138,7 @@ mod platform {
     }
 
     fn read(root: HKEY, value: &str) -> Option<String> {
-        let key = wide("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CTXRemote");
+        let key = wide("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Remocto");
         let value = wide(value);
         let mut buf = vec![0u16; 1024];
         let mut len = (buf.len() * 2) as u32;
@@ -161,7 +161,7 @@ mod platform {
         (!s.is_empty()).then_some(s)
     }
 
-    /// A value from CTXRemote's uninstall entry (machine-wide, else per user).
+    /// A value from Remocto's uninstall entry (machine-wide, else per user).
     pub fn uninstall_value(value: &str) -> Option<String> {
         read(HKEY_LOCAL_MACHINE, value).or_else(|| read(HKEY_CURRENT_USER, value))
     }

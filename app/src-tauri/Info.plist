@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>CTXRemote nutzt das Mikrofon, wenn Sie in einer Sitzung mit der Gegenseite sprechen.</string>
+  <string>Remocto nutzt das Mikrofon, wenn Sie in einer Sitzung mit der Gegenseite sprechen.</string>
 </dict>
 </plist>

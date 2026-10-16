@@ -99,7 +99,7 @@ mod imp {
     const MAXIMUM_ALLOWED: u32 = 0x0200_0000;
 
     pub async fn open(exe: PathBuf, options: ScreenOptions) -> Result<ScreenChannels> {
-        let name = format!(r"\\.\pipe\ctxremote-agent-{:016x}", rand::random::<u64>());
+        let name = format!(r"\\.\pipe\remocto-agent-{:016x}", rand::random::<u64>());
         let server = create_pipe(&name)?;
         let (process, pid) = spawn_agent(&exe, &name, options)?;
 

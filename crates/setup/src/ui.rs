@@ -116,7 +116,7 @@ impl View {
         match &self.phase {
             Phase::Ready => match &self.existing {
                 Existing::None => (
-                    "CTXRemote installieren".into(),
+                    "Remocto installieren".into(),
                     "Fernzugriff auf eigene Geräte. Die Installation richtet die App und den Hintergrunddienst ein, \
                      Windows fragt dafür nach Administratorrechten."
                         .into(),
@@ -124,7 +124,7 @@ impl View {
                     None,
                 ),
                 Existing::Older(old) => (
-                    "CTXRemote aktualisieren".into(),
+                    "Remocto aktualisieren".into(),
                     format!(
                         "Auf diesem Gerät ist Version {old} installiert. Die Aktualisierung auf {v} behält alle \
                          Einstellungen und Geräte."
@@ -133,35 +133,35 @@ impl View {
                     None,
                 ),
                 Existing::Same => (
-                    "CTXRemote ist installiert".into(),
+                    "Remocto ist installiert".into(),
                     format!(
                         "Version {v} ist bereits auf diesem Gerät. Eine erneute Installation repariert sie und \
                          behält alle Einstellungen."
                     ),
                     Some(("Erneut installieren", Action::Install)),
-                    Some("CTXRemote starten"),
+                    Some("Remocto starten"),
                 ),
                 Existing::Newer(newer) => (
-                    "CTXRemote ist aktuell".into(),
+                    "Remocto ist aktuell".into(),
                     format!("Auf diesem Gerät ist bereits die neuere Version {newer} installiert."),
-                    Some(("CTXRemote starten", Action::Launch)),
+                    Some(("Remocto starten", Action::Launch)),
                     Some("Schließen"),
                 ),
             },
             Phase::Installing { .. } => (
                 "Wird installiert …".into(),
-                "Das dauert meist weniger als eine Minute. Danach finden Sie CTXRemote im Startmenü und auf dem \
+                "Das dauert meist weniger als eine Minute. Danach finden Sie Remocto im Startmenü und auf dem \
                  Desktop."
                     .into(),
                 None,
                 None,
             ),
             Phase::Done => (
-                "CTXRemote ist bereit".into(),
-                "Die App und der Hintergrunddienst sind eingerichtet. Sie finden CTXRemote im Startmenü und auf dem \
+                "Remocto ist bereit".into(),
+                "Die App und der Hintergrunddienst sind eingerichtet. Sie finden Remocto im Startmenü und auf dem \
                  Desktop."
                     .into(),
-                Some(("CTXRemote starten", Action::Launch)),
+                Some(("Remocto starten", Action::Launch)),
                 Some("Schließen"),
             ),
             Phase::Failed(why) => (

@@ -1,4 +1,4 @@
-# CTXRemote
+# Remocto
 
 Selbst gehosteter Fernzugriff für eigene Geräte, eine Alternative zu RustDesk, TeamViewer & Co.
 
@@ -51,14 +51,14 @@ npm run tauri dev
 npm run tauri build   # NSIS-Installer inkl. Windows-Dienst (braucht Adminrechte bei der Installation)
 ```
 
-### Schnellhilfe („CTXRemote Hilfe“)
+### Schnellhilfe („Remocto Hilfe“)
 
 Portable EXE ohne Installation, Einstellungen und Tray, mit der sich ein PC einmalig fernsteuern lässt. Die Serveradresse wird beim Bauen eingebaut:
 
 ```powershell
 cd app
 $env:CTXREMOTE_QUICK_SERVER = "remote.example.org:21300"; npm run build:quick
-# Ergebnis: target\release\CTXRemote-Hilfe.exe
+# Ergebnis: target\release\Remocto-Hilfe.exe
 ```
 
 Eingehende Verbindungen müssen dort immer per „Zulassen“ bestätigt werden; beim Schließen des Fensters endet die App samt Sitzung.
@@ -84,7 +84,7 @@ docker run --rm -v "${PWD}:/src" -v ctxremote-target:/target -e CARGO_TARGET_DIR
 
 ### Hinweis: Smart App Control / Code-Signatur
 
-Ist unter Windows 11 Smart App Control aktiv, blockiert es frisch kompilierte, unsignierte Programme (os error 4551). Für die Weitergabe braucht CTXRemote deshalb eine Code-Signatur, zum Beispiel über Microsoft Trusted Signing.
+Ist unter Windows 11 Smart App Control aktiv, blockiert es frisch kompilierte, unsignierte Programme (os error 4551). Für die Weitergabe braucht Remocto deshalb eine Code-Signatur, zum Beispiel über Microsoft Trusted Signing.
 
 Zum lokalen Testen zweier Instanzen auf einem PC: `CTXREMOTE_CONFIG=C:pfadzweite.json` setzen.
 

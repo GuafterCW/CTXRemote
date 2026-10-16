@@ -1,7 +1,7 @@
-//! CTXRemote-Setup.exe: a small window in the app's design that runs the
+//! Remocto-Setup.exe: a small window in the app's design that runs the
 //! embedded NSIS installer silently and elevated, shows the progress and
 //! offers to start the app. Automatic updates keep using the NSIS installer
-//! directly (they run silently anyway). `CTXRemote-Setup.exe /S` installs
+//! directly (they run silently anyway). `Remocto-Setup.exe /S` installs
 //! without a window, for administrators.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -144,7 +144,7 @@ impl ApplicationHandler<Event> for App {
             return;
         }
         let attributes = Window::default_attributes()
-            .with_title("CTXRemote Setup")
+            .with_title("Remocto Setup")
             .with_inner_size(LogicalSize::new(ui::WIDTH, ui::HEIGHT))
             .with_resizable(false)
             .with_decorations(false)

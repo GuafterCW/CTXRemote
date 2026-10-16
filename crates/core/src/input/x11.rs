@@ -8,7 +8,7 @@
 //! or click it, the viewer's mouse waits. XInput 2 raw events name the device
 //! they came from; XTest's own devices are the viewer's (or another program's).
 //!
-//! In attended sessions the viewer's presses on CTXRemote's own windows are
+//! In attended sessions the viewer's presses on Remocto's own windows are
 //! dropped (see [`super::local::OwnUi`]); windows are told apart by `_NET_WM_PID`.
 
 use std::collections::HashSet;
@@ -64,7 +64,7 @@ impl Injector {
         injector
     }
 
-    /// In attended sessions the viewer's input does not reach CTXRemote's own windows.
+    /// In attended sessions the viewer's input does not reach Remocto's own windows.
     pub fn protect_own_ui(&mut self, on: bool) {
         self.own_ui.on = on;
     }
@@ -325,11 +325,14 @@ fn pid_in_front(screen: &Screen) -> Option<u32> {
     None
 }
 
-/// This process, or another CTXRemote program (app, quick helper).
+/// This process, or another Remocto program (app, quick helper).
 fn own_process(pid: u32) -> bool {
     pid == std::process::id()
         || std::fs::read_to_string(format!("/proc/{pid}/comm"))
-            .is_ok_and(|name| name.trim().to_lowercase().starts_with("ctxremote"))
+            .is_ok_and(|name| {
+                let name = name.trim().to_lowercase();
+                name.starts_with("remocto") || name.starts_with("ctxremote")
+            })
 }
 
 /// Starts, once per process, a thread that notes the person's own mouse input.
@@ -558,20 +561,20 @@ mod tests {
             injector.apply(&InputEvent::Key { code: "KeyA".into(), down: false });
         };
 
-        // Unprotected (own device, fixed password): CTXRemote's window works.
+        // Unprotected (own device, fixed password): Remocto's window works.
         click(&mut injector, 150);
         assert_eq!(pressed(&screen), vec![("click", own)]);
 
         injector.protect_own_ui(true);
         click(&mut injector, 150);
-        assert_eq!(pressed(&screen), vec![], "a click reached CTXRemote's window");
+        assert_eq!(pressed(&screen), vec![], "a click reached Remocto's window");
         assert!(injector.input_paused(), "no faded pointer after the swallowed click");
         click(&mut injector, 450);
         assert_eq!(pressed(&screen), vec![("click", other)], "a click elsewhere was lost");
 
         activate(&screen, own);
         key(&mut injector);
-        assert_eq!(pressed(&screen), vec![], "a key reached CTXRemote's window");
+        assert_eq!(pressed(&screen), vec![], "a key reached Remocto's window");
         activate(&screen, other);
         key(&mut injector);
         assert_eq!(pressed(&screen), vec![("key", other)], "a key elsewhere was lost");

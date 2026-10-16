@@ -24,7 +24,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const WELCOME_TIMEOUT: Duration = Duration::from_secs(90);
 /// How long the viewer waits for its direct connection once the host switched.
 const SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
-const OUTDATED: &str = "Das ferngesteuerte Gerät braucht dafür eine neuere CTXRemote-Version";
+const OUTDATED: &str = "Das ferngesteuerte Gerät braucht dafür eine neuere Remocto-Version";
 
 /// Hands the first confirmed direct connection to the session; later ones are dropped.
 #[derive(Clone)]

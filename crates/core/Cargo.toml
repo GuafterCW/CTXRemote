@@ -1,6 +1,6 @@
 [package]
 name = "ctxremote-core"
-description = "Host and viewer engine of CTXRemote: capture, encoding, input, sessions"
+description = "Host and viewer engine of Remocto: capture, encoding, input, sessions"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

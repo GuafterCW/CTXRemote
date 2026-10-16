@@ -1,4 +1,4 @@
-//! Engine behind the CTXRemote app: hosting sessions and viewing remote screens.
+//! Engine behind the Remocto app: hosting sessions and viewing remote screens.
 
 pub mod agent;
 pub mod annotate;

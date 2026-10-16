@@ -96,7 +96,7 @@ pub async fn check_with(server: &str, platform: &str, current: &str, key: &[u8; 
 /// size and hash. Returns the installer's path.
 pub async fn download(server: &str, info: &UpdateInfo, dir: &Path) -> Result<PathBuf> {
     tokio::fs::create_dir_all(dir).await?;
-    let path = dir.join(format!("CTXRemote-{}-setup.exe", info.version));
+    let path = dir.join(format!("Remocto-{}-setup.exe", info.version));
     let partial = path.with_extension("part");
     let result = fetch(server, info, &partial).await;
     if let Err(e) = result {
@@ -197,8 +197,8 @@ mod imp {
 
     use super::*;
 
-    /// Must match the name `ctxremote-service` registers.
-    const SERVICE_NAME: &str = "CTXRemote";
+    /// Must match the name `remocto-service` registers.
+    const SERVICE_NAME: &str = "Remocto";
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;

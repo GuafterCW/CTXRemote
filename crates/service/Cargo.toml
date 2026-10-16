@@ -1,9 +1,14 @@
 [package]
 name = "ctxremote-service"
-description = "Windows service that runs the CTXRemote host with a machine-wide configuration"
+description = "Windows service that runs the Remocto host with a machine-wide configuration"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+# Installed as remocto-service.exe (the package keeps its old name).
+[[bin]]
+name = "remocto-service"
+path = "src/main.rs"
 
 [dependencies]
 ctxremote-core.workspace = true

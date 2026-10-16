@@ -1,4 +1,4 @@
-// Builds ctxremote-service and copies it where Tauri expects the sidecar (Windows only).
+// Builds remocto-service (package ctxremote-service) and copies it where Tauri expects the sidecar (Windows only).
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -19,6 +19,6 @@ execFileSync("cargo", ["build", "--release", "--locked", "-p", "ctxremote-servic
 
 const outDir = join(root, "app", "src-tauri", "binaries");
 mkdirSync(outDir, { recursive: true });
-const dest = join(outDir, `ctxremote-service-${host}.exe`);
-copyFileSync(join(targetDir, "release", "ctxremote-service.exe"), dest);
+const dest = join(outDir, `remocto-service-${host}.exe`);
+copyFileSync(join(targetDir, "release", "remocto-service.exe"), dest);
 console.log(`Dienst bereitgestellt: ${dest}`);

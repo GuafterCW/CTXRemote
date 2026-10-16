@@ -1,4 +1,4 @@
-//! "CTXRemote Hilfe": the portable one-shot build. Config is throwaway and every
+//! "Remocto Hilfe": the portable one-shot build. Config is throwaway and every
 //! incoming connection has to be confirmed by the user.
 
 use std::collections::HashMap;

@@ -1,6 +1,6 @@
 {
-  "productName": "CTXRemote Hilfe",
-  "mainBinaryName": "CTXRemote-Hilfe",
+  "productName": "Remocto Hilfe",
+  "mainBinaryName": "Remocto-Hilfe",
   "identifier": "info.philipp-dev.ctxremote.hilfe",
   "build": {
     "beforeBuildCommand": "npm run build"
@@ -12,7 +12,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "CTXRemote Hilfe",
+        "title": "Remocto Hilfe",
         "url": "index.html#/quick",
         "width": 440,
         "height": 560,

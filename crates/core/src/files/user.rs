@@ -44,7 +44,7 @@ fn standard_places() -> Vec<(String, PathBuf)> {
 
 #[cfg(target_os = "android")]
 fn android_downloads() -> PathBuf {
-    std::path::Path::new(crate::record::ANDROID_STORAGE).join("Download").join("CTXRemote")
+    std::path::Path::new(crate::record::ANDROID_STORAGE).join("Download").join("Remocto")
 }
 
 #[cfg(not(windows))]
@@ -84,7 +84,7 @@ mod imp {
 }
 
 /// Below the user's temp folder.
-const PASTE_FOLDER: &str = "CTXRemote-Einfuegen";
+const PASTE_FOLDER: &str = "Remocto-Einfuegen";
 
 #[cfg(windows)]
 mod imp {

@@ -81,11 +81,14 @@ pub fn open(token: &str, from: DeviceId, sealed: &[u8]) -> Option<HelpOffer> {
 }
 
 /// The inviting device and token from a quick helper's file name, as the
-/// download page names it: `CTXRemote-Hilfe-<ID>-<token>.exe`. Browsers may
-/// add " (1)" and the like; everything after the token is ignored.
+/// download page names it: `Remocto-Hilfe-<ID>-<token>.exe` (or, from links
+/// made before the rename, `CTXRemote-Hilfe-…`). Browsers may add " (1)" and
+/// the like; everything after the token is ignored.
 pub fn from_file_name(name: &str) -> Option<(DeviceId, String)> {
     let lower = name.to_ascii_lowercase();
-    let rest = &lower[lower.find("ctxremote-hilfe-")? + "ctxremote-hilfe-".len()..];
+    let rest = ["remocto-hilfe-", "ctxremote-hilfe-"]
+        .iter()
+        .find_map(|prefix| lower.find(prefix).map(|at| &lower[at + prefix.len()..]))?;
     let (id, rest) = rest.split_at_checked(9)?;
     let id: DeviceId = id.parse().ok()?;
     let token = rest.strip_prefix('-')?.get(..TOKEN_LEN)?;
@@ -121,9 +124,10 @@ mod tests {
         let token = "abcdefghijkmnpqrst234";
         let token = &token[..TOKEN_LEN];
         let id = DeviceId::new(482_913_077).unwrap();
-        assert_eq!(from_file_name(&format!("CTXRemote-Hilfe-482913077-{token}.exe")), Some((id, token.to_string())));
-        assert_eq!(from_file_name(&format!("C:\\Users\\a\\Downloads\\CTXRemote-Hilfe-482913077-{token} (1).exe")), Some((id, token.to_string())));
-        assert_eq!(from_file_name("CTXRemote-Hilfe.exe"), None);
+        assert_eq!(from_file_name(&format!("Remocto-Hilfe-482913077-{token}.exe")), Some((id, token.to_string())));
+        assert_eq!(from_file_name(&format!("CTXRemote-Hilfe-482913077-{token}.exe")), Some((id, token.to_string())), "older links");
+        assert_eq!(from_file_name(&format!("C:\\Users\\a\\Downloads\\Remocto-Hilfe-482913077-{token} (1).exe")), Some((id, token.to_string())));
+        assert_eq!(from_file_name("Remocto-Hilfe.exe"), None);
         assert_eq!(from_file_name("CTXRemote-Hilfe-482913077-short.exe"), None);
         assert_eq!(from_file_name(&format!("CTXRemote-Hilfe-012345678-{token}.exe")), None, "not a valid ID");
     }

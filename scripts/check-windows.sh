@@ -26,7 +26,7 @@ chmod +x "$fake/cl.exe" "$fake/lib.exe"
 rustup target add x86_64-pc-windows-msvc >/dev/null
 # Tauri expects the service sidecar to exist; an empty file satisfies the check.
 mkdir -p "$root/app/src-tauri/binaries"
-sidecar="$root/app/src-tauri/binaries/ctxremote-service-x86_64-pc-windows-msvc.exe"
+sidecar="$root/app/src-tauri/binaries/remocto-service-x86_64-pc-windows-msvc.exe"
 [ -e "$sidecar" ] || touch "$sidecar"
 # The app embeds the frontend.
 [ -d "$root/app/dist" ] || (cd "$root/app" && npm ci && npm run build)
@@ -46,10 +46,10 @@ if command -v makensis >/dev/null; then
   cat > "$nsis_dir/check.nsi" <<NSI
 Unicode true
 !include "LogicLib.nsh"
-!define MAINBINARYNAME "ctxremote"
+!define MAINBINARYNAME "Remocto"
 !include "$root/app/src-tauri/installer.nsh"
 OutFile "$nsis_dir/check.exe"
-InstallDir "\$TEMP\\ctxremote-check"
+InstallDir "\$TEMP\\remocto-check"
 Section Install
   !insertmacro NSIS_HOOK_PREINSTALL
   !insertmacro NSIS_HOOK_POSTINSTALL

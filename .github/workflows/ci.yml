@@ -73,7 +73,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: CTXRemote-macOS
+          name: Remocto-macOS
           path: target/release/bundle/dmg/*.dmg
           retention-days: 14
 
@@ -149,20 +149,20 @@ jobs:
             echo "::warning::Kein ANDROID_KEYSTORE-Secret: APK mit Wegwerf-Schlüssel signiert"
             pass=$(openssl rand -hex 16)
             keytool -genkeypair -keystore release.jks -storepass "$pass" -alias ctxremote \
-              -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=CTXRemote"
+              -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Remocto"
           fi
           unsigned=$(find app/src-tauri/gen/android -name '*release*.apk' | head -1)
           echo "APK: $unsigned"
           mkdir out
           "$tools/zipalign" -p -f 4 "$unsigned" aligned.apk
-          "$tools/apksigner" sign --ks release.jks --ks-pass "pass:$pass" --out out/CTXRemote.apk aligned.apk
-          "$tools/apksigner" verify out/CTXRemote.apk
+          "$tools/apksigner" sign --ks release.jks --ks-pass "pass:$pass" --out out/Remocto.apk aligned.apk
+          "$tools/apksigner" verify out/Remocto.apk
           rm -f release.jks
           ls -la out
       - uses: actions/upload-artifact@v4
         with:
-          name: CTXRemote-Android
-          path: out/CTXRemote.apk
+          name: Remocto-Android
+          path: out/Remocto.apk
           retention-days: 14
 
   # The web interface (website/konto): types, build, and the check that the

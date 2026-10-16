@@ -141,11 +141,8 @@
 <div class="shell">
   <header>
     <div class="brand">
-      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-        <rect x="1.5" y="3.5" width="13" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-        <rect x="6.5" y="7.5" width="12" height="9" rx="2" fill="var(--accent)" />
-      </svg>
-      <span>CTXRemote Hilfe</span>
+      <svg width="20" height="20" viewBox="250 220 640 640" aria-hidden="true"><path d="M330 760 V430 Q330 300 470 300" fill="none" stroke="currentColor" stroke-width="130" stroke-linecap="round"/><path d="M560 300 L560 700 L652 610 L716 748 L788 716 L724 580 L852 580 Z" fill="var(--accent)" stroke="var(--accent)" stroke-width="28" stroke-linejoin="round"/></svg>
+      <span>Remocto Hilfe</span>
     </div>
   </header>
 
@@ -158,7 +155,7 @@
         </p>
         <ProfileCard profile={request.profile} peer={request.peer} />
         <p class="hint">
-          Diese Angaben macht die Person selbst, CTXRemote prüft sie nicht. Lassen Sie nur Personen zu, die
+          Diese Angaben macht die Person selbst, Remocto prüft sie nicht. Lassen Sie nur Personen zu, die
           Sie selbst um Hilfe gebeten haben.
         </p>
       {:else}

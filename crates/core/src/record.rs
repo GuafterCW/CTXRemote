@@ -163,13 +163,13 @@ pub(crate) const ANDROID_STORAGE: &str = "/storage/emulated/0";
 /// Where recordings go by default: the user's video folder.
 #[cfg(target_os = "android")]
 pub fn default_dir() -> PathBuf {
-    Path::new(ANDROID_STORAGE).join("Movies").join("CTXRemote")
+    Path::new(ANDROID_STORAGE).join("Movies").join("Remocto")
 }
 
 /// Where screenshots of sessions go.
 #[cfg(target_os = "android")]
 pub fn pictures_dir() -> PathBuf {
-    Path::new(ANDROID_STORAGE).join("Pictures").join("CTXRemote")
+    Path::new(ANDROID_STORAGE).join("Pictures").join("Remocto")
 }
 
 /// Where recordings go by default: the user's video folder.
@@ -178,7 +178,7 @@ pub fn default_dir() -> PathBuf {
     directories::UserDirs::new()
         .and_then(|d| d.video_dir().map(Path::to_path_buf).or_else(|| Some(d.home_dir().join("Videos"))))
         .unwrap_or_else(std::env::temp_dir)
-        .join("CTXRemote")
+        .join("Remocto")
 }
 
 /// Where screenshots of sessions go.
@@ -187,7 +187,7 @@ pub fn pictures_dir() -> PathBuf {
     directories::UserDirs::new()
         .and_then(|d| d.picture_dir().map(Path::to_path_buf).or_else(|| Some(d.home_dir().join("Pictures"))))
         .unwrap_or_else(std::env::temp_dir)
-        .join("CTXRemote")
+        .join("Remocto")
 }
 
 /// A file name part made from a device's name.
@@ -317,7 +317,7 @@ fn moov(width: u32, height: u32, sps: &[u8], pps: &[u8], audio: bool) -> Vec<u8>
     let mut hdlr = vec![0; 4];
     hdlr.extend_from_slice(b"vide");
     hdlr.extend_from_slice(&[0; 12]);
-    hdlr.extend_from_slice(b"CTXRemote\0");
+    hdlr.extend_from_slice(b"Remocto\0");
 
     let mut avcc = vec![1, sps[1], sps[2], sps[3], 0xff, 0xe1];
     avcc.extend_from_slice(&(sps.len() as u16).to_be_bytes());
@@ -401,7 +401,7 @@ fn audio_trak() -> Vec<u8> {
     let mut hdlr = vec![0; 4];
     hdlr.extend_from_slice(b"soun");
     hdlr.extend_from_slice(&[0; 12]);
-    hdlr.extend_from_slice(b"CTXRemote\0");
+    hdlr.extend_from_slice(b"Remocto\0");
 
     // Opus in ISO BMFF: version, channels, pre-skip, input rate, gain, mapping.
     let mut dops = vec![0, 2];

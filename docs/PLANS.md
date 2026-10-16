@@ -58,7 +58,7 @@ Gewählt wurde „jeder Kunde sein eigenes Branding“. Zwei Wege:
   - Der Kunde lädt sie über seinen Link herunter, z. B. `ctxremote.ctx.ink/h/ecker-it`.
   - Der Server hängt ein kleines, signiertes Branding-Paket an die Datei an (Name, Logo, Farbe, Texte, Telefonnummer), ohne die Code-Signatur zu brechen. Windows erlaubt Daten im Signatur-Bereich am Dateiende, wie es Chrome bei Installer-Tags macht.
   - Beim Start liest die Schnellhilfe das Paket, prüft die Signatur des Servers und zeigt das Branding.
-  - Ohne gültiges Paket erscheint das normale CTXRemote-Aussehen.
+  - Ohne gültiges Paket erscheint das normale Remocto-Aussehen.
 
   Vorteile: kein Build je Kunde, eine Code-Signatur, Updates für alle gleichzeitig, und Branding-Änderungen gelten sofort.
 

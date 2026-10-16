@@ -166,7 +166,7 @@ async fn main() -> Result<()> {
         });
     }
     let listener = TcpListener::bind(listen).await?;
-    info!("CTXRemote-Server lauscht auf {listen}");
+    info!("Remocto-Server lauscht auf {listen}");
     // Without UDP, sessions still work; direct paths through NAT do not.
     match tokio::net::UdpSocket::bind(listen).await {
         Ok(socket) => {

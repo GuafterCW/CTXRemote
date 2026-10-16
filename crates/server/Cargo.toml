@@ -1,6 +1,6 @@
 [package]
 name = "ctxremote-server"
-description = "Self-hosted rendezvous and relay server for CTXRemote"
+description = "Self-hosted rendezvous and relay server for Remocto"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

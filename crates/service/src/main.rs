@@ -1,4 +1,4 @@
-//! `ctxremote-service`: the CTXRemote host as a Windows service.
+//! `ctxremote-service`: the Remocto host as a Windows service.
 
 #[cfg(windows)]
 mod win;

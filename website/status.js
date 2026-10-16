@@ -179,7 +179,7 @@
       if (!r.ok) throw new Error(r.status);
       return r.json();
     });
-    var download = fetch("/download/CTXRemote-Setup.exe", { method: "HEAD", cache: "no-store" })
+    var download = fetch("/download/Remocto-Setup.exe", { method: "HEAD", cache: "no-store" })
       .then(function (r) {
         return r.ok;
       })

@@ -1,4 +1,4 @@
-// CTXRemote website: small effects without any library. Loaded in <head>
+// Remocto website: small effects without any library. Loaded in <head>
 // (not deferred) so the "js" class is set before anything paints; the rest
 // waits for the page. Without JavaScript every element is simply visible.
 document.documentElement.classList.add("js");

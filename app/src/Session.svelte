@@ -323,7 +323,7 @@
     )}") 2 2, default`,
   );
   /** The host ignores this mouse for now: the person there uses theirs, or it
-   *  was aimed at CTXRemote's own window there (`HostMsg::InputPaused`). */
+   *  was aimed at Remocto's own window there (`HostMsg::InputPaused`). */
   let inputPaused = $state(false);
   let fullscreen = $state(false);
 
@@ -1387,7 +1387,7 @@
             <dt>{net.name}</dt>
             <dd>{net.addresses.join(", ")}<small>{net.mac}</small></dd>
           {/each}
-          <dt>CTXRemote</dt>
+          <dt>Remocto</dt>
           <dd>{info.app_version}</dd>
         </dl>
       {:else}

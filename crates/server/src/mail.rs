@@ -3,7 +3,7 @@
 //! Configured through the environment (see `docs/DEPLOY.md`, "Mails"):
 //! `CTXREMOTE_SMTP_URL` (e.g. `smtps://user:password@smtp.example.org:465`
 //! or `smtp://user:password@smtp.example.org:587?tls=required`),
-//! `CTXREMOTE_MAIL_FROM` (e.g. `CTXRemote <noreply@ctx.ink>`) and
+//! `CTXREMOTE_MAIL_FROM` (e.g. `Remocto <noreply@ctx.ink>`) and
 //! `CTXREMOTE_SITE_URL` for links (default `https://ctxremote.ctx.ink`).
 //! Without them mails are only logged. Mails never contain anything secret
 //! besides the one-time confirmation link.
@@ -41,7 +41,7 @@ impl Mail {
     /// Subject and plain-text body.
     fn render(&self, site: &str) -> (String, String) {
         let footer = format!(
-            "\n\nViele Grüße\nIhr CTXRemote\n\n{site}\nDiese Nachricht wurde automatisch verschickt."
+            "\n\nViele Grüße\nIhr Remocto-Team\n\n{site}\nDiese Nachricht wurde automatisch verschickt."
         );
         let unexpected = "Waren Sie das nicht? Dann ändern Sie bitte sofort Ihr Passwort im Konto und entfernen \
                           unbekannte Geräte.";
@@ -49,7 +49,7 @@ impl Mail {
             Mail::Verify { token, .. } => (
                 "Bitte bestätigen Sie Ihre E-Mail-Adresse".into(),
                 format!(
-                    "Hallo,\n\nbitte bestätigen Sie Ihre E-Mail-Adresse für Ihr CTXRemote-Konto:\n\n\
+                    "Hallo,\n\nbitte bestätigen Sie Ihre E-Mail-Adresse für Ihr Remocto-Konto:\n\n\
                      {site}/konto/#bestaetigen={token}\n\nDer Link gilt 48 Stunden. Wenn Sie kein Konto angelegt \
                      haben, können Sie diese Nachricht ignorieren.{footer}"
                 ),
@@ -57,25 +57,25 @@ impl Mail {
             Mail::AddressChanged { new, .. } => (
                 "Ihre E-Mail-Adresse wurde geändert".into(),
                 format!(
-                    "Hallo,\n\ndie E-Mail-Adresse Ihres CTXRemote-Kontos wurde auf {new} geändert. Diese Adresse \
+                    "Hallo,\n\ndie E-Mail-Adresse Ihres Remocto-Kontos wurde auf {new} geändert. Diese Adresse \
                      erhält ab jetzt keine Nachrichten mehr zum Konto.\n\n{unexpected}{footer}"
                 ),
             ),
             Mail::PasswordChanged { .. } => (
                 "Ihr Passwort wurde geändert".into(),
                 format!(
-                    "Hallo,\n\ndas Passwort Ihres CTXRemote-Kontos wurde gerade geändert. Dabei ist auch ein neuer \
+                    "Hallo,\n\ndas Passwort Ihres Remocto-Kontos wurde gerade geändert. Dabei ist auch ein neuer \
                      Wiederherstellungscode entstanden, der alte gilt nicht mehr.\n\n{unexpected}{footer}"
                 ),
             ),
             Mail::NewSignIn { how, .. } => (
                 "Neue Anmeldung bei Ihrem Konto".into(),
-                format!("Hallo,\n\nsoeben hat sich {how} bei Ihrem CTXRemote-Konto angemeldet.\n\n{unexpected}{footer}"),
+                format!("Hallo,\n\nsoeben hat sich {how} bei Ihrem Remocto-Konto angemeldet.\n\n{unexpected}{footer}"),
             ),
             Mail::AccountDeleted { .. } => (
                 "Ihr Konto wurde gelöscht".into(),
                 format!(
-                    "Hallo,\n\nIhr CTXRemote-Konto wurde soeben gelöscht, mit Anmeldung, Geräten und Geräteliste. Ihre \
+                    "Hallo,\n\nIhr Remocto-Konto wurde soeben gelöscht, mit Anmeldung, Geräten und Geräteliste. Ihre \
                      Geräte arbeiten ohne Konto weiter.\n\nWaren Sie das nicht? Dann melden Sie sich bitte bei uns.{footer}"
                 ),
             ),
@@ -83,7 +83,7 @@ impl Mail {
                 "Ihr Wiederherstellungscode wurde verwendet".into(),
                 format!(
                     "Hallo,\n\nmit Ihrem Wiederherstellungscode wurde gerade ein neues Passwort für Ihr \
-                     CTXRemote-Konto gesetzt. Der Code gilt jetzt nicht mehr.\n\n{unexpected}{footer}"
+                     Remocto-Konto gesetzt. Der Code gilt jetzt nicht mehr.\n\n{unexpected}{footer}"
                 ),
             ),
         }
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn mails_declare_their_encoding() {
-        let from = "CTXRemote <noreply@example.org>".parse().unwrap();
+        let from = "Remocto <noreply@example.org>".parse().unwrap();
         let to = "a@b.de".parse().unwrap();
         let mail = build(from, to, "Grüße".into(), "bestätigen".into()).unwrap();
         let text = String::from_utf8(mail.formatted()).unwrap();

@@ -542,7 +542,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     if let (true, Some(secret)) = (permanent_slot, code_secret) {
         let refused = |reason: &str| reason.to_string();
         let problem = if !features.has(Features::CODE) {
-            Some(refused("Dieses Gerät verlangt einen Bestätigungscode. Bitte CTXRemote aktualisieren."))
+            Some(refused("Dieses Gerät verlangt einen Bestätigungscode. Bitte Remocto aktualisieren."))
         } else {
             tx.send(&HostMsg::CodeRequired).await?;
             match timeout(CODE_TIMEOUT, rx.recv::<ViewerMsg>()).await {
@@ -711,7 +711,7 @@ pub type ScreenChannels = (mpsc::Sender<ViewerMsg>, mpsc::Receiver<HostMsg>);
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ScreenOptions {
     /// An attended session (one-time password, quick helper): the viewer may
-    /// not operate CTXRemote's own windows, so they cannot raise their own
+    /// not operate Remocto's own windows, so they cannot raise their own
     /// rights. On their own devices (fixed password, account) they may.
     pub protect_own_ui: bool,
 }

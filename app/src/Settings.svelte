@@ -248,7 +248,7 @@
   <div class="body">
     {#if service}
       <p class="note">
-        Diese Einstellungen gelten für den CTXRemote-Dienst dieses Geräts. Zum Speichern sind
+        Diese Einstellungen gelten für den Remocto-Dienst dieses Geräts. Zum Speichern sind
         Administratorrechte nötig.
       </p>
     {/if}
@@ -256,7 +256,7 @@
     <label class="group">
       <span class="name">Server</span>
       <input class="field" bind:value={server} spellcheck="false" placeholder="server.example.de:21300" />
-      <span class="note">Adresse Ihres CTXRemote-Servers. Ohne Port wird 21300 verwendet.</span>
+      <span class="note">Adresse Ihres Remocto-Servers. Ohne Port wird 21300 verwendet.</span>
     </label>
 
     <div class="group">
@@ -496,7 +496,7 @@
   </div>
 
   <footer>
-    <span class="version">CTXRemote {version}</span>
+    <span class="version">Remocto {version}</span>
     <button type="button" class="btn btn-quiet" onclick={onclose}>Abbrechen</button>
     <button class="btn btn-primary" disabled={saving || needsPassword}>Speichern</button>
   </footer>

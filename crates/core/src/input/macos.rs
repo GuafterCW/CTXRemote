@@ -8,7 +8,7 @@
 //! click it, the viewer's mouse waits. A listening event tap sees all mouse
 //! events; the viewer's carry [`TAG`] in their user data.
 //!
-//! In attended sessions the viewer's presses on CTXRemote's own windows are
+//! In attended sessions the viewer's presses on Remocto's own windows are
 //! dropped (see [`super::local::OwnUi`]); the window list names each window's owner.
 
 use std::collections::HashSet;
@@ -112,7 +112,7 @@ impl Injector {
         injector
     }
 
-    /// In attended sessions the viewer's input does not reach CTXRemote's own windows.
+    /// In attended sessions the viewer's input does not reach Remocto's own windows.
     pub fn protect_own_ui(&mut self, on: bool) {
         self.own_ui.on = on;
     }
@@ -311,9 +311,12 @@ struct Window {
 }
 
 impl Window {
-    /// This process, or another CTXRemote program (app, quick helper).
+    /// This process, or another Remocto program (app, quick helper).
     fn own(&self) -> bool {
-        self.pid == std::process::id() as i64 || self.owner.to_lowercase().starts_with("ctxremote")
+        self.pid == std::process::id() as i64 || {
+            let owner = self.owner.to_lowercase();
+            owner.starts_with("remocto") || owner.starts_with("ctxremote")
+        }
     }
 }
 

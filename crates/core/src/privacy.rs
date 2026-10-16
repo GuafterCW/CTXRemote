@@ -429,7 +429,7 @@ mod imp {
 
     unsafe fn create_window() -> Result<HWND> {
         let instance = GetModuleHandleW(None).context("Modul unbekannt")?;
-        let class = w!("CTXRemotePrivacy");
+        let class = w!("RemoctoPrivacy");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(window_proc),
             hInstance: instance.into(),
@@ -444,7 +444,7 @@ mod imp {
         let window = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
             class,
-            w!("CTXRemote"),
+            w!("Remocto"),
             WS_POPUP,
             0,
             0,

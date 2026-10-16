@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="CTXRemote.Setup" version="1.0.0.0"/>
+  <assemblyIdentity type="win32" name="Remocto.Setup" version="1.0.0.0"/>
   <!-- The window runs as the user; only the installer asks for administrator rights. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>

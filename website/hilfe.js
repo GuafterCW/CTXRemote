@@ -8,7 +8,7 @@
     var id = match[1];
     document.getElementById("helper-id").textContent = id.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3");
     document.getElementById("helper").hidden = false;
-    get.setAttribute("download", "CTXRemote-Hilfe-" + id + "-" + match[2] + ".exe");
+    get.setAttribute("download", "Remocto-Hilfe-" + id + "-" + match[2] + ".exe");
   } else {
     document.getElementById("broken").hidden = false;
   }
