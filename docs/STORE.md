@@ -144,3 +144,68 @@ Das Partner Center fragt je Fähigkeit einzeln (Englisch, für die Prüfer):
 **allowElevation**
 
 > Security-relevant settings of the service (the fixed password for unattended access, the server address, and which devices of the user's account may connect without a password) may only be changed by an administrator. When the user changes them in the app, the app starts remocto-service.exe from the package with a UAC prompt (ShellExecute "runas"). The elevated process writes the settings to the service's protected configuration and exits. Nothing else runs elevated.
+
+# Google Play
+
+Grafiken in `docs/store/android/` (neu: `node docs/store/play.cjs app/app-icon.svg docs/store/android`):
+
+| Feld in der Play Console | Datei |
+|---|---|
+| App-Symbol 512×512 | `icon-512.png` |
+| Vorstellungsgrafik 1024×500 | `feature-1024x500.png` |
+| Screenshots Smartphone | `1-start.png` … `5-dateien.png` (Bildunterschriften oben) |
+
+## App-Name (max. 30 Zeichen)
+
+Remocto – Fernwartung
+
+## Kurzbeschreibung (max. 80 Zeichen)
+
+Den PC vom Handy aus steuern. Ende-zu-Ende verschlüsselt, ohne Konto nutzbar.
+
+## Vollständige Beschreibung (max. 4000 Zeichen)
+
+Mit Remocto steuern Sie Ihren Windows-PC, Mac oder Linux-Rechner vom Handy aus: Sie sehen den Bildschirm, klicken per Tippen, tippen Text über die Tastatur und übertragen Dateien. Ideal, um unterwegs schnell etwas am eigenen PC zu erledigen oder Familie und Freunden bei Computerproblemen zu helfen.
+
+So einfach geht es
+Auf dem Computer läuft Remocto (kostenlos unter remocto.com). Er zeigt eine neunstellige ID und ein Einmal-Passwort. Diese geben Sie in der App ein, Ihr Gegenüber bestätigt mit „Zulassen“, und Sie sind verbunden. Ein Konto ist nicht nötig.
+
+Für den Touchscreen gemacht
+• Tippen ist ein Klick, langes Drücken ein Rechtsklick
+• Mit zwei Fingern scrollen, zoomen und verschieben
+• Tastatur mit Strg, Alt, Esc, Tab und Pfeiltasten
+• Mehrere Bildschirme und wählbare Bildqualität
+
+Sicher
+Jede Sitzung ist Ende-zu-Ende verschlüsselt (SPAKE2, ChaCha20-Poly1305). Unser Server vermittelt nur die Verbindung und sieht ausschließlich verschlüsselte Daten. Wo möglich, gehen die Daten direkt zwischen den Geräten. Die Person am Computer bestimmt, was Sie dürfen, und kann jede Sitzung mit einem Klick beenden.
+
+Auch ohne jemanden davor
+Mit einem festen Passwort (auf Wunsch mit Zwei-Faktor-Code) erreichen Sie Ihre eigenen Windows-PCs auch am Anmelde- und Sperrbildschirm.
+
+Weitere Funktionen
+• Dateien zwischen Handy und PC übertragen
+• Chat in der Sitzung
+• Geräteliste, auf Wunsch über ein Konto mit allen Ihren Geräten abgeglichen
+• Eigener Alias statt der ID
+
+Hinweis: Die Android-App steuert andere Geräte. Das Handy selbst lässt sich nicht fernsteuern.
+
+Remocto ist kostenlos, ohne Abo und ohne Werbung.
+
+## Weitere Angaben
+
+- Kategorie: Tools. Tags: Fernzugriff, Remote Desktop.
+- Kontakt-E-Mail: die Adresse aus dem Impressum; Website `https://remocto.com`; Datenschutzerklärung `https://remocto.com/datenschutz.html`.
+- Werbung: Nein. In-App-Käufe: Nein.
+- Zielgruppe: ab 18 (keine Kinder-App, vermeidet die Familien-Richtlinien).
+- Altersfreigabe (IARC): Kategorie „Dienstprogramm, Produktivität, Kommunikation“; Nutzer können miteinander kommunizieren (Chat) und Inhalte teilen: Ja. Sonst überall Nein.
+- App-Zugriff: „Für alle oder einige Funktionen ist ein Zugriff erforderlich“. Die Prüfer brauchen einen Rechner, mit dem sie sich verbinden können: ID und festes Passwort eines Demo-Rechners eintragen (läuft dauerhaft, ohne persönliche Daten, Rechte nur „Bildschirm sehen“ und „Maus und Tastatur“).
+
+## Datensicherheit
+
+- Werden Daten erhoben oder weitergegeben? Erhoben: Ja. Weitergegeben an Dritte: Nein.
+- Verschlüsselung bei der Übertragung: Ja. Löschung anfordern: Ja (Konto löschen im Webinterface, `https://remocto.com/datenschutz.html`).
+- Erhobene Daten:
+  - Persönliche Daten → E-Mail-Adresse: optional (nur mit Konto), Zweck „Kontoverwaltung“.
+  - Geräte- oder andere IDs: erforderlich (die Remocto-ID des Geräts), Zweck „App-Funktionen“.
+  - Nachrichten → Andere In-App-Nachrichten (Chat) und Dateien: werden Ende-zu-Ende verschlüsselt nur durchgeleitet, nicht gespeichert. Google zählt Ende-zu-Ende verschlüsselte Daten nicht als „erhoben“, daher hier nicht angeben.
