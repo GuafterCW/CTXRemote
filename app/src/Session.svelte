@@ -1409,7 +1409,7 @@
     </div>
   {/if}
   {#if MOBILE && streaming && closed === null}
-    <div class="phone-controls">
+    <div class="phone-controls" class:raised={keyboardOpen}>
       <button class="phone-btn" title="Leiste" onclick={() => (toolbarVisible = !toolbarVisible)}>
         <Icon name="sliders" size={18} />
       </button>
@@ -1507,6 +1507,11 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+
+  /* Above the bar of extra keys (36px keys, 6px padding, 1px border). */
+  .phone-controls.raised {
+    bottom: calc(59px + var(--safe-bottom, 0px));
   }
 
   .phone-btn {

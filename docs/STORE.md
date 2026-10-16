@@ -16,6 +16,20 @@ In `docs/store/`, 1920×1080, PNG, in dieser Reihenfolge:
 
 Die Bilder zeigen die echte Oberfläche (`app/dist`) mit Beispieldaten. Das Bild des fernen Desktops ist `docs/store/desktop.html`. Neu erzeugen: `app/dist` bauen und auf Port 8765 ausliefern (`python3 -m http.server 8765` in `app/dist`), `desktop.html` mit Playwright als `desktop.png` (1920×1080) in einen Ordner legen, dann `node docs/store/screenshots.cjs <Ordner>`.
 
+### Handy-Screenshots für Google Play
+
+In `docs/store/android/`, 1081×1922 (hochkant) bzw. 1922×1081 (quer), echte Oberfläche im Handy-Layout:
+
+| Datei | Bildunterschrift |
+|---|---|
+| `1-start.png` | Ihre Geräte auf einen Blick, Verbinden per ID oder Alias. |
+| `2-sitzung.png` | Den PC vom Handy aus steuern: Tippen ist ein Klick. |
+| `3-zoom.png` | Mit zwei Fingern zoomen und verschieben. |
+| `4-tastatur.png` | Tastatur mit Strg, Alt, Esc und Pfeiltasten. |
+| `5-dateien.png` | Dateien zwischen PC und Handy übertragen. |
+
+Neu erzeugen wie oben, dann `node docs/store/android.cjs <Ordner>`. Das Skript prüft dabei auch die Touch-Bedienung (Tippen, langes Drücken, Ziehen, Scrollen, Zoomen, Tastatur) und endet mit Fehler, wenn etwas nicht stimmt.
+
 ## Store-Logos
 
 In `docs/store/logos/`, aus `app/app-icon.svg` (neu: `node docs/store/logos.cjs app/app-icon.svg docs/store/logos`):
