@@ -9,9 +9,8 @@
 //! they came from; XTest's own devices are the viewer's (or another program's).
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Once, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::Once;
+use std::time::Duration;
 
 use ctxremote_proto::session::{InputEvent, MouseButton};
 use x11rb::connection::Connection;
@@ -33,11 +32,6 @@ const MAX_TYPED_CHARS: usize = 4096;
 const REMAP_PAUSE: Duration = Duration::from_millis(20);
 /// Keycodes borrowed at most at once for typing.
 const MAX_SPARE: usize = 32;
-/// How long the person's mouse keeps priority after its last movement.
-const LOCAL_PRIORITY: Duration = Duration::from_millis(1000);
-
-/// Milliseconds after [`epoch`] of the person's last own mouse input, 0 for none yet.
-static LOCAL_MOUSE: AtomicU64 = AtomicU64::new(0);
 
 pub struct Injector {
     screen: Option<Screen>,
@@ -71,13 +65,7 @@ impl Injector {
     }
 
     pub fn apply(&mut self, event: &InputEvent) {
-        // Releasing stays allowed, so nothing is left held down.
-        let pressing = match event {
-            InputEvent::MouseMove { .. } | InputEvent::Wheel { .. } => true,
-            InputEvent::MouseButton { down, .. } => *down,
-            _ => false,
-        };
-        if pressing && local_mouse_busy() {
+        if super::local::waits(event) {
             return;
         }
         match event {
@@ -116,7 +104,7 @@ impl Injector {
     /// Whether the viewer's mouse is being ignored right now, for the viewer
     /// to show a faded pointer.
     pub fn input_paused(&self) -> bool {
-        local_mouse_busy()
+        super::local::busy()
     }
 
     pub fn release_all(&mut self) {
@@ -262,26 +250,10 @@ impl Injector {
     }
 }
 
-fn epoch() -> Instant {
-    static EPOCH: OnceLock<Instant> = OnceLock::new();
-    *EPOCH.get_or_init(Instant::now)
-}
-
-/// The person moved or clicked their own mouse a moment ago. Not in privacy
-/// mode, which swallows their input anyway.
-fn local_mouse_busy() -> bool {
-    if crate::privacy::LOCAL_INPUT_BLOCKED.load(Ordering::Relaxed) {
-        return false;
-    }
-    let last = LOCAL_MOUSE.load(Ordering::Relaxed);
-    last != 0 && (epoch().elapsed().as_millis() as u64).saturating_sub(last) < LOCAL_PRIORITY.as_millis() as u64
-}
-
 /// Starts, once per process, a thread that notes the person's own mouse input.
 fn watch_local_mouse() {
     static START: Once = Once::new();
     START.call_once(|| {
-        epoch();
         let spawned = std::thread::Builder::new().name("ctxremote-local-mouse".into()).spawn(|| {
             if let Err(e) = local_mouse_loop() {
                 tracing::warn!("Eigene Maus am Gerät nicht erkennbar: {e:#}");
@@ -322,7 +294,7 @@ fn local_mouse_loop() -> anyhow::Result<()> {
             _ => continue,
         };
         if !injected.contains(&source) {
-            LOCAL_MOUSE.store((epoch().elapsed().as_millis() as u64).max(1), Ordering::Relaxed);
+            super::local::note();
         }
     }
 }
@@ -362,6 +334,7 @@ fn keysym_for(c: char) -> Keysym {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
 
     /// Clicks "the person's own mouse": XTest posts the press for a pointer
     /// that is not one of XTest's (Xvfb has "Xvfb mouse"), as a real mouse would.

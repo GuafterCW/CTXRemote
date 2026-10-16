@@ -3,15 +3,24 @@
 //! Needs the "Accessibility" permission (System Settings → Privacy &
 //! Security); without it macOS drops the events silently. Positions arrive
 //! in the display's pixels and are posted in points.
+//!
+//! The person at the Mac keeps the mouse, as on Windows: while they move or
+//! click it, the viewer's mouse waits. A listening event tap sees all mouse
+//! events; the viewer's carry [`TAG`] in their user data.
 
 use std::collections::HashSet;
+use std::sync::Once;
 use std::time::{Duration, Instant};
 
 use core_foundation::base::TCFType;
 use core_foundation::boolean::CFBoolean;
 use core_foundation::dictionary::CFDictionary;
 use core_foundation::string::{CFString, CFStringRef};
-use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, EventField};
+use core_foundation::runloop::CFRunLoop;
+use core_graphics::event::{
+    CGEvent, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventType,
+    CGMouseButton, CallbackResult, EventField,
+};
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
 use ctxremote_proto::session::{InputEvent, MouseButton};
@@ -33,6 +42,10 @@ extern "C" {
     static kAXTrustedCheckOptionPrompt: CFStringRef;
     fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> bool;
 }
+
+/// Marks the events this module posts (`kCGEventSourceUserData`), so the
+/// event tap knows the viewer's mouse from the person's.
+const TAG: i64 = 0x4354_5852; // "CTXR"
 
 /// Two clicks within this time and distance make a double click.
 const DOUBLE_CLICK: Duration = Duration::from_millis(500);
@@ -72,6 +85,7 @@ impl Injector {
     pub fn new(display: &Display) -> Self {
         // Asks once per start; without it nothing would happen at all.
         accessibility_permission(true);
+        watch_local_mouse();
         let mut injector = Self {
             index: display.index,
             origin: (0.0, 0.0),
@@ -98,6 +112,9 @@ impl Injector {
     }
 
     pub fn apply(&mut self, event: &InputEvent) {
+        if super::local::waits(event) {
+            return;
+        }
         match event {
             InputEvent::MouseMove { x, y } => {
                 let x = (*x as f64 / self.scale).clamp(0.0, self.size.0 - 1.0);
@@ -141,9 +158,10 @@ impl Injector {
         }
     }
 
-    /// Whether the viewer's mouse is being ignored; only Windows hosts do that yet.
+    /// Whether the viewer's mouse is being ignored right now, for the viewer
+    /// to show a faded pointer.
     pub fn input_paused(&self) -> bool {
-        false
+        super::local::busy()
     }
 
     pub fn release_all(&mut self) {
@@ -200,7 +218,7 @@ impl Injector {
             event.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, clicks);
         }
         event.set_flags(self.event_flags());
-        event.post(CGEventTapLocation::HID);
+        post(&event);
     }
 
     fn wheel(&mut self, dx: i32, dy: i32) {
@@ -220,7 +238,7 @@ impl Injector {
         // Line units (1); Windows and macOS agree that positive scrolls up and left.
         if let Ok(event) = CGEvent::new_scroll_event(source, 1, 2, y, -x, 0) {
             event.set_flags(self.event_flags());
-            event.post(CGEventTapLocation::HID);
+            post(&event);
         }
     }
 
@@ -235,7 +253,7 @@ impl Injector {
         let Some(source) = source() else { return };
         if let Ok(event) = CGEvent::new_keyboard_event(source, keycode, down) {
             event.set_flags(self.event_flags());
-            event.post(CGEventTapLocation::HID);
+            post(&event);
         }
     }
 }
@@ -259,6 +277,53 @@ fn modifier(code: &str) -> Option<CGEventFlags> {
         "AltLeft" | "AltRight" => CGEventFlags::CGEventFlagAlternate,
         _ => return None,
     })
+}
+
+/// Posts one of the viewer's events, marked as such.
+fn post(event: &CGEvent) {
+    event.set_integer_value_field(EventField::EVENT_SOURCE_USER_DATA, TAG);
+    event.post(CGEventTapLocation::HID);
+}
+
+/// Starts, once per process, a thread that notes the person's own mouse input.
+fn watch_local_mouse() {
+    static START: Once = Once::new();
+    START.call_once(|| {
+        let spawned = std::thread::Builder::new().name("ctxremote-local-mouse".into()).spawn(|| {
+            let mouse = vec![
+                CGEventType::MouseMoved,
+                CGEventType::LeftMouseDown,
+                CGEventType::LeftMouseDragged,
+                CGEventType::RightMouseDown,
+                CGEventType::RightMouseDragged,
+                CGEventType::OtherMouseDown,
+                CGEventType::OtherMouseDragged,
+                CGEventType::ScrollWheel,
+            ];
+            // Only listens: nothing is held up or changed, and macOS does not
+            // switch a listening tap off for being slow.
+            let tapped = CGEventTap::with_enabled(
+                CGEventTapLocation::Session,
+                CGEventTapPlacement::HeadInsertEventTap,
+                CGEventTapOptions::ListenOnly,
+                mouse,
+                |_, _, event| {
+                    if event.get_integer_value_field(EventField::EVENT_SOURCE_USER_DATA) != TAG {
+                        super::local::note();
+                    }
+                    CallbackResult::Keep
+                },
+                CFRunLoop::run_current,
+            );
+            if tapped.is_err() {
+                // Without "Accessibility" macOS refuses the tap.
+                tracing::warn!("Eigene Maus am Gerät nicht erkennbar (Bedienungshilfen erlaubt?)");
+            }
+        });
+        if let Err(e) = spawned {
+            tracing::warn!("Eigene Maus am Gerät nicht erkennbar: {e}");
+        }
+    });
 }
 
 fn source() -> Option<CGEventSource> {
@@ -285,7 +350,7 @@ fn type_text(text: &str) {
             let Some(source) = source() else { return };
             if let Ok(event) = CGEvent::new_keyboard_event(source, 0, down) {
                 event.set_string_from_utf16_unchecked(chunk);
-                event.post(CGEventTapLocation::HID);
+                post(&event);
             }
         }
     }
