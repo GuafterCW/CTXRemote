@@ -40,6 +40,28 @@ jobs:
         run: |
           base=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([0-9]+)\.([0-9]+)\..*/\1.\2/')
           echo "version=$base.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      # The server name is built into every client: a typo there would ship
+      # apps that never connect. It must resolve, and to the deploy host.
+      - name: Server-Adresse prüfen
+        if: vars.CTXREMOTE_SERVER != ''
+        env:
+          SERVER: ${{ vars.CTXREMOTE_SERVER }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+        run: |
+          host="${SERVER%:*}"
+          ips=$(getent ahostsv4 "$host" | awk '{print $1}' | sort -u)
+          if [ -z "$ips" ]; then
+            echo "::error::CTXREMOTE_SERVER=$SERVER ist im DNS nicht zu finden (Tippfehler?)"
+            exit 1
+          fi
+          if [ -n "$DEPLOY_HOST" ]; then
+            deploy=$(getent ahostsv4 "$DEPLOY_HOST" | awk '{print $1}' | sort -u)
+            if [ -z "$(comm -12 <(echo "$ips") <(echo "$deploy"))" ]; then
+              echo "::error::CTXREMOTE_SERVER=$SERVER ($ips) zeigt nicht auf DEPLOY_HOST=$DEPLOY_HOST ($deploy)"
+              exit 1
+            fi
+          fi
+          echo "Server $SERVER → $ips"
 
   server:
     needs: version

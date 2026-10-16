@@ -148,8 +148,10 @@ impl Default for Config {
 /// Set once per process, e.g. to the service's machine-wide config.
 static PATH: OnceLock<PathBuf> = OnceLock::new();
 
-/// Server names that moved, old to new.
-const MOVED_SERVERS: [(&str, &str); 1] = [("remote.ctx.ink", "remote.remocto.com")];
+/// Server names that moved, old to new. "redocto" was a typo built into
+/// release 0.1.68 as the default for new installations.
+const MOVED_SERVERS: [(&str, &str); 2] =
+    [("remote.ctx.ink", "remote.remocto.com"), ("remote.redocto.com", "remote.remocto.com")];
 
 /// `server` with a moved host name replaced; the port stays.
 fn moved_server(server: &str) -> String {
