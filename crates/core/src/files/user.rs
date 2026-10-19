@@ -7,6 +7,8 @@
 use std::path::PathBuf;
 
 pub use imp::UserContext;
+#[cfg(windows)]
+pub(crate) use imp::running_as_system;
 
 /// Display names and paths of the well-known folders, from the platform's lookup.
 #[cfg(not(any(windows, target_os = "android")))]
@@ -185,7 +187,7 @@ mod imp {
         }
     }
 
-    fn running_as_system() -> Result<bool> {
+    pub(crate) fn running_as_system() -> Result<bool> {
         unsafe {
             let mut token = HANDLE::default();
             OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)?;

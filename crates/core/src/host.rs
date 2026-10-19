@@ -10,7 +10,7 @@ use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, HostCaps, ServerMsg, SessionId};
 use ctxremote_proto::framing::Transport;
 use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender, TransportStream};
-use ctxremote_proto::session::{Features, FileOp, HelloExtras, HostMsg, InputEvent, Permissions, Transfer, TunnelMsg, ViewerMsg, MAX_CHAT};
+use ctxremote_proto::session::{Features, FileOp, HelloExtras, HostMsg, InputEvent, Permissions, TerminalMsg, Transfer, TunnelMsg, ViewerMsg, MAX_CHAT};
 use ctxremote_proto::DeviceId;
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -71,6 +71,8 @@ pub enum HostEvent {
     Rights { session: u64, rights: Permissions, privacy: bool },
     /// The viewer of `session` started or stopped recording it.
     Recording { session: u64, on: bool },
+    /// The viewer of `session` has a command line open here, or closed the last.
+    Terminal { session: u64, open: bool },
     /// Someone this device invited offers access (see
     /// `ctxremote_proto::invite`). Sealed: only the app that holds the
     /// invitation's token can read it.
@@ -791,6 +793,14 @@ impl Route {
         self.rights.borrow().has(right)
     }
 
+    /// Tells the person at the host when a command line opens or the last one closes.
+    fn terminal_event(&self, was_open: bool, open: bool) {
+        if was_open != open {
+            info!(open, "Terminal der Sitzung");
+            let _ = self.events.send(HostEvent::Terminal { session: self.number, open });
+        }
+    }
+
     fn rights_event(&self, rights: Permissions) {
         let privacy = self.privacy.load(Ordering::Relaxed);
         let _ = self.events.send(HostEvent::Rights { session: self.number, rights, privacy });
@@ -813,6 +823,10 @@ fn needed_right(msg: &ViewerMsg) -> Option<u32> {
         ViewerMsg::Restart => Some(Permissions::RESTART),
         ViewerMsg::Privacy(true) => Some(Permissions::PRIVACY),
         ViewerMsg::Tunnel(TunnelMsg::Open { .. }) => Some(Permissions::TUNNEL),
+        // Closing is always allowed.
+        ViewerMsg::Terminal(TerminalMsg::Open { .. } | TerminalMsg::Data { .. } | TerminalMsg::Resize { .. }) => {
+            Some(Permissions::TERMINAL)
+        }
         _ => None,
     }
 }
@@ -864,6 +878,10 @@ async fn run_session(
     // Port tunnels into this network; their traffic goes out with the rest.
     let (tunnel_out, mut tunnel_rx) = mpsc::unbounded_channel::<TunnelMsg>();
     let tunnels = crate::tunnel::TunnelHost::new(tunnel_out);
+    // Shells running at the agent for this viewer.
+    let mut terminals: HashSet<u32> = HashSet::new();
+    // Off for a session with only a terminal; a new screen side is told again.
+    let mut video_on = true;
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -882,6 +900,28 @@ async fn run_session(
                         if stopped.insert(id) && !matches!(msg, Transfer::End | Transfer::Failed(_) | Transfer::Cancel) {
                             let _ = to_agent.send(ViewerMsg::Transfer { id, msg: Transfer::Cancel }).await;
                             tx.send(&HostMsg::Transfer { id, msg: Transfer::Failed(FILES_DENIED.into()) }).await?;
+                        }
+                    }
+                    Some(HostMsg::Terminal(_)) if !route.features.has(Features::TERMINAL) => {}
+                    Some(HostMsg::Terminal(msg)) => {
+                        let was_open = !terminals.is_empty();
+                        match &msg {
+                            // Taken away while it started: end it right away.
+                            TerminalMsg::Opened { id, result: Ok(_) } if !route.allows(Permissions::TERMINAL) => {
+                                let _ = to_agent.send(ViewerMsg::Terminal(TerminalMsg::Close { id: *id })).await;
+                            }
+                            TerminalMsg::Opened { id, result: Ok(_) } => {
+                                terminals.insert(*id);
+                            }
+                            TerminalMsg::Close { id } => {
+                                terminals.remove(id);
+                            }
+                            _ => {}
+                        }
+                        route.terminal_event(was_open, !terminals.is_empty());
+                        // Output still on its way after the right was taken away stays here.
+                        if route.allows(Permissions::TERMINAL) || matches!(msg, TerminalMsg::Close { .. }) {
+                            tx.send(&HostMsg::Terminal(msg)).await?;
                         }
                     }
                     Some(HostMsg::Privacy { on, error }) => {
@@ -937,6 +977,15 @@ async fn run_session(
                             if route.privacy.load(Ordering::Relaxed) {
                                 let _ = to_agent.send(ViewerMsg::Privacy(true)).await;
                             }
+                            if !video_on {
+                                let _ = to_agent.send(ViewerMsg::SetVideo(false)).await;
+                            }
+                            // The shells ended with the old screen side.
+                            let was_open = !terminals.is_empty();
+                            for id in std::mem::take(&mut terminals) {
+                                tx.send(&HostMsg::Terminal(TerminalMsg::Close { id })).await?;
+                            }
+                            route.terminal_event(was_open, false);
                         }
                         None => {
                             let _ = tx.send(&HostMsg::Bye("Der Bildschirm ist nicht mehr verfügbar".into())).await;
@@ -962,6 +1011,14 @@ async fn run_session(
                     }
                     if !rights.has(Permissions::TUNNEL) {
                         tunnels.close_all();
+                    }
+                    if !rights.has(Permissions::TERMINAL) {
+                        let was_open = !terminals.is_empty();
+                        for id in std::mem::take(&mut terminals) {
+                            let _ = to_agent.send(ViewerMsg::Terminal(TerminalMsg::Close { id })).await;
+                            tx.send(&HostMsg::Terminal(TerminalMsg::Close { id })).await?;
+                        }
+                        route.terminal_event(was_open, false);
                     }
                     if route.privacy.load(Ordering::Relaxed) && !rights.has(Permissions::PRIVACY) {
                         // The agent confirms with `Privacy { on: false }`.
@@ -996,6 +1053,10 @@ async fn run_session(
                         }
                         ViewerMsg::Tunnel(TunnelMsg::Open { id, .. }) => {
                             tunnels.refuse(id, "Port-Tunnel sind in dieser Sitzung nicht erlaubt");
+                        }
+                        ViewerMsg::Terminal(TerminalMsg::Open { id, .. }) => {
+                            let result = Err("Das Terminal ist in dieser Sitzung nicht erlaubt".to_string());
+                            tx.send(&HostMsg::Terminal(TerminalMsg::Opened { id, result })).await?;
                         }
                         ViewerMsg::Privacy(_) if route.features.has(Features::PRIVACY) => {
                             let error = Some("Der Privatsphäre-Modus ist in dieser Sitzung nicht erlaubt".to_string());
@@ -1061,8 +1122,10 @@ async fn run_session(
                         return Ok(());
                     }
                     Some(msg) => {
-                        if let ViewerMsg::SetAudio(on) = msg {
-                            audio_on = on;
+                        match msg {
+                            ViewerMsg::SetAudio(on) => audio_on = on,
+                            ViewerMsg::SetVideo(on) => video_on = on,
+                            _ => {}
                         }
                         // A failed send means the agent is gone; the branch above notices.
                         let _ = to_agent.send(msg).await;
@@ -1079,6 +1142,7 @@ async fn run_session(
 
     // Tunnels hold their sockets until cut.
     tunnels.close_all();
+    route.terminal_event(!terminals.is_empty(), false);
     // Dropping the sender ends the screen side.
     drop(to_agent);
     drop(from_agent);
@@ -1110,6 +1174,7 @@ fn refused_kind(msg: &ViewerMsg) -> String {
         ViewerMsg::Input(ctxremote_proto::session::InputEvent::Text(_)) => "Input(Text)".into(),
         ViewerMsg::Clipboard(_) => "Clipboard".into(),
         ViewerMsg::ClipboardImage(_) => "ClipboardImage".into(),
+        ViewerMsg::Terminal(TerminalMsg::Data { .. }) => "Terminal(Data)".into(),
         other => {
             let mut text = format!("{other:?}");
             text.truncate(text.floor_char_boundary(200));

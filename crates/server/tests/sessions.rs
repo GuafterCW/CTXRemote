@@ -391,3 +391,97 @@ async fn port_tunnel_needs_its_right_and_carries_data() {
     got.unwrap();
     assert!(back == payload, "{} von {} Bytes zurück", back.len(), payload.len());
 }
+
+/// Collects a terminal's output until it contains `wanted`; panics if the
+/// session or the terminal ends first.
+fn terminal_output(events: &std_mpsc::Receiver<ViewerEvent>, id: u32, wanted: &str) {
+    let mut seen = String::new();
+    let found = wait_for(events, |e| match e {
+        ViewerEvent::Terminal(TerminalMsg::Data { id: got, data }) if got == id => {
+            seen.push_str(&String::from_utf8_lossy(&data));
+            seen.contains(wanted).then_some(())
+        }
+        ViewerEvent::Terminal(TerminalMsg::Close { id: got }) if got == id => panic!("Terminal beendet: {seen:?}"),
+        ViewerEvent::Closed(reason) => panic!("Sitzung beendet: {reason:?}"),
+        _ => None,
+    });
+    assert!(found.is_some(), "{wanted:?} kam nicht, nur {seen:?}");
+}
+
+fn terminal_closed(events: &std_mpsc::Receiver<ViewerEvent>, id: u32) -> bool {
+    wait_for(events, |e| match e {
+        ViewerEvent::Terminal(TerminalMsg::Close { id: got }) if got == id => Some(()),
+        _ => None,
+    })
+    .is_some()
+}
+
+/// Lines for the platform's shell (bash/zsh, or PowerShell) and what they print.
+const COMPUTE: (&str, &str) = if cfg!(windows) {
+    ("echo \"remocto-$(40+2)\"\r", "remocto-42")
+} else {
+    ("echo remocto-$((40+2))\n", "remocto-42")
+};
+const SIZE: (&str, &str) = if cfg!(windows) {
+    ("echo \"$($Host.UI.RawUI.WindowSize.Width)x$($Host.UI.RawUI.WindowSize.Height)\"\r", "120x40")
+} else {
+    ("stty size\n", "40 120")
+};
+const EXIT: &str = if cfg!(windows) { "exit\r" } else { "exit\n" };
+
+#[tokio::test(flavor = "multi_thread")]
+async fn terminal_needs_its_right_and_runs_a_real_shell() {
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+    let mut host_events = host.events();
+    let (session, events) = connect(&addr, &host, id).await;
+    let number = host.sessions()[0].0;
+    assert!(session.features.has(Features::TERMINAL));
+
+    // One-time password: someone sits at the computer, no command line.
+    assert!(session.terminal(TerminalMsg::Open { id: 1, cols: 80, rows: 24 }));
+    let refused = wait_for(&events, |e| match e {
+        ViewerEvent::Terminal(TerminalMsg::Opened { id: 1, result }) => Some(result),
+        _ => None,
+    });
+    assert!(matches!(refused, Some(Err(_))), "{refused:?}");
+
+    host.set_rights(number, Permissions::ALL).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    session.terminal(TerminalMsg::Open { id: 2, cols: 80, rows: 24 });
+    let opened = wait_for(&events, |e| match e {
+        ViewerEvent::Terminal(TerminalMsg::Opened { id: 2, result }) => Some(result),
+        _ => None,
+    });
+    let what = opened.expect("keine Antwort").expect("Terminal nicht gestartet");
+    assert!(what.contains(" als "), "{what}");
+    // The shell computes it, so this is not just the typed line echoed back.
+    session.terminal(TerminalMsg::Data { id: 2, data: COMPUTE.0.into() });
+    terminal_output(&events, 2, COMPUTE.1);
+    session.terminal(TerminalMsg::Resize { id: 2, cols: 120, rows: 40 });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    session.terminal(TerminalMsg::Data { id: 2, data: SIZE.0.into() });
+    terminal_output(&events, 2, SIZE.1);
+
+    // Taken away: the shell ends at once, and the person at the host sees it.
+    host.set_rights(number, Permissions::ATTENDED).unwrap();
+    assert!(terminal_closed(&events, 2), "Terminal blieb offen");
+    let mut seen = Vec::new();
+    while let Ok(Ok(event)) = tokio::time::timeout(Duration::from_secs(2), host_events.recv()).await {
+        if let ctxremote_core::host::HostEvent::Terminal { session, open } = event {
+            assert_eq!(session, number);
+            seen.push(open);
+            if !open {
+                break;
+            }
+        }
+    }
+    assert_eq!(seen, vec![true, false]);
+
+    // A shell that exits on its own is reported too.
+    host.set_rights(number, Permissions::ALL).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    session.terminal(TerminalMsg::Open { id: 3, cols: 80, rows: 24 });
+    session.terminal(TerminalMsg::Data { id: 3, data: EXIT.into() });
+    assert!(terminal_closed(&events, 3), "exit beendete das Terminal nicht");
+}

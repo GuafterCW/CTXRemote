@@ -108,6 +108,8 @@ pub async fn run(
     let mut drawing: Option<crate::annotate::Overlay> = None;
     // The viewer's voice on this computer's speaker (see `speaker`).
     let mut speaker: Option<crate::speaker::MicPlayer> = None;
+    // Command lines for the viewer (see `terminal`).
+    let mut terminals = crate::terminal::Terminals::new(outbox.clone());
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -149,6 +151,8 @@ pub async fn run(
                         }
                     }
                     Some(ViewerMsg::SetQuality(quality)) => { let _ = commands.send(VideoCommand::Quality(quality)); }
+                    Some(ViewerMsg::SetVideo(on)) => { let _ = commands.send(VideoCommand::Video(on)); }
+                    Some(ViewerMsg::Terminal(msg)) => terminals.handle(msg).await?,
                     Some(ViewerMsg::SetAudio(on)) => {
                         if !on {
                             audio = None;
@@ -257,6 +261,7 @@ pub async fn run(
 
     // First, so the person at the computer gets screen and input back.
     drop(privacy);
+    drop(terminals);
     drop(drawing);
     drop(speaker);
     injector.release_all();
@@ -282,6 +287,8 @@ enum VideoCommand {
     Keyframe,
     Display(u8),
     Quality(Quality),
+    /// Off: no capture at all, e.g. while the viewer shows only a terminal.
+    Video(bool),
 }
 
 fn video_loop(
@@ -294,13 +301,14 @@ fn video_loop(
     let mut quality = Quality::default();
     // Survives display and quality changes: the link stays the same.
     let mut congestion = Congestion::new(Instant::now());
+    let mut video_on = true;
     'display: loop {
         let mut capturer = match Capturer::new(display) {
             Ok(capturer) => capturer,
             Err(e) => {
                 // E.g. during a session switch; the session survives and capture resumes.
                 debug!("Bildschirmaufnahme nicht bereit: {e:#}");
-                if pause(&commands, &mut display, &mut quality) {
+                if pause(&commands, &mut display, &mut quality, &mut video_on) {
                     return Ok(());
                 }
                 continue 'display;
@@ -326,18 +334,27 @@ fn video_loop(
                         encoder = None;
                     }
                     Ok(VideoCommand::Quality(_)) => {}
+                    Ok(VideoCommand::Video(on)) => {
+                        // Back on: the viewer needs a whole picture first.
+                        force_key |= on && !video_on;
+                        video_on = on;
+                    }
                     Err(std_mpsc::TryRecvError::Empty) => break,
                     Err(std_mpsc::TryRecvError::Disconnected) => return Ok(()),
                 }
             }
 
+            if !video_on {
+                std::thread::sleep(frame_time);
+                continue;
+            }
             let changed = match capturer.next_frame(frame_time.as_millis() as u32, |data, pitch, w, h| {
                 pack_bgra(data, pitch, w, h, &mut packed);
             }) {
                 Ok(changed) => changed,
                 Err(e) => {
                     debug!("Bildschirmaufnahme unterbrochen: {e:#}");
-                    if pause(&commands, &mut display, &mut quality) {
+                    if pause(&commands, &mut display, &mut quality, &mut video_on) {
                         return Ok(());
                     }
                     continue 'display;
@@ -400,12 +417,13 @@ fn video_loop(
 
 /// Waits a moment before capture is retried. Applies display changes meanwhile;
 /// returns `true` if the session is over.
-fn pause(commands: &std_mpsc::Receiver<VideoCommand>, display: &mut u8, quality: &mut Quality) -> bool {
+fn pause(commands: &std_mpsc::Receiver<VideoCommand>, display: &mut u8, quality: &mut Quality, video_on: &mut bool) -> bool {
     std::thread::sleep(Duration::from_millis(500));
     loop {
         match commands.try_recv() {
             Ok(VideoCommand::Display(index)) => *display = index,
             Ok(VideoCommand::Quality(q)) => *quality = q,
+            Ok(VideoCommand::Video(on)) => *video_on = on,
             // A fresh capturer starts with a keyframe anyway.
             Ok(VideoCommand::Keyframe) => {}
             Err(std_mpsc::TryRecvError::Empty) => return false,

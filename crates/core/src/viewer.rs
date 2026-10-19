@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
-use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, InputEvent, MemberProof, Permissions, SystemInfo, TunnelMsg, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, InputEvent, MemberProof, Permissions, SystemInfo, TerminalMsg, TunnelMsg, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
@@ -68,6 +68,8 @@ pub enum ViewerEvent {
     Privacy { on: bool, error: Option<String> },
     /// The host ignores the viewer's mouse for now (see `HostMsg::InputPaused`).
     InputPaused(bool),
+    /// A command line at the host, after [`ViewerSession::terminal`].
+    Terminal(TerminalMsg),
     /// The session ended; carries the reason if it was not the viewer's choice.
     Closed(Option<String>),
 }
@@ -156,6 +158,7 @@ impl ViewerSession {
                             }
                             ViewerMsg::File { .. } | ViewerMsg::Transfer { .. } => features.has(Features::FILES),
                             ViewerMsg::Tunnel(_) => features.has(Features::TUNNEL),
+                            ViewerMsg::Terminal(_) | ViewerMsg::SetVideo(_) => features.has(Features::TERMINAL),
                             ViewerMsg::Draw(_) => features.has(Features::DRAW),
                             ViewerMsg::Mic(_) => features.has(Features::MIC),
                             ViewerMsg::ClipboardImage(_) => features.has(Features::CLIPBOARD_IMAGE),
@@ -282,6 +285,7 @@ impl ViewerSession {
                     Ok(Some(HostMsg::Tunnel(msg))) => tunnel_router.handle(msg),
                     Ok(Some(HostMsg::Privacy { on, error })) => on_event(ViewerEvent::Privacy { on, error }),
                     Ok(Some(HostMsg::InputPaused(paused))) => on_event(ViewerEvent::InputPaused(paused)),
+                    Ok(Some(HostMsg::Terminal(msg))) => on_event(ViewerEvent::Terminal(msg)),
                     Ok(Some(HostMsg::Chat(text))) => {
                         if let Some(text) = crate::host::chat_text(&text) {
                             on_event(ViewerEvent::Chat(text));
@@ -346,6 +350,26 @@ impl ViewerSession {
             return false;
         }
         self.send(ViewerMsg::Privacy(on));
+        true
+    }
+
+    /// Opens, feeds, resizes or closes a command line at the host; answers
+    /// come as [`ViewerEvent::Terminal`]. Returns false for hosts without one.
+    pub fn terminal(&self, msg: TerminalMsg) -> bool {
+        if !self.features.has(Features::TERMINAL) {
+            return false;
+        }
+        self.send(ViewerMsg::Terminal(msg));
+        true
+    }
+
+    /// Pauses or resumes the picture, e.g. while only a terminal is shown.
+    /// Returns false for hosts that always send it.
+    pub fn set_video(&self, on: bool) -> bool {
+        if !self.features.has(Features::TERMINAL) {
+            return false;
+        }
+        self.send(ViewerMsg::SetVideo(on));
         true
     }
 

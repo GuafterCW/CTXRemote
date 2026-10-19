@@ -19,6 +19,8 @@ use ctxremote_proto::session::{EntryKind, FileEntry, Listing};
 
 pub use stream::{find_part, part_active, part_name, tail_check, Incoming, Outgoing};
 pub use user::UserContext;
+#[cfg(windows)]
+pub(crate) use user::running_as_system;
 
 /// Bytes per `Transfer::Data` message: small enough not to hold up video and
 /// input on the shared connection for long.

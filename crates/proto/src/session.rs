@@ -64,6 +64,26 @@ pub enum HostMsg {
     /// only the person at the host may operate in an attended session. Sent on
     /// each change; only to viewers with [`Features::INPUT_PAUSED`].
     InputPaused(bool),
+    /// A command line at the host (host → viewer); only to viewers with
+    /// [`Features::TERMINAL`].
+    Terminal(TerminalMsg),
+}
+
+/// A command line on the host computer, shown in a terminal at the viewer.
+/// The shell runs as the user signed in at the computer, like file access.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalMsg {
+    /// Viewer → host: start shell `id` in a window of this size.
+    Open { id: u32, cols: u16, rows: u16 },
+    /// Host → viewer: the shell runs, with what it is (e.g. "PowerShell als
+    /// max auf BUERO-PC"), or why not.
+    Opened { id: u32, result: Result<String, String> },
+    /// Keys typed at the viewer, or the shell's output.
+    Data { id: u32, data: Vec<u8> },
+    /// Viewer → host: the terminal window changed size.
+    Resize { id: u32, cols: u16, rows: u16 },
+    /// Either side: the shell ended, or the viewer closed it.
+    Close { id: u32 },
 }
 
 /// Port tunnels: TCP connections the viewer accepts locally and the host
@@ -138,13 +158,22 @@ impl Permissions {
     pub const PRIVACY: u32 = 1 << 5;
     /// Port tunnels into the host's network.
     pub const TUNNEL: u32 = 1 << 6;
+    /// A command line at the host, as the signed-in user.
+    pub const TERMINAL: u32 = 1 << 7;
 
     pub const ALL: Self = Self(
-        Self::INPUT | Self::FILES | Self::CLIPBOARD | Self::AUDIO | Self::RESTART | Self::PRIVACY | Self::TUNNEL,
+        Self::INPUT
+            | Self::FILES
+            | Self::CLIPBOARD
+            | Self::AUDIO
+            | Self::RESTART
+            | Self::PRIVACY
+            | Self::TUNNEL
+            | Self::TERMINAL,
     );
     /// For someone sitting at the host: no blanking their screen, no way
-    /// into their network.
-    pub const ATTENDED: Self = Self(Self::ALL.0 & !Self::PRIVACY & !Self::TUNNEL);
+    /// into their network, no command line they cannot follow.
+    pub const ATTENDED: Self = Self(Self::ALL.0 & !Self::PRIVACY & !Self::TUNNEL & !Self::TERMINAL);
     pub const VIEW_ONLY: Self = Self(0);
 
     pub fn has(self, right: u32) -> bool {
@@ -212,6 +241,8 @@ impl Features {
     pub const RESUME: u32 = 1 << 21;
     /// Shows `InputPaused` (a faded pointer).
     pub const INPUT_PAUSED: u32 = 1 << 22;
+    /// Carries `Terminal` and understands `SetVideo`.
+    pub const TERMINAL: u32 = 1 << 23;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -237,7 +268,8 @@ impl Features {
             | Self::CLIPBOARD_IMAGE
             | Self::TYPE_TEXT
             | Self::RESUME
-            | Self::INPUT_PAUSED,
+            | Self::INPUT_PAUSED
+            | Self::TERMINAL,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -417,6 +449,12 @@ pub enum ViewerMsg {
     /// An image for the host's clipboard, as PNG; only to hosts with
     /// [`Features::CLIPBOARD_IMAGE`].
     ClipboardImage(Vec<u8>),
+    /// A command line at the host (viewer → host); only to hosts with
+    /// [`Features::TERMINAL`].
+    Terminal(TerminalMsg),
+    /// Pauses or resumes the picture, e.g. for a session with only a
+    /// terminal; only to hosts with [`Features::TERMINAL`].
+    SetVideo(bool),
 }
 
 /// Lines the viewer draws over the shown display, visible to the person at

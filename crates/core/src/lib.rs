@@ -29,6 +29,7 @@ pub mod keymap;
 mod net;
 pub mod sas;
 pub mod secret;
+pub mod terminal;
 pub mod speaker;
 pub mod sysinfo;
 pub mod totp;
