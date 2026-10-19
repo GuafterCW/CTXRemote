@@ -88,6 +88,8 @@ arboard = { version = "3", default-features = false, features = ["image-data"] }
 # Linux host on X11: picture (MIT-SHM), input (XTest), monitors (RandR), pointer (XFixes),
 # the person's own mouse (XInput 2).
 [target.'cfg(target_os = "linux")'.dependencies]
+# The permanent password in the desktop's keyring (Secret Service), libdbus built in.
+dbus-secret-service = { version = "4", features = ["crypto-rust", "vendored"] }
 x11rb = { version = "0.13", features = ["shm", "xtest", "randr", "xfixes", "xinput"] }
 libc = "0.2"
 

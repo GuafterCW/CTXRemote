@@ -499,6 +499,7 @@ async fn code_enable(state: State<'_, AppState>, secret: Option<String>, code: O
         return service::configure_code(secret).await;
     }
     let mut config = state.config.write().unwrap();
+    ctxremote_core::secret::forget("code_secret");
     config.code_secret = secret;
     config.save().map_err(err)
 }

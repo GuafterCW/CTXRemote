@@ -296,6 +296,7 @@ mod imp {
                         UiRequest::ConfigureCode(secret) => {
                             let answer = if is_elevated_admin(HANDLE(handle as _)) {
                                 let mut config = config.write().unwrap();
+                                crate::secret::forget("code_secret");
                                 config.code_secret = secret;
                                 config.save().map_err(|e| format!("{e:#}"))
                             } else {

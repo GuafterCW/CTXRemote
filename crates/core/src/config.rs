@@ -19,8 +19,8 @@ pub struct Config {
     pub device_id: Option<DeviceId>,
     /// Hex-encoded Ed25519 secret key that owns `device_id`.
     pub device_key: String,
-    /// Enables unattended access when set. Encrypted in the file on Windows.
-    #[serde(with = "crate::secret::opt")]
+    /// Enables unattended access when set. Protected in the file, see [`crate::secret`].
+    #[serde(with = "crate::secret::permanent_password")]
     pub permanent_password: Option<String>,
     /// Known devices: everything with an alias, plus the most recent connections.
     #[serde(alias = "recent")]
@@ -58,8 +58,8 @@ pub struct Config {
     pub rights_unattended: Permissions,
     /// Secret of the authenticator app (base32); with it, the permanent
     /// password also needs the current code (see [`crate::totp`]).
-    /// Encrypted in the file on Windows.
-    #[serde(with = "crate::secret::opt")]
+    /// Protected in the file, see [`crate::secret`].
+    #[serde(with = "crate::secret::code_secret")]
     pub code_secret: Option<String>,
     /// Devices whose screen this viewer locks when it ends a session there.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -249,7 +249,7 @@ impl Config {
                     }
                 }
                 // Files from before the encryption: encrypt them right away.
-                if cfg!(windows) && crate::secret::has_plain(&json, &["permanent_password", "code_secret"]) {
+                if crate::secret::has_plain(&json, &["permanent_password", "code_secret"]) {
                     if let Err(e) = config.save() {
                         tracing::warn!("Konfiguration nicht neu verschlüsselt: {e}");
                     }
@@ -321,6 +321,7 @@ impl Config {
             if !password.is_empty() && password.chars().count() < 8 {
                 bail!("Das Passwort braucht mindestens 8 Zeichen");
             }
+            crate::secret::forget("permanent_password");
             self.permanent_password = Some(password.to_string()).filter(|p| !p.is_empty());
         }
         let changed = self.server != server;
