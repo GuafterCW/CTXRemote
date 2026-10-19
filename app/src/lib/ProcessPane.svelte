@@ -20,6 +20,7 @@
   let {
     session,
     hostname = "",
+    hostOs = "",
     active = true,
     disabled = false,
     onclose,
@@ -28,6 +29,8 @@
     session: number;
     /** Shown under the title. */
     hostname?: string;
+    /** The host's system; under the Windows service actions run as an administrator. */
+    hostOs?: string;
     /** False while hidden (another tab, panel closed): no polling then. */
     active?: boolean;
     /** The session itself ended. */
@@ -37,6 +40,14 @@
     /** More buttons in the header. */
     actions?: Snippet;
   } = $props();
+
+  const admin = $derived(/windows/i.test(hostOs));
+  /** Said in the pane and in every question before an action. */
+  const rightsNote = $derived(
+    admin
+      ? "Aktionen laufen dort mit Administratorrechten, also mit mehr Rechten, als der angemeldete Benutzer selbst hat."
+      : "Aktionen laufen dort mit den Rechten, mit denen Remocto auf dem Gerät läuft.",
+  );
 
   const POLL_MS = 3000;
   /** Starting a service can take this long on the host; after that the buttons come back anyway. */
@@ -279,6 +290,8 @@
     </span>
   </header>
 
+  <p class="rights-note" class:admin><Icon name="info" size={14} /><span>{rightsNote}</span></p>
+
   <div class="bar">
     {#if hasServices}
       <div class="tabs" role="tablist">
@@ -414,6 +427,7 @@
       <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="proc-confirm-{session}">
         <h3 id="proc-confirm-{session}">{confirming.title}</h3>
         <p>{confirming.text}</p>
+        <p class="confirm-note" class:admin>{rightsNote}</p>
         <div class="actions">
           <button class="btn btn-quiet small" onclick={() => ((confirming = null), root?.focus())}>Abbrechen</button>
           <button class="btn btn-danger small" onclick={confirmed}>{confirming.label}</button>
@@ -861,5 +875,30 @@
 
   .btn-danger:disabled {
     opacity: 0.5;
+  }
+  .rights-note {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 0;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .rights-note :global(svg) {
+    flex: none;
+    margin-top: 1px;
+  }
+  .rights-note.admin {
+    color: var(--warn);
+  }
+  .confirm-note {
+    font-size: 12.5px;
+    color: var(--ink-2);
+  }
+  .confirm-note.admin {
+    color: var(--warn);
   }
 </style>

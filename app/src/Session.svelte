@@ -1188,6 +1188,7 @@
         bind:this={processPane}
         {session}
         hostname={host?.hostname ?? ""}
+        hostOs={host?.os ?? ""}
         active={processesOpen && active}
         disabled={closed !== null}
         onclose={terminalOnly ? undefined : toggleProcesses}

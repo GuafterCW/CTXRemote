@@ -118,7 +118,8 @@
   let attended = $state(untrack(() => rightsAttended));
   let unattendedRights = $state(untrack(() => rightsUnattended));
   const rightsChanged = $derived(attended !== rightsAttended || unattendedRights !== rightsUnattended);
-  const RIGHTS: [number, string, string?][] = [
+  /** Bit, label, hint; `warn` marks a hint that must not be overlooked. */
+  const RIGHTS: [number, string, string?, boolean?][] = [
     [RIGHT.INPUT, "Maus und Tastatur"],
     [RIGHT.FILES, "Dateien"],
     [RIGHT.CLIPBOARD, "Zwischenablage"],
@@ -127,7 +128,12 @@
     [RIGHT.PRIVACY, "Bildschirm schwarz schalten"],
     [RIGHT.TUNNEL, "Port-Tunnel ins Netzwerk"],
     [RIGHT.TERMINAL, "Terminal", "Befehlszeile als angemeldeter Benutzer"],
-    [RIGHT.PROCESSES, "Prozesse und Dienste", "Prozesse beenden, Dienste starten und anhalten – mit den Rechten von Remocto (unter Windows Administrator)"],
+    [
+      RIGHT.PROCESSES,
+      "Prozesse und Dienste",
+      "Prozesse beenden, Dienste starten und anhalten. Achtung: unter Windows mit Administratorrechten, also mehr, als der angemeldete Benutzer selbst darf.",
+      true,
+    ],
   ];
 
   /** Returns false if the direct settings were rejected; the error shows in their section. */
@@ -346,9 +352,9 @@
           <span role="columnheader">Einmal&shy;passwort</span>
           <span role="columnheader">Unbeaufsichtigt</span>
         </div>
-        {#each RIGHTS as [bit, label, hint] (bit)}
+        {#each RIGHTS as [bit, label, hint, warn] (bit)}
           <div class="rights-row" role="row">
-            <span role="cell">{label}{#if hint}<small>{hint}</small>{/if}</span>
+            <span role="cell">{label}{#if hint}<small class:warn>{hint}</small>{/if}</span>
             <span role="cell">
               <input
                 type="checkbox"
@@ -695,6 +701,9 @@
     display: block;
     color: var(--ink-3);
     font-size: 11.5px;
+  }
+  .rights-row small.warn {
+    color: var(--warn);
   }
 
   .rights-row.head {
