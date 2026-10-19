@@ -1121,6 +1121,7 @@ dependencies = [
  "whoami",
  "windows",
  "x11rb",
+ "x25519-dalek",
 ]
 
 [[package]]

@@ -26,6 +26,8 @@ pub const MAX_BOOK: usize = 256 * 1024;
 pub const MAX_DEVICES: usize = 20;
 /// How long a pairing code stays valid.
 pub const PAIRING_SECS: u32 = 10 * 60;
+/// Most accounts in one team.
+pub const MAX_TEAM: usize = 50;
 
 /// Proves the request comes from the holder of `public_key`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +80,110 @@ pub enum AccountOp {
     /// Asks the account's other online devices to send Wake-on-LAN packets
     /// for these MACs into their networks. Answered with `Woken`.
     Wake { macs: Vec<String> },
+
+    // Teams (see docs/ACCOUNTS.md, "Teams"). The account acts, whichever of
+    // its devices (or its web login) sends them.
+    /// Creates a team with this account as its owner, at epoch 1.
+    CreateTeam { key: MemberKey, blob: Vec<u8> },
+    /// The team of this account. Answered with `Team`.
+    GetTeam,
+    /// Starts an invitation (owner, admins): like `OfferPairing`, with the
+    /// team key sealed for the code, for a newcomer with `role` (not owner).
+    OfferInvite { code_id: String, salt: [u8; 16], verifier: [u8; 32], sealed: Vec<u8>, role: TeamRole },
+    /// The salt of an invitation.
+    InviteSalt { code_id: String },
+    /// Joins the team of the invitation with this account's exchange key.
+    /// Answered with `JoinedTeam`; the member stays unconfirmed until `ConfirmMember`.
+    JoinTeam { code_id: String, proof: [u8; 32], public_key: [u8; 32] },
+    /// Right after joining: the member's tag and the team key sealed for itself.
+    ConfirmMember { epoch: u32, key: MemberKey },
+    /// Replaces the shared address book (owner, admins), if it is still at
+    /// revision `base` and the team at `epoch`.
+    PutTeamBook { epoch: u32, base: u64, blob: Vec<u8> },
+    /// Changes a member's role (owner, admins). Nobody changes the owner's
+    /// role; making someone owner is the owner's handover, it becomes an admin.
+    SetRole { member: u64, role: TeamRole },
+    /// Removes `remove` (may be empty) and moves the team to a new epoch
+    /// (owner, admins); see [`Rotation`].
+    Rotate { remove: Vec<u64>, rotation: Rotation },
+    /// This account leaves its team (not the owner).
+    LeaveTeam,
+    /// Ends the team (owner).
+    DeleteTeam,
+    /// This member's own list of devices it opened to the team, encrypted
+    /// with the team key of `epoch`.
+    SetTeamAccess { epoch: u32, blob: Vec<u8> },
+}
+
+/// A member's exchange key with its tag, and the team key sealed for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemberKey {
+    /// X25519, derived from the account key.
+    pub public_key: [u8; 32],
+    /// HMAC with a key derived from the team key over member ID and
+    /// `public_key`: the server cannot make one up.
+    pub tag: [u8; 32],
+    /// The team key, sealed for `public_key`.
+    pub sealed: Vec<u8>,
+}
+
+/// A new epoch: a new team key, everything encrypted with it again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rotation {
+    /// One more than the current epoch.
+    pub epoch: u32,
+    /// The revision of the shared address book this was made from.
+    pub base: u64,
+    pub blob: Vec<u8>,
+    /// Exactly the members that stay, with their new tags and sealed keys.
+    pub members: Vec<(u64, MemberKey)>,
+    /// The members' access lists, encrypted again (see `SetTeamAccess`).
+    pub access: Vec<(u64, Vec<u8>)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum TeamRole {
+    Technician,
+    Admin,
+    Owner,
+}
+
+impl TeamRole {
+    /// Changes the address book, invites, removes members, starts epochs.
+    pub fn manages(self) -> bool {
+        self >= Self::Admin
+    }
+}
+
+/// The team as one member sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamState {
+    pub id: [u8; 16],
+    pub epoch: u32,
+    pub revision: u64,
+    /// The shared address book, encrypted with the team key.
+    pub blob: Vec<u8>,
+    /// This account's member ID.
+    pub me: u64,
+    /// The team key sealed for this account; `None` until confirmed.
+    pub sealed: Option<Vec<u8>>,
+    pub members: Vec<TeamMember>,
+    /// Someone left: an admin's app should start a new epoch.
+    pub stale: bool,
+    /// Member ID → its access list (see `SetTeamAccess`).
+    pub access: Vec<(u64, Vec<u8>)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamMember {
+    pub id: u64,
+    pub role: TeamRole,
+    /// Its login address, if it has one.
+    pub email: Option<String>,
+    /// `None` while unconfirmed.
+    pub key: Option<([u8; 32], [u8; 32])>,
+    /// Unix seconds of joining.
+    pub since: u64,
 }
 
 /// Everything the server keeps for a login. The password and the account key
@@ -153,6 +259,10 @@ pub enum AccountReply {
     Done,
     /// How many devices of the account were asked to wake.
     Woken(u32),
+    /// `None`: this account is in no team.
+    Team(Option<TeamState>),
+    /// After `JoinTeam`: the team key sealed for the code, and the team.
+    JoinedTeam { sealed: Vec<u8>, team: TeamState },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,9 +303,40 @@ pub enum AccountError {
     InvalidEmail,
     #[error("Die Verbindung zum Server ist nicht verschlüsselt, Anmelden ist so nicht möglich (Update nötig)")]
     Unencrypted,
+    #[error("Dieses Konto gehört zu keinem Team")]
+    NoTeam,
+    #[error("Dieses Konto gehört schon zu einem Team")]
+    AlreadyInTeam,
+    #[error("Dafür fehlt die Rolle im Team")]
+    NotAllowed,
+    #[error("Der Teamschlüssel wurde inzwischen erneuert, bitte erneut versuchen")]
+    StaleKey,
+    #[error("Das Team hat schon die größte Zahl an Mitgliedern")]
+    TeamFull,
+    #[error("Der Inhaber muss das Team erst übergeben oder löschen")]
+    OwnerStays,
 }
 
 impl AccountOp {
+    /// Requests about the account's team (see `docs/ACCOUNTS.md`, "Teams").
+    pub fn is_team(&self) -> bool {
+        matches!(
+            self,
+            Self::CreateTeam { .. }
+                | Self::GetTeam
+                | Self::OfferInvite { .. }
+                | Self::InviteSalt { .. }
+                | Self::JoinTeam { .. }
+                | Self::ConfirmMember { .. }
+                | Self::PutTeamBook { .. }
+                | Self::SetRole { .. }
+                | Self::Rotate { .. }
+                | Self::LeaveTeam
+                | Self::DeleteTeam
+                | Self::SetTeamAccess { .. }
+        )
+    }
+
     /// Requests that carry values derived from a password or recovery code;
     /// the server takes them only over an encrypted connection.
     pub fn carries_secrets(&self) -> bool {

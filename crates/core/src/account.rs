@@ -52,7 +52,7 @@ pub struct AccountLink {
 }
 
 impl AccountLink {
-    fn key(&self) -> Result<[u8; 32]> {
+    pub(crate) fn key(&self) -> Result<[u8; 32]> {
         hex::decode(&self.key).ok().and_then(|k| k.try_into().ok()).context("Kontoschlüssel ist beschädigt")
     }
 }
@@ -62,7 +62,7 @@ pub fn now_ms() -> u64 {
 }
 
 /// Sends one signed request and returns the server's answer.
-async fn request(server: &str, key: &SigningKey, op: AccountOp) -> Result<AccountReply> {
+pub(crate) async fn request(server: &str, key: &SigningKey, op: AccountOp) -> Result<AccountReply> {
     let (mut t, nonce) = net::dial(server).await?;
     let auth = wire::sign(key, &nonce, &op);
     framing::send(&mut t, &ClientMsg::Account { auth, op }).await?;
@@ -186,7 +186,7 @@ pub async fn sync(server: &str, key: &SigningKey, link: &AccountLink, local: &Bo
 
 /// Argon2id over the code's secret part: a key to seal the account key and,
 /// independently, the proof the server checks.
-fn derive(secret: &str, salt: &[u8; 16]) -> Result<([u8; 32], [u8; 32])> {
+pub(crate) fn derive(secret: &str, salt: &[u8; 16]) -> Result<([u8; 32], [u8; 32])> {
     let params = Params::new(19 * 1024, 2, 1, Some(64)).map_err(|e| anyhow!("{e}"))?;
     let mut out = [0u8; 64];
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
@@ -196,7 +196,7 @@ fn derive(secret: &str, salt: &[u8; 16]) -> Result<([u8; 32], [u8; 32])> {
     Ok((seal_key.try_into().expect("32 bytes"), proof.try_into().expect("32 bytes")))
 }
 
-fn seal(key: &[u8; 32], aad: &[u8], plain: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn seal(key: &[u8; 32], aad: &[u8], plain: &[u8]) -> Result<Vec<u8>> {
     let nonce: [u8; 12] = rand::random();
     let sealed = ChaCha20Poly1305::new(key.into())
         .encrypt(Nonce::from_slice(&nonce), Payload { msg: plain, aad })
@@ -204,7 +204,7 @@ fn seal(key: &[u8; 32], aad: &[u8], plain: &[u8]) -> Result<Vec<u8>> {
     Ok([nonce.as_slice(), &sealed].concat())
 }
 
-fn open(key: &[u8; 32], aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn open(key: &[u8; 32], aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
     if sealed.len() < 12 {
         bail!("Daten sind beschädigt");
     }

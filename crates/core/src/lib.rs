@@ -29,6 +29,7 @@ pub mod keymap;
 mod net;
 pub mod sas;
 pub mod secret;
+pub mod team;
 pub mod terminal;
 pub mod processes;
 pub mod speaker;

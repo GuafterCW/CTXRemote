@@ -20,6 +20,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::mail::Mail;
 use serde::{Deserialize, Serialize};
 
+#[path = "teams.rs"]
+mod teams;
+
 /// Wrong proofs a pairing survives; then it is gone and needs a new code.
 const MAX_TRIES: u32 = 3;
 /// Wrong passwords (or recovery codes) per account before it locks for [`LOCKOUT`].
@@ -32,10 +35,14 @@ const VERIFY_SECS: u64 = 48 * 3600;
 /// Shortest pause between two confirmation mails for one account.
 const RESEND_PAUSE: Duration = Duration::from_secs(5 * 60);
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 struct Stored {
     next: u64,
     accounts: BTreeMap<u64, Account>,
+    #[serde(default)]
+    next_team: u64,
+    #[serde(default)]
+    teams: BTreeMap<u64, teams::Team>,
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -120,6 +127,8 @@ pub struct Accounts {
     /// Public key (hex) → account, derived from `stored`.
     by_key: HashMap<String, u64>,
     pairings: HashMap<String, Pairing>,
+    /// Code ID → open team invitation; memory only, like pairings.
+    invites: HashMap<String, teams::Invite>,
     /// Address → account, derived from `stored`.
     by_email: HashMap<String, u64>,
     /// Wrong passwords per account: count and the first one's time.
@@ -154,6 +163,7 @@ impl Accounts {
             stored,
             by_key,
             pairings: HashMap::new(),
+            invites: HashMap::new(),
             by_email,
             failures: HashMap::new(),
             pepper,
@@ -281,6 +291,8 @@ impl Accounts {
             | AccountOp::SetLogin { .. }
             | AccountOp::LoginStatus
             | AccountOp::OfferPairing { .. } => self.run(String::new(), Some(account), op),
+            // Teams act for the account; the browser holds its key too.
+            op if op.is_team() => self.run_team(account, op),
             _ => Err(AccountError::NotLinked),
         }
     }
@@ -328,6 +340,7 @@ impl Accounts {
         self.confirm_password(account, value)?;
         let (id, email) = (account, self.email(account).ok_or(AccountError::NotLinked)?);
         let before = self.snapshot();
+        self.drop_from_team(id);
         let removed = self.stored.accounts.remove(&id).expect("checked above");
         for key in &removed.keys {
             self.by_key.remove(key);
@@ -346,6 +359,18 @@ impl Accounts {
         self.pairings.retain(|_, p| p.expires > now);
 
         match op {
+            op @ (AccountOp::CreateTeam { .. }
+            | AccountOp::GetTeam
+            | AccountOp::OfferInvite { .. }
+            | AccountOp::InviteSalt { .. }
+            | AccountOp::JoinTeam { .. }
+            | AccountOp::ConfirmMember { .. }
+            | AccountOp::PutTeamBook { .. }
+            | AccountOp::SetRole { .. }
+            | AccountOp::Rotate { .. }
+            | AccountOp::LeaveTeam
+            | AccountOp::DeleteTeam
+            | AccountOp::SetTeamAccess { .. }) => self.run_team(member.ok_or(AccountError::NotLinked)?, op),
             AccountOp::Status => Ok(AccountReply::Status(member.map(|id| self.info(id)))),
             AccountOp::Create => {
                 if member.is_some() {
@@ -549,6 +574,7 @@ impl Accounts {
                 account.labels.remove(&key);
                 // Without devices and without a login nobody could ever reach it again.
                 if account.keys.is_empty() && account.login.is_none() {
+                    self.drop_from_team(id);
                     self.stored.accounts.remove(&id);
                     self.pairings.retain(|_, p| p.account != id);
                 }
@@ -639,7 +665,7 @@ impl Accounts {
 
     fn snapshot(&self) -> Snapshot {
         Snapshot {
-            stored: Stored { next: self.stored.next, accounts: self.stored.accounts.clone() },
+            stored: self.stored.clone(),
             by_key: self.by_key.clone(),
             by_email: self.by_email.clone(),
         }

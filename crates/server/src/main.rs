@@ -48,6 +48,9 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(20);
 /// Clients ping every 15 s; three missed pings drop the device.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 const CONNECTS_PER_MINUTE: u32 = 30;
+/// Signed account requests that guess nothing (sync, teams), per address and
+/// minute: an office behind one address syncs many devices.
+const ACCOUNT_OPS_PER_MINUTE: u32 = 600;
 /// Installer downloads served at once; each holds a file open.
 const PARALLEL_DOWNLOADS: usize = 8;
 /// A download that takes longer frees its slot for others.
@@ -77,6 +80,8 @@ struct Server {
     rate: Mutex<HashMap<IpAddr, (Instant, u32)>>,
     /// The web API counts on its own, so it cannot use up an app's quota.
     web_rate: Mutex<HashMap<IpAddr, (Instant, u32)>>,
+    /// Like `rate`, for account requests that guess nothing.
+    account_rate: Mutex<HashMap<IpAddr, (Instant, u32)>>,
     /// Open connections (see [`ConnectionSlot`]).
     open: Mutex<OpenConnections>,
     updates: updates::Store,
@@ -134,6 +139,7 @@ async fn main() -> Result<()> {
         pending: Mutex::default(),
         rate: Mutex::default(),
         web_rate: Mutex::default(),
+        account_rate: Mutex::default(),
         open: Mutex::default(),
         updates: updates::Store::new(data.join("updates")),
         downloads: tokio::sync::Semaphore::new(PARALLEL_DOWNLOADS),
@@ -309,7 +315,7 @@ impl Server {
             }
             // Rate-limited like connects: pairing codes must not be guessable quickly.
             ClientMsg::Account { auth, op } => {
-                let result = if !self.allow_connect(peer.ip()) {
+                let result = if !self.allow_account(peer.ip(), &op) {
                     Err(AccountError::RateLimited)
                 } else if !ctxremote_proto::account::verify(&auth, &nonce, &op) {
                     Err(AccountError::BadSignature)
@@ -488,17 +494,38 @@ impl Server {
     }
 
     pub(crate) fn allow_connect(&self, ip: IpAddr) -> bool {
-        allow(&self.rate, ip)
+        allow(&self.rate, ip, CONNECTS_PER_MINUTE)
     }
 
     /// Like [`Self::allow_connect`], for the web API.
     pub(crate) fn allow_web(&self, ip: IpAddr) -> bool {
-        allow(&self.web_rate, ip)
+        allow(&self.web_rate, ip, CONNECTS_PER_MINUTE)
+    }
+
+    /// Codes and passwords are guessed only as fast as connects; the rest
+    /// of a signed device's account requests gets more room.
+    fn allow_account(&self, ip: IpAddr, op: &AccountOp) -> bool {
+        let guessable = matches!(
+            op,
+            AccountOp::PairingSalt { .. }
+                | AccountOp::JoinPairing { .. }
+                | AccountOp::InviteSalt { .. }
+                | AccountOp::JoinTeam { .. }
+                | AccountOp::Prelogin { .. }
+                | AccountOp::Login { .. }
+                | AccountOp::Recover { .. }
+                | AccountOp::Register { .. }
+        );
+        if guessable {
+            self.allow_connect(ip)
+        } else {
+            allow(&self.account_rate, ip, ACCOUNT_OPS_PER_MINUTE)
+        }
     }
 }
 
-/// At most [`CONNECTS_PER_MINUTE`] for `ip` in `rate`.
-fn allow(rate: &Mutex<HashMap<IpAddr, (Instant, u32)>>, ip: IpAddr) -> bool {
+/// At most `limit` per minute for `ip` in `rate`.
+fn allow(rate: &Mutex<HashMap<IpAddr, (Instant, u32)>>, ip: IpAddr, limit: u32) -> bool {
     let key = rate_key(ip);
     let mut rate = rate.lock().unwrap();
     let now = Instant::now();
@@ -510,9 +537,9 @@ fn allow(rate: &Mutex<HashMap<IpAddr, (Instant, u32)>>, ip: IpAddr) -> bool {
         *entry = (now, 0);
     }
     entry.1 += 1;
-    if entry.1 > CONNECTS_PER_MINUTE {
+    if entry.1 > limit {
         // Once per minute and address, not for every refused attempt.
-        if entry.1 == CONNECTS_PER_MINUTE + 1 {
+        if entry.1 == limit + 1 {
             warn!(ip = %key, "Verbindungsversuche gedrosselt");
         }
         return false;
