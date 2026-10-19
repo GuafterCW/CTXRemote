@@ -86,6 +86,55 @@ Geräte eines Kontos können sich ohne Passwort mit einem Gerät verbinden, das 
 - Das Webinterface schreibt unbekannte Felder der Geräteliste unverändert zurück. Ältere App-Versionen kennen `access` nicht und lassen es beim Zurückschreiben weg, bis sie aktualisiert sind.
 - Test: `cargo test -p ctxremote-server --test access`.
 
+## Teams (Entwurf 19. Oktober 2026, in Arbeit)
+
+Mehrere Konten arbeiten als Team: geteiltes Adressbuch, Rollen, Zugriff ohne Passwort auf freigegebene Geräte. Entscheidungen des Nutzers (19. Oktober): Beitritt per **Einladungscode** wie beim Koppeln, Rollen **Inhaber, Admin, Techniker**, **Team-Zugriff ohne Passwort** für Geräte, die das erlauben, **ein Team je Konto** (später erweiterbar).
+
+### Rollen (vom Server durchgesetzt)
+
+| | Inhaber | Admin | Techniker |
+|---|---|---|---|
+| Geteiltes Adressbuch lesen, verbinden | ja | ja | ja |
+| Adressbuch ändern | ja | ja | – |
+| Einladen (als Admin oder Techniker) | ja | ja | – |
+| Mitglieder entfernen, Rollen ändern | ja | ja, außer den Inhaber | – |
+| Inhaber übertragen, Team löschen | ja | – | – |
+| Team verlassen | erst nach Übertragung | ja | ja |
+
+Wird das Konto des Inhabers gelöscht, wird der älteste Admin Inhaber; ohne Admin endet das Team.
+
+### Schlüssel
+
+- **Teamschlüssel** `T`: 32 zufällige Bytes mit einer **Epoche** (ab 1). Damit ist das geteilte Adressbuch verschlüsselt (ChaCha20-Poly1305, AAD `ctxremote/team-book/v1` + Team-ID + Epoche). Der Server sieht nur einen Block.
+- **Austauschschlüssel je Konto:** X25519, abgeleitet aus dem Kontoschlüssel (`HKDF(Kontoschlüssel, "ctxremote/team-kx/v1")`). Jedes Gerät des Kontos und das Webinterface können ihn selbst berechnen, gespeichert wird nur der öffentliche Teil am Server.
+- **Für ein Mitglied versiegelt:** `T` mit einem flüchtigen X25519-Schlüssel an den öffentlichen Schlüssel des Mitglieds (ECDH → HKDF → ChaCha20-Poly1305, `ctxremote/team-box/v1`). So bekommen auch spätere Geräte desselben Kontos den Teamschlüssel.
+- **Echtheit der öffentlichen Schlüssel:** Jedes Mitglied hinterlegt neben seinem Schlüssel ein **Siegel** `HMAC(HKDF(T, "ctxremote/team-tag/v1"), Mitglieds-ID ‖ Schlüssel)`. Der Server kennt `T` nicht und kann also kein Mitglied mit eigenem Schlüssel unterschieben. Ein Admin versiegelt einen neuen Teamschlüssel nur für Mitglieder mit gültigem Siegel.
+
+### Beitritt per Code
+
+1. Ein Admin wählt die Rolle und erzeugt einen Code wie beim Koppeln (12 Zeichen, 10 Minuten, einmal, 3 Fehlversuche). Aus dem geheimen Teil leitet Argon2id einen Siegelschlüssel und einen Nachweis ab; der Server bekommt `T` versiegelt und den Nachweis, nie den Code.
+2. Das neue Mitglied gibt den Code ein, schickt Nachweis und seinen öffentlichen Schlüssel, bekommt `T` versiegelt zurück und öffnet ihn mit dem Code.
+3. Gleich danach hinterlegt es sein Siegel und `T` für den eigenen Schlüssel. Bis dahin gilt es als „unbestätigt“.
+
+### Entfernen, Verlassen, neue Epoche
+
+- Entfernt ein Admin ein Mitglied, schickt seine App im selben Auftrag eine **neue Epoche** mit: neues `T`, das Adressbuch neu verschlüsselt, `T` für jedes verbleibende Mitglied mit gültigem Siegel versiegelt, neue Siegel. Der Server nimmt das nur an, wenn genau die verbleibenden Mitglieder abgedeckt sind. Unbestätigte Mitglieder werden dabei mit entfernt.
+- Verlässt jemand das Team selbst, merkt der Server „Schlüssel veraltet“; die App des nächsten Admins erneuert dann die Epoche von selbst.
+- Ein entferntes Mitglied kennt danach nur alte Schlüssel. **Grenze** wie bei Konten: Ein böswilliger Server zusammen mit einem Mitglied, das gerade noch dabei ist, könnte vor der Erneuerung einen falschen Schlüssel einschmuggeln.
+
+### Zugriff ohne Passwort im Team
+
+- Wie beim Konto zwei Nachweise: ein zusätzlicher SPAKE2-Slot mit `HKDF(T, "ctxremote/team-access/v1", Host-ID)` und die Mitgliedschaft, die der Server prüft (`ClientMsg::SameTeam`: Gerät des Viewers und Zeuge des Hosts in Konten desselben Teams).
+- Freigeben kann jedes Mitglied für die Geräte seines eigenen Kontos (Einstellung am Gerät, mit Dienst über den erhöhten Helfer). Welche Geräte freigegeben sind, schreibt jedes Mitglied in einen eigenen, mit `T` verschlüsselten Eintrag am Server; die Viewer lesen alle.
+- Nach einer neuen Epoche erneuert die App des Hosts beim nächsten Abgleich das Passwort des Slots (ohne Rückfrage, nur für das schon freigegebene Team).
+
+### Umsetzung (Reihenfolge)
+
+1. Protokoll, Krypto im Client, Server mit Rollenprüfung, Tests mit echtem Server.
+2. Team-Zugriff ohne Passwort (Host-Slot, `SameTeam`, Erneuern nach Epoche), Test.
+3. App: Team im Kontopanel (anlegen, einladen, Rollen, entfernen, verlassen), Team-Geräte in der Geräteliste, Freigabe am Gerät.
+4. Webinterface: Team verwalten (braucht X25519 im Browser).
+
 ## Konto löschen
 
 Im Webinterface unter „Konto löschen“, mit dem Passwort zur Bestätigung (`POST /api/account/delete`). Der Server entfernt Konto, Anmeldung, Geräteliste und Mitgliedschaften, beendet alle Browser-Sitzungen und schickt eine Mail. Die Apps merken es beim nächsten Abgleich (`NotLinked`) und entfernen ihre Verknüpfung selbst.

@@ -919,6 +919,8 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
 
 ## Nächste Schritte
 
+**Aktuell (19. Oktober):** Teams mit Rollen, Entwurf in `docs/ACCOUNTS.md` unter „Teams“ (Entscheidungen des Nutzers dort). Danach nach Wahl des Nutzers: Sitzungsberichte auf dem Server (mit CSV-Export), Richtlinien zentral, Lücken von Terminal/Prozessen („Terminal offen“ nach Fensterneustart, Terminal/Prozesse im Verlauf, Linux-Host ohne Bildschirm). Hintergrund: Vergleich mit my.anydesk II vom 19. Oktober (Teams, Berichte, zentrale Richtlinien, Warteschlange, SSO in dieser Reihenfolge).
+
 **Stand 5. Oktober, abends (Cloud-Sitzung, selbstständig):** Seit dem Nachmittag sind dazugekommen, alles mit Tests ohne Windows:
 - Sitzungsrechte und Privatsphäre-Modus
 - Zwei-Faktor für das feste Passwort
