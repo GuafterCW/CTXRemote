@@ -188,3 +188,29 @@ async fn several_web_origins() {
     let (status, _, _) = call(&http, "POST", "/api/register", None, "https://evil.example", Some(setup("x@example.org", 6))).await;
     assert_eq!(status, 403);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn team_requests_pass_through_for_the_signed_in_account() {
+    let (_server, _addr, http) = start_server_with_web(Some(ORIGIN)).await;
+    let http = http.unwrap();
+    let get_team = json!({ "op": "GetTeam" });
+    let (status, _, _) = call(&http, "POST", "/api/team", None, ORIGIN, Some(get_team.clone())).await;
+    assert_eq!(status, 401);
+
+    let (_, cookie, _) = call(&http, "POST", "/api/register", None, ORIGIN, Some(setup("team@example.org", 1))).await;
+    let cookie = cookie.expect("Sitzungs-Cookie");
+    let (status, _, body) = call(&http, "POST", "/api/team", Some(&cookie), ORIGIN, Some(get_team.clone())).await;
+    assert_eq!((status, body), (200, json!({ "Team": null })));
+
+    // A team made in the browser: placeholder key first, as the app does it.
+    let key = json!({ "public_key": vec![5u8; 32], "tag": vec![0u8; 32], "sealed": [] });
+    let create = json!({ "op": { "CreateTeam": { "key": key, "blob": [] } } });
+    let (status, _, body) = call(&http, "POST", "/api/team", Some(&cookie), ORIGIN, Some(create)).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["Team"]["epoch"], 1);
+    assert_eq!(body["Team"]["members"][0]["role"], "Owner");
+
+    // Nothing but team requests goes this way.
+    let (status, _, _) = call(&http, "POST", "/api/team", Some(&cookie), ORIGIN, Some(json!({ "op": "Leave" }))).await;
+    assert_eq!(status, 400);
+}

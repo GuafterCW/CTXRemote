@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { api, errorText, type AccountDetails, type AccountView } from "./lib/api";
+  import { listen } from "@tauri-apps/api/event";
+  import { api, errorText, type AccountDetails, type AccountView, type TeamInfo } from "./lib/api";
   import Icon from "./lib/Icon.svelte";
+  import RiskConfirm from "./lib/RiskConfirm.svelte";
+  import { TEAM_ACCESS } from "./lib/risky";
+  import TeamPanel from "./lib/TeamPanel.svelte";
 
   let { account: initial, onclose }: { account: AccountView | null; onclose: () => void } = $props();
 
@@ -51,7 +55,19 @@
     }
   }
 
-  onMount(refresh);
+  // The account's team: the cached one at once, then a sync; later changes arrive as events.
+  let team = $state<TeamInfo | null>(null);
+  let askingTeamAccess = $state(false);
+
+  onMount(() => {
+    refresh();
+    api.teamInfo().then((t) => (team = t)).catch(() => {});
+    api.teamRefresh().then((t) => (team = t)).catch(() => {});
+    const unlisten = listen("team-changed", () => api.teamInfo().then((t) => (team = t)).catch(() => {}));
+    return () => {
+      unlisten.then((f) => f());
+    };
+  });
 
   async function run(action: () => Promise<unknown>) {
     busy = true;
@@ -80,6 +96,10 @@
       editingLogin = false;
     });
   const setAccess = (enabled: boolean) => run(() => api.accountSetAccess(enabled));
+  const setTeamAccess = (enabled: boolean) =>
+    run(async () => {
+      team = await api.teamSetAccess(enabled);
+    });
   const showPairing = () => run(async () => (pairingCode = await api.accountPairingCode()));
   const remove = (key: string) =>
     run(async () => {
@@ -95,7 +115,8 @@
 
   function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (busy) return;
+    // Only the login forms submit; the team section has its own buttons.
+    if (busy || (account && !editingLogin)) return;
     if (editingLogin) return setLogin();
     if (mode === "login") return login();
     if (mode === "register") return register();
@@ -123,7 +144,7 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && !recoveryCode && onclose()} />
+<svelte:window onkeydown={(e) => e.key === "Escape" && !recoveryCode && !askingTeamAccess && onclose()} />
 
 <div class="scrim" role="presentation" onclick={() => !recoveryCode && onclose()}></div>
 <form class="sheet" onsubmit={submit}>
@@ -220,6 +241,8 @@
         {/if}
       </section>
 
+      <TeamPanel {team} onupdate={(t) => (team = t)} />
+
       <section class="group section">
         <h3>Zugriff ohne Passwort</h3>
         <label class="check top">
@@ -240,6 +263,26 @@
           Für unbeaufsichtigten Zugriff, z. B. auf den eigenen Büro-PC. Nur Geräte, die zu diesem Zeitpunkt noch im
           Konto sind, kommen rein. Mit dem Remocto-Dienst fragt Windows nach Administratorrechten.
         </span>
+        {#if team}
+          <label class="check top">
+            <input
+              type="checkbox"
+              checked={team.access}
+              disabled={busy}
+              onchange={(e) => {
+                // Stays as stored until the refresh arrives; switching on asks first.
+                const enabled = e.currentTarget.checked;
+                e.currentTarget.checked = team!.access;
+                if (enabled) askingTeamAccess = true;
+                else setTeamAccess(false);
+              }}
+            />
+            <span>Mitglieder des Teams „{team.name}“ dürfen sich ohne Passwort mit diesem Gerät verbinden</span>
+          </label>
+          <span class="note">
+            Gilt für alle Mitglieder, auch Techniker. Wer das Team verlässt oder entfernt wird, kommt nicht mehr herein.
+          </span>
+        {/if}
       </section>
 
       <section class="group section">
@@ -317,6 +360,14 @@
     {/if}
   </div>
 </form>
+
+{#if askingTeamAccess}
+  <RiskConfirm
+    bit={TEAM_ACCESS}
+    oncancel={() => (askingTeamAccess = false)}
+    onconfirm={() => ((askingTeamAccess = false), setTeamAccess(true))}
+  />
+{/if}
 
 <style>
   .scrim {

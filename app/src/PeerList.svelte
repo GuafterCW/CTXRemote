@@ -1,14 +1,21 @@
 <script lang="ts">
-  import { api, errorText, peerLabel, type Peer } from "./lib/api";
+  import { api, canManageTeam, errorText, peerLabel, type Peer, type TeamDevice, type TeamInfo } from "./lib/api";
   import { formatId, isCompleteId, since } from "./lib/format";
   import Icon from "./lib/Icon.svelte";
 
   let {
     peers,
+    team,
     onpick,
     onterminal,
     onchange,
-  }: { peers: Peer[]; onpick: (peer: Peer) => void; onterminal: (peer: Peer) => void; onchange: () => void } = $props();
+  }: {
+    peers: Peer[];
+    team: TeamInfo | null;
+    onpick: (peer: Peer) => void;
+    onterminal: (peer: Peer) => void;
+    onchange: () => void;
+  } = $props();
 
   let editing = $state<string | null>(null);
   let draft = $state("");
@@ -41,6 +48,35 @@
     [...new Set(peers.flatMap((p) => p.tags))].sort((a, b) => a.localeCompare(b, "de")),
   );
   const shown = $derived(group && groups.includes(group) ? peers.filter((p) => p.tags.includes(group!)) : peers);
+
+  // The team's devices: their own view next to the groups.
+  let teamView = $state(false);
+  const inTeamView = $derived(teamView && team !== null);
+  const manage = $derived(canManageTeam(team));
+  const digits = (id: string) => id.replace(/\D/g, "");
+  const inBook = (id: string) => team?.devices.some((d) => d.inBook && digits(d.id) === digits(id)) ?? false;
+
+  // A team device as a list entry: it opens without a password if a member allowed that.
+  const asPeer = (d: TeamDevice): Peer => ({
+    id: d.id,
+    alias: d.name || null,
+    name: "",
+    lastSeen: 0,
+    access: d.open,
+    wake: false,
+    tags: [],
+    online: null,
+  });
+
+  // The home screen hears about the result through `team-changed`.
+  async function teamBook(action: () => Promise<unknown>) {
+    error = "";
+    try {
+      await action();
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
 
   function startTags(peer: Peer) {
     tagging = peer.id;
@@ -157,16 +193,65 @@
   <p class="notice">{notice}</p>
 {/if}
 
-{#if groups.length > 0}
+{#if groups.length > 0 || team}
   <div class="groups" role="group" aria-label="Gruppen">
-    <button class="chip" class:on={group === null} onclick={() => (group = null)}>Alle</button>
+    <button class="chip" class:on={group === null && !inTeamView} onclick={() => ((group = null), (teamView = false))}>Alle</button>
     {#each groups as g (g)}
-      <button class="chip" class:on={group === g} onclick={() => (group = group === g ? null : g)}>{g}</button>
+      <button
+        class="chip"
+        class:on={!inTeamView && group === g}
+        onclick={() => ((teamView = false), (group = group === g ? null : g))}>{g}</button
+      >
     {/each}
+    {#if team}
+      <button class="chip team" class:on={inTeamView} onclick={() => (teamView = !teamView)}>
+        <Icon name="users" size={13} /> {team.name}
+      </button>
+    {/if}
   </div>
 {/if}
 
-{#if sorted.length > 0}
+{#if inTeamView && team}
+  {#if team.devices.length > 0}
+    <ul>
+      {#each team.devices as device (device.id)}
+        <li>
+          <button class="row peer" onclick={() => onpick(asPeer(device))}>
+            <span class="peer-icon"><Icon name="monitor" size={18} /></span>
+            <span class="peer-text">
+              <span class="peer-name">
+                {device.name || "Unbenanntes Gerät"}{#if device.open}<span class="access">ohne Passwort</span>{/if}
+              </span>
+              <span class="peer-id">{device.id}</span>
+              {#if device.open && device.openedBy}<span class="shared">freigegeben von {device.openedBy}</span>{/if}
+            </span>
+          </button>
+          <div class="actions">
+            <button class="icon-btn small" title="Nur Terminal öffnen, ohne Bildschirm" aria-label="Nur Terminal öffnen, ohne Bildschirm" onclick={() => onterminal(asPeer(device))}>
+              <Icon name="terminal" size={15} />
+            </button>
+            {#if manage && device.inBook}
+              <button
+                class="icon-btn small"
+                title="Aus Team-Adressbuch entfernen"
+                aria-label="Aus Team-Adressbuch entfernen"
+                onclick={() => teamBook(() => api.teamRemoveDevice(device.id))}
+              >
+                <Icon name="trash" size={15} />
+              </button>
+            {/if}
+          </div>
+        </li>
+      {/each}
+    </ul>
+  {:else}
+    <p class="empty">
+      Im Adressbuch von „{team.name}“ ist noch kein Gerät.{manage
+        ? " Eigene Geräte nehmen Sie in der Liste „Alle“ mit dem Team-Symbol auf."
+        : ""}
+    </p>
+  {/if}
+{:else if sorted.length > 0}
   <ul>
     {#each sorted as peer (peer.id)}
       <li class:editing={editing === peer.id}>
@@ -233,6 +318,16 @@
                 onclick={() => wake(peer)}
               >
                 <Icon name="power" size={15} />
+              </button>
+            {/if}
+            {#if manage && !inBook(peer.id)}
+              <button
+                class="icon-btn small"
+                title="Ins Team-Adressbuch"
+                aria-label="Ins Team-Adressbuch"
+                onclick={() => teamBook(() => api.teamAddDevice(peer.id, peerLabel(peer)))}
+              >
+                <Icon name="users" size={15} />
               </button>
             {/if}
             <button class="icon-btn small" title="Gruppen" onclick={() => startTags(peer)}>
@@ -439,6 +534,17 @@
     background: transparent;
     color: var(--ink-2);
     font-size: 12px;
+  }
+
+  .chip.team {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .shared {
+    color: var(--ink-3);
+    font-size: 11.5px;
   }
 
   .chip.on {

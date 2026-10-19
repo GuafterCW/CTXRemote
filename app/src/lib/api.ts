@@ -152,6 +152,49 @@ export interface AccountDetails {
   devices: AccountDevice[];
 }
 
+/** Mirrors `TeamRole` in crates/proto/src/account.rs. */
+export type TeamRole = "Owner" | "Admin" | "Technician";
+
+export interface TeamMember {
+  id: number;
+  role: TeamRole;
+  email: string | null;
+  /** The team key vouches for the member's key. */
+  verified: boolean;
+  /** Unix seconds. */
+  since: number;
+  me: boolean;
+}
+
+export interface TeamDevice {
+  id: string;
+  name: string;
+  /** In the shared address book. */
+  inBook: boolean;
+  /** A member opened it to the team: connecting needs no password. */
+  open: boolean;
+  /** Who opened it (address or "Konto n"). */
+  openedBy: string | null;
+}
+
+/** Mirrors `TeamInfo` in app/src-tauri/src/team.rs. */
+export interface TeamInfo {
+  name: string;
+  /** This account's role. */
+  role: TeamRole;
+  me: number;
+  epoch: number;
+  members: TeamMember[];
+  devices: TeamDevice[];
+  /** This device lets the team's members in without a password. */
+  access: boolean;
+  /** Why the last team sync failed, if it did. */
+  error: string | null;
+}
+
+/** Owners and admins manage the team; technicians only use it. */
+export const canManageTeam = (team: TeamInfo | null): boolean => team?.role === "Owner" || team?.role === "Admin";
+
 export interface DisplayInfo {
   index: number;
   name: string;
@@ -317,7 +360,10 @@ export type Outcome =
   | "account"
   | "wrongPassword"
   | "notMember"
-  | "declined";
+  | "declined"
+  | "wrongCode"
+  /** A member of the team, without a password. */
+  | "team";
 
 export interface Visit {
   /** Unix seconds. */
@@ -355,6 +401,25 @@ export const api = {
   accountSetAccess: (enabled: boolean) => invoke<void>("account_set_access", { enabled }),
   accountDetails: () => invoke<AccountDetails>("account_details"),
   accountRemoveDevice: (publicKey: string) => invoke<void>("account_remove_device", { publicKey }),
+  /** The team as last seen (no network); null without a team. */
+  teamInfo: () => invoke<TeamInfo | null>("team_info"),
+  /** Syncs the team right away. */
+  teamRefresh: () => invoke<TeamInfo | null>("team_refresh"),
+  teamCreate: (name: string) => invoke<TeamInfo | null>("team_create", { name }),
+  teamJoin: (code: string) => invoke<TeamInfo | null>("team_join", { code }),
+  /** "Owner" hands the team over. */
+  teamSetRole: (member: number, role: TeamRole) => invoke<TeamInfo | null>("team_set_role", { member, role }),
+  /** The team moves to a new key at once. */
+  teamRemove: (member: number) => invoke<TeamInfo | null>("team_remove", { member }),
+  teamRename: (name: string) => invoke<TeamInfo | null>("team_rename", { name }),
+  teamAddDevice: (id: string, name: string) => invoke<TeamInfo | null>("team_add_device", { id, name }),
+  teamRemoveDevice: (id: string) => invoke<TeamInfo | null>("team_remove_device", { id }),
+  /** With the service this triggers a Windows UAC prompt. */
+  teamSetAccess: (enabled: boolean) => invoke<TeamInfo | null>("team_set_access", { enabled }),
+  /** A code like "ABCD-EFGH-JKMN" for a new member; valid for ten minutes, once. */
+  teamInvite: (role: "Admin" | "Technician") => invoke<string>("team_invite", { role }),
+  teamLeave: () => invoke<void>("team_leave"),
+  teamDelete: () => invoke<void>("team_delete"),
   /** An empty profile removes it; returns the profile as stored. */
   saveProfile: (profile: Profile) => invoke<Profile | null>("save_profile", { profile }),
   forgetPeer: (id: string) => invoke<void>("forget_peer", { id }),

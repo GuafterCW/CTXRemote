@@ -513,4 +513,29 @@ mod tests {
         assert!(!tag_ok(&[9; 32], &TeamMember { key: None, ..member }));
         assert_ne!(access_password(&[9; 32], DeviceId::new(123_456_789).unwrap()), access_password(&[8; 32], DeviceId::new(123_456_789).unwrap()));
     }
+
+    /// The web interface (web/src/lib/crypto.ts, scripts/vectors.mjs) must
+    /// give the same results; these values are checked there too.
+    #[test]
+    fn vectors_stay_stable() {
+        let public = exchange_public(&[1; 32]);
+        assert_eq!(hex::encode(public), "16ae5d36023369e4763ae8a0ae2b6bab2bec03b4ca2c72d9936079733aebe125");
+        assert_eq!(hex::encode(tag(&[9; 32], 5, &public)), "380f0d7c20be9e5f0db88b309f6060561e8be16e00edb0568fdcbbc0bd15799f");
+        assert_eq!(
+            access_password(&[9; 32], DeviceId::new(123_456_789).unwrap()),
+            "c2fbab987d58ab1b2eec0a1c9c8d24b7e10c2772a9496694d4ec57c12ed7f541"
+        );
+        let ctx = context(&[7; 16], 3);
+        let sealed = hex::decode("ab3db33ad7f1bca84cb50c22cc91ffaf2ca5121e9b134f211d1489d5b597591a9de4b6d8cbd87723503747a7cc29ab881a1afc178c39c15247820de2bc57f2471cbad5abec32e3cc9434794f4d7af516638087c9c8517c5dce346805").unwrap();
+        assert_eq!(open_with(&exchange_secret(&[1; 32]), &ctx, &sealed).unwrap(), [9; 32]);
+        let book = hex::decode("6d52a2542760ef9708a4f728b8f5a47e9f71d3d566ae9ad652c02f73d1723896a961a7309b0ba4a6aa2ce141d2b1764e356b29a79db1047fefa40e6cb0f8f9f217280ebafa8c80994c4fc8730803d0b3a45417").unwrap();
+        assert_eq!(
+            open(&[9; 32], &aad(BOOK_AAD, &[7; 16], 3), &book).unwrap(),
+            br#"{"name":"Werkstatt","book":{"entries":{},"removed":{}}}"#
+        );
+        let list = hex::decode("2b07cde8b3253f9d3f463811823a4790623d53a611c151f7f9d1f634376bd98c267f998fa97bfab2e75013167cd4620a2763cbf0ea253c8a7bb419e87a69c63488").unwrap();
+        assert_eq!(open(&[9; 32], &access_aad(&[7; 16], 3, 5), &list).unwrap(), br#"{"hosts":{"123456789":["Empfang",1]}}"#);
+        let invite = hex::decode("b6b26c564ca21849b807b7ec218151220e485e2c96cef16fc5fb7318a0a4565a99dabd4ecfc16eca07e3e862c989778bdfde63c9b1d01eefdd6a2216").unwrap();
+        assert_eq!(open(&[4; 32], &aad(INVITE_AAD, &[7; 16], 3), &invite).unwrap(), [9; 32]);
+    }
 }

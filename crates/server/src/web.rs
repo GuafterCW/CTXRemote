@@ -253,6 +253,7 @@ pub async fn serve(server: Arc<Server>, addr: SocketAddr, origin: Option<String>
         .route("/api/verify", post(verify))
         .route("/api/verify/resend", post(resend_verification))
         .route("/api/status", get(status))
+        .route("/api/team", post(team))
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(api);
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -566,6 +567,28 @@ async fn pairing(
     let op = AccountOp::OfferPairing { code_id: body.code_id, salt: body.salt, verifier: body.verifier, sealed: body.sealed };
     api.op(id, op)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct TeamJson {
+    op: AccountOp,
+}
+
+/// The team requests (see `docs/ACCOUNTS.md`, "Teams") as they are: the
+/// browser does the same cryptography as the app, so the server only
+/// passes them on for the signed-in account, like a device's.
+async fn team(
+    State(api): State<Api>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<TeamJson>,
+) -> ApiResult<Json<AccountReply>> {
+    api.guard(&Method::POST, &headers, peer)?;
+    let id = api.signed_in(&headers)?;
+    if !body.op.is_team() {
+        return Err(bad("Nur Anfragen zum Team"));
+    }
+    Ok(Json(api.op(id, body.op)?))
 }
 
 #[derive(Deserialize)]

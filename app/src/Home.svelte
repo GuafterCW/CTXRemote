@@ -12,6 +12,7 @@
     type Overview,
     type Peer,
     type Presence,
+    type TeamInfo,
   } from "./lib/api";
   import { formatId, isCompleteId, isPublicAlias } from "./lib/format";
   import { MOBILE } from "./lib/platform";
@@ -138,6 +139,14 @@
     });
   }
 
+  // The account's team, for its devices in the list; null without one.
+  let team = $state<TeamInfo | null>(null);
+  const loadTeam = () =>
+    api
+      .teamInfo()
+      .then((t) => (team = t))
+      .catch(() => {});
+
   /** macOS: what still has to be allowed before this Mac can be controlled. */
   let permissions = $state<{ screen: boolean; input: boolean } | null>(null);
   const checkPermissions = () =>
@@ -158,7 +167,9 @@
     window.addEventListener("focus", onFocus);
     const unlistenFocus = () => window.removeEventListener("focus", onFocus);
     refresh();
+    loadTeam();
     const subscriptions = [
+      listen("team-changed", () => loadTeam()),
       listen<string>("update-available", () => refresh()),
       listen<Presence>("presence", (e) => {
         presence = e.payload;
@@ -705,7 +716,7 @@
       {/if}
 
       <div class="recent">
-        <PeerList {peers} onpick={(peer) => choose(peer)} onterminal={(peer) => choose(peer, true)} onchange={refresh} />
+        <PeerList {peers} {team} onpick={(peer) => choose(peer)} onterminal={(peer) => choose(peer, true)} onchange={refresh} />
       </div>
     </section>
   </main>

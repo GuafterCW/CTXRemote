@@ -3,7 +3,7 @@
   import { RISKY } from "./risky";
 
   // Asks before a right that hands over more than the screen is switched on.
-  let { bit, onconfirm, oncancel }: { bit: number; onconfirm: () => void; oncancel: () => void } = $props();
+  let { bit, onconfirm, oncancel }: { bit: number | string; onconfirm: () => void; oncancel: () => void } = $props();
 
   const risk = $derived(RISKY[bit]);
   let cancelButton = $state<HTMLButtonElement>();
@@ -20,7 +20,7 @@
     <ul id="risk-points">
       {#each risk.points as point (point)}<li>{point}</li>{/each}
     </ul>
-    <p class="trust">Nur erlauben, wenn Sie der Gegenseite voll vertrauen.</p>
+    <p class="trust">{risk.trust ?? "Nur erlauben, wenn Sie der Gegenseite voll vertrauen."}</p>
     <div class="actions">
       <button bind:this={cancelButton} class="btn btn-quiet small" onclick={oncancel}>Abbrechen</button>
       <button class="btn btn-danger small" onclick={onconfirm}>Trotzdem erlauben</button>

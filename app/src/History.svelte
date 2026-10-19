@@ -30,9 +30,11 @@
     wrongPassword: "Falsches Passwort",
     notMember: "Kein Kontomitglied",
     declined: "Abgelehnt",
+    wrongCode: "Falscher Code",
+    team: "Teammitglied, ohne Passwort",
   };
 
-  const refused = (o: Outcome) => o === "wrongPassword" || o === "notMember" || o === "declined";
+  const refused = (o: Outcome) => o === "wrongPassword" || o === "notMember" || o === "declined" || o === "wrongCode";
 
   function when(seconds: number): string {
     const date = new Date(seconds * 1000);
@@ -102,7 +104,7 @@
               <span class="when">{when(v.started)}</span>
             </span>
             <span class="meta">
-              <span class="outcome" class:bad={refused(v.outcome)} class:accent={v.outcome === "account"}>
+              <span class="outcome" class:bad={refused(v.outcome)} class:accent={v.outcome === "account" || v.outcome === "team"}>
                 {labels[v.outcome]}
               </span>
               {#if length}<span class="length">{length}</span>{/if}
