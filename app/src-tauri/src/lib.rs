@@ -7,6 +7,8 @@ mod login_item;
 mod quick;
 #[cfg(not(feature = "quick"))]
 mod service;
+#[cfg(not(feature = "quick"))]
+mod team;
 #[cfg(all(desktop, not(feature = "quick")))]
 mod store;
 
@@ -345,7 +347,8 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
                 alias: p.alias.clone(),
                 name: p.name.clone(),
                 last_seen: p.last_seen,
-                access: ctxremote_core::account::access_for(&config, p.id).is_some(),
+                access: ctxremote_core::account::access_for(&config, p.id).is_some()
+                    || ctxremote_core::team::access_for(&config, p.id).is_some(),
                 wake: !p.macs.is_empty(),
                 tags: p.tags.clone(),
                 #[cfg(not(feature = "quick"))]
@@ -802,7 +805,10 @@ async fn connect(
         let config = state.config.read().unwrap();
         let profile = config.profile.as_ref().and_then(Profile::to_wire);
         if password.is_empty() {
-            let access = ctxremote_core::account::access_for(&config, target).ok_or("Bitte das Passwort eingeben")?;
+            // The account first, then the team (docs/ACCOUNTS.md, "Teams").
+            let access = ctxremote_core::account::access_for(&config, target)
+                .or_else(|| ctxremote_core::team::access_for(&config, target))
+                .ok_or("Bitte das Passwort eingeben")?;
             (access, Some(config.signing_key().map_err(err)?), profile)
         } else {
             (password, None, profile)
@@ -1956,12 +1962,25 @@ pub fn run() {
         account::account_set_login,
         account::account_details,
         account::account_remove_device,
-        account::account_set_access
+        account::account_set_access,
+        team::team_info,
+        team::team_refresh,
+        team::team_create,
+        team::team_invite,
+        team::team_join,
+        team::team_set_role,
+        team::team_remove,
+        team::team_leave,
+        team::team_delete,
+        team::team_rename,
+        team::team_add_device,
+        team::team_remove_device,
+        team::team_set_access
     ];
     #[cfg(feature = "quick")]
     let builder = builder.manage(quick::Approvals::default());
     #[cfg(not(feature = "quick"))]
-    let builder = builder.manage(account::Sync::default());
+    let builder = builder.manage(account::Sync::default()).manage(team::TeamCache::default());
 
     builder
         .setup(|app| {

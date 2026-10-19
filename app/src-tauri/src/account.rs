@@ -89,6 +89,12 @@ impl Sync {
     pub fn poke(&self) {
         self.wake.notify_one();
     }
+
+    /// Held by whatever changes the account or team, so a background sync
+    /// does not write over it.
+    pub fn turn(&self) -> &tokio::sync::Mutex<()> {
+        &self.turn
+    }
 }
 
 #[derive(Serialize)]
@@ -157,6 +163,8 @@ async fn sync_now(app: &AppHandle) {
             *sync.error.lock().unwrap() = Some(format!("{e:#}"));
         }
     }
+    // The team rides along; without an account it is forgotten.
+    crate::team::sync(app).await;
 }
 
 /// Creates an account with this device and uploads the current list.

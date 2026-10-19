@@ -813,6 +813,14 @@ struct SettingsRequest {
     /// Set instead when only the authenticator secret changes.
     #[serde(default)]
     code: Option<CodeChange>,
+    /// Set instead when only the access for the team's members changes.
+    #[serde(default)]
+    team: Option<TeamChange>,
+}
+
+#[derive(serde::Deserialize)]
+struct TeamChange {
+    grant: Option<ctxremote_core::team::TeamAccessGrant>,
 }
 
 #[derive(serde::Deserialize)]
@@ -865,7 +873,9 @@ fn apply_settings(request: &[u8]) -> Result<(), String> {
         .await
         .map_err(|e| format!("{e:#}"))?;
         let direct = request.direct.clone();
-        match (&direct, request.access, request.rights, request.code) {
+        if let Some(team) = request.team {
+            link.send(UiRequest::ConfigureTeamAccess(team.grant));
+        } else { match (&direct, request.access, request.rights, request.code) {
             (Some(settings), ..) => link.send(UiRequest::ConfigureDirect(settings.clone())),
             (None, Some(access), ..) => link.send(UiRequest::ConfigureAccountAccess(access.grant)),
             (None, None, Some(rights), _) => {
@@ -876,7 +886,7 @@ fn apply_settings(request: &[u8]) -> Result<(), String> {
                 server: request.server,
                 permanent_password: request.permanent_password,
             }),
-        }
+        } }
         let result = match tokio::time::timeout(Duration::from_secs(10), answer.recv()).await {
             Ok(Some(result)) => result,
             _ => Err("Der Dienst hat nicht geantwortet".into()),

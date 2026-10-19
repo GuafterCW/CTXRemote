@@ -96,6 +96,12 @@ impl Service {
         }
     }
 
+    /// Renews the team grant for a later epoch; needs no elevation, the
+    /// service checks it only renews what an administrator granted.
+    pub fn renew_team_access(&self, grant: ctxremote_core::team::TeamAccessGrant) {
+        self.send(UiRequest::RenewTeamAccess(grant));
+    }
+
     /// Asks for a new one-time password and waits for the service to report it.
     pub async fn refresh_password(&self) -> String {
         let mut rx = self.state.subscribe();
@@ -188,6 +194,13 @@ struct Request<'a> {
     rights: Option<RightsChange>,
     /// When set, the helper only changes the authenticator secret.
     code: Option<CodeChange>,
+    /// When set, the helper only changes the access for the team's members.
+    team: Option<TeamChange>,
+}
+
+#[derive(serde::Serialize)]
+struct TeamChange {
+    grant: Option<ctxremote_core::team::TeamAccessGrant>,
 }
 
 #[derive(serde::Serialize)]
@@ -235,6 +248,11 @@ pub async fn configure_code(secret: Option<String>) -> Result<(), String> {
 /// Lets the account's devices in without a password (`None`: no longer), the same way.
 pub async fn configure_access(grant: Option<AccessGrant>) -> Result<(), String> {
     elevated(move |file, exe| run_elevated(exe, file, &Request { access: Some(AccessChange { grant }), ..Default::default() })).await
+}
+
+/// Lets the team's members in without a password (`None`: no longer), the same way.
+pub async fn configure_team_access(grant: Option<ctxremote_core::team::TeamAccessGrant>) -> Result<(), String> {
+    elevated(move |file, exe| run_elevated(exe, file, &Request { team: Some(TeamChange { grant }), ..Default::default() })).await
 }
 
 async fn elevated(
