@@ -48,6 +48,10 @@ pub struct ServiceState {
     /// Devices of the account may connect without a password.
     #[serde(default)]
     pub account_access: bool,
+    /// Members of the team may connect without a password: the team (hex)
+    /// and epoch of the grant.
+    #[serde(default)]
+    pub team_access: Option<(String, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +81,12 @@ pub enum UiRequest {
     /// Sets or drops the authenticator secret for the permanent password;
     /// elevated administrators only.
     ConfigureCode(Option<String>),
+    /// Lets the team's members in without a password (`None`: no longer);
+    /// elevated administrators only, like `ConfigureAccountAccess`.
+    ConfigureTeamAccess(Option<crate::team::TeamAccessGrant>),
+    /// The same grant for the team's next epoch; any signed-in user, as it
+    /// opens nothing new (see [`crate::team::TeamAccessGrant::renewed_by`]).
+    RenewTeamAccess(crate::team::TeamAccessGrant),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +230,11 @@ mod imp {
             chat_sessions: host.chat_sessions(),
             public_alias: config.public_alias.clone(),
             account_access: config.account_access.as_ref().is_some_and(|g| Some(g.host) == config.device_id),
+            team_access: config
+                .team_access
+                .as_ref()
+                .filter(|g| Some(g.host) == config.device_id)
+                .map(|g| (g.team.clone(), g.epoch)),
             direct: config.direct_settings(),
             direct_active: host.direct_active(),
         }
@@ -282,6 +297,24 @@ mod imp {
                             UiEvent::Configured(answer)
                         }
                         UiRequest::History => UiEvent::History(host.history()),
+                        UiRequest::ConfigureTeamAccess(grant) => {
+                            let answer = if is_elevated_admin(HANDLE(handle as _)) {
+                                configure_team_access(&config, grant, false)
+                            } else {
+                                Err("Nur Administratoren dürfen die Einstellungen des Dienstes ändern".into())
+                            };
+                            if answer.is_ok() {
+                                changed.send_replace(());
+                            }
+                            UiEvent::Configured(answer)
+                        }
+                        UiRequest::RenewTeamAccess(grant) => {
+                            let answer = configure_team_access(&config, Some(grant), true);
+                            if answer.is_ok() {
+                                changed.send_replace(());
+                            }
+                            UiEvent::Configured(answer)
+                        }
                         UiRequest::ConfigureAccountAccess(grant) => {
                             let answer = if is_elevated_admin(HANDLE(handle as _)) {
                                 configure_account_access(&config, grant)
@@ -399,6 +432,28 @@ mod imp {
         config.account_access = grant;
         config.save().map_err(|e| format!("Einstellungen nicht gespeichert: {e:#}"))?;
         info!(open, "Zugriff für Geräte des Kontos geändert");
+        Ok(())
+    }
+
+    /// Sets the team grant; `renewal`: only the same grant for a later epoch.
+    fn configure_team_access(
+        config: &RwLock<Config>,
+        grant: Option<crate::team::TeamAccessGrant>,
+        renewal: bool,
+    ) -> Result<(), String> {
+        let mut config = config.write().unwrap();
+        if let Some(grant) = &grant {
+            if Some(grant.host) != config.device_id || grant.witness_key().is_none() || grant.password.len() != 64 {
+                return Err("Die Freigabe passt nicht zu diesem Gerät".into());
+            }
+            if renewal && !config.team_access.as_ref().is_some_and(|old| old.renewed_by(grant)) {
+                return Err("Die Freigabe für das Team wurde hier nicht erteilt".into());
+            }
+        }
+        let open = grant.is_some();
+        config.team_access = grant;
+        config.save().map_err(|e| format!("Einstellungen nicht gespeichert: {e:#}"))?;
+        info!(open, renewal, "Zugriff für das Team geändert");
         Ok(())
     }
 

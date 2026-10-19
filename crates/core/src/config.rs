@@ -51,6 +51,13 @@ pub struct Config {
     pub access: std::collections::BTreeMap<u32, crate::account::Access>,
     /// Set when this device lets the account's devices in without a password.
     pub account_access: Option<crate::account::AccessGrant>,
+    /// The account's team and its current key (see `crate::team`).
+    pub team: Option<crate::team::TeamLink>,
+    /// Devices that let the team in without a password (device ID → name),
+    /// from the members' access lists.
+    pub team_open: std::collections::BTreeMap<u32, String>,
+    /// Set when this device lets its team's members in without a password.
+    pub team_access: Option<crate::team::TeamAccessGrant>,
     /// What viewers may do in sessions opened with the one-time password,
     /// i.e. with someone at the computer. Changeable per session.
     pub rights_attended: Permissions,
@@ -139,6 +146,9 @@ impl Default for Config {
             account: None,
             access: Default::default(),
             account_access: None,
+            team: None,
+            team_open: Default::default(),
+            team_access: None,
             rights_attended: Permissions::ATTENDED,
             rights_unattended: Permissions::ALL,
             code_secret: None,

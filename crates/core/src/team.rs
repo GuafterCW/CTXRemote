@@ -420,6 +420,68 @@ pub async fn delete(server: &str, key: &SigningKey) -> Result<()> {
     request(server, key, AccountOp::DeleteTeam).await.map(|_| ())
 }
 
+/// What a host needs to let its team's members in without a password.
+/// Kept in the host's config; for the service handed over elevated once,
+/// then renewed with each epoch (see "Zugriff ohne Passwort im Team").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamAccessGrant {
+    /// The device ID the password is for.
+    pub host: DeviceId,
+    /// The team (hex) and epoch the password belongs to.
+    pub team: String,
+    pub epoch: u32,
+    /// [`access_password`] for `host`.
+    pub password: String,
+    /// Hex public key of a member device on this computer (the app's): a
+    /// viewer must be in the same team as this key, the server says.
+    pub witness: String,
+}
+
+impl TeamAccessGrant {
+    /// For `host`, from the team of `config` (the app's own config).
+    pub fn for_host(config: &crate::config::Config, host: DeviceId) -> Result<Self> {
+        let team = config.team.as_ref().context("Dieses Konto gehört zu keinem Team")?;
+        Ok(Self {
+            host,
+            team: team.id.clone(),
+            epoch: team.epoch,
+            password: access_password(&team.key()?, host),
+            witness: hex::encode(config.signing_key()?.verifying_key().to_bytes()),
+        })
+    }
+
+    pub fn witness_key(&self) -> Option<[u8; 32]> {
+        hex::decode(&self.witness).ok()?.try_into().ok()
+    }
+
+    /// Whether `next` only renews this grant for a later epoch of the same
+    /// team, host and witness; that needs no elevation.
+    pub fn renewed_by(&self, next: &Self) -> bool {
+        next.host == self.host && next.team == self.team && next.witness == self.witness && next.epoch > self.epoch
+    }
+}
+
+/// The team's access password for connecting to `target`, if a member said
+/// it lets the team in without a password.
+pub fn access_for(config: &crate::config::Config, target: DeviceId) -> Option<String> {
+    let team = config.team.as_ref()?;
+    config.team_open.contains_key(&target.get()).then_some(())?;
+    Some(access_password(&team.key().ok()?, target))
+}
+
+/// Whether the server counts both device keys as confirmed members of one
+/// team. Anything but a clear yes (old server, error) is a no.
+pub async fn same_team(server: &str, a: [u8; 32], b: [u8; 32]) -> bool {
+    use ctxremote_proto::framing;
+    use ctxremote_proto::rendezvous::{ClientMsg, ServerMsg};
+    let ask = async {
+        let (mut t, _) = crate::net::dial(server).await?;
+        framing::send(&mut t, &ClientMsg::SameTeam { a, b }).await?;
+        anyhow::Ok(matches!(framing::recv::<ServerMsg>(&mut t).await?, ServerMsg::SameTeam(true)))
+    };
+    matches!(tokio::time::timeout(std::time::Duration::from_secs(15), ask).await, Ok(Ok(true)))
+}
+
 /// Unix milliseconds, for access list entries.
 pub fn stamp() -> u64 {
     now_ms()

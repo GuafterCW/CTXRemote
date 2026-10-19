@@ -63,6 +63,8 @@ pub enum ServerMsg {
     /// Answer to `ClientMsg::HelpRequest`: `Offline` if the inviting device
     /// is not reachable right now.
     HelpSent(Result<(), ServerError>),
+    /// Answer to `SameTeam`.
+    SameTeam(bool),
 }
 
 /// What a registering host can do beyond the first version, sent as a
@@ -145,6 +147,10 @@ pub enum ClientMsg {
     /// forward this offer to `to`, whose invitation link it came from (see
     /// [`crate::invite`]). The server answers `HelpSent`.
     HelpRequest { to: DeviceId, hint: [u8; 4], sealed: Vec<u8> },
+    /// Whether two device keys belong to confirmed members of one team; a
+    /// host asks before it lets a team member in without a password (see
+    /// `docs/ACCOUNTS.md`, "Teams"). Servers from before this close the connection.
+    SameTeam { a: [u8; 32], b: [u8; 32] },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]

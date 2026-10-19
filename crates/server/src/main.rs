@@ -313,6 +313,14 @@ impl Server {
                 let same = self.accounts.lock().unwrap().same_account(&a, &b);
                 framing::send(&mut t, &ServerMsg::SameAccount(same)).await
             }
+            ClientMsg::SameTeam { a, b } => {
+                if !self.allow_connect(peer.ip()) {
+                    framing::send(&mut t, &ServerMsg::Error(ServerError::RateLimited)).await?;
+                    return Ok(());
+                }
+                let same = self.accounts.lock().unwrap().same_team(&a, &b);
+                framing::send(&mut t, &ServerMsg::SameTeam(same)).await
+            }
             // Rate-limited like connects: pairing codes must not be guessable quickly.
             ClientMsg::Account { auth, op } => {
                 let result = if !self.allow_account(peer.ip(), &op) {

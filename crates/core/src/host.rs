@@ -487,14 +487,23 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     }
 
     let one_time = shared.password.lock().unwrap().clone();
-    let (permanent, grant) = {
+    let (permanent, grant, team_grant) = {
         let config = shared.config.read().unwrap();
-        (config.permanent_password.clone(), config.account_access.clone().filter(|g| g.host == id))
+        (
+            config.permanent_password.clone(),
+            config.account_access.clone().filter(|g| g.host == id),
+            config.team_access.clone().filter(|g| g.host == id),
+        )
     };
     let mut passwords = vec![one_time.as_str()];
     passwords.extend(permanent.as_deref().filter(|p| !p.is_empty()));
     // Devices of the account: their own slot, see docs/ACCOUNTS.md.
     let account_slot = grant.as_ref().map(|g| {
+        passwords.push(g.password.as_str());
+        passwords.len() - 1
+    });
+    // Members of the team: one more slot, see "Teams" in docs/ACCOUNTS.md.
+    let team_slot = team_grant.as_ref().map(|g| {
         passwords.push(g.password.as_str());
         passwords.len() - 1
     });
@@ -542,9 +551,30 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
         }
         info!(%peer, "Zugriff über das Konto");
     }
+    // The same for the team: its key alone is not enough, the viewer's
+    // account must still be in it (who left keeps old keys).
+    if Some(slot) == team_slot {
+        let grant = team_grant.as_ref().expect("team slot has a grant");
+        let server = shared.config.read().unwrap().server_addr();
+        let member = match (&extras.member, grant.witness_key()) {
+            (Some(proof), Some(witness)) if proof.verify(id, &rx.binding()) => {
+                crate::team::same_team(&server, proof.public_key, witness).await
+            }
+            _ => false,
+        };
+        if !member {
+            record_failure(&shared);
+            shared.history.add(&peer, profile_name.as_deref(), Outcome::NotMember);
+            let mut tx = tx;
+            let _ = tx.send(&HostMsg::Bye("Dieses Gerät gehört nicht mehr zum Team".into())).await;
+            tx.close().await;
+            bail!("{peer}: Teamzugriff ohne gültige Mitgliedschaft");
+        }
+        info!(%peer, "Zugriff über das Team");
+    }
 
     // Two-factor: the permanent password also needs the authenticator code.
-    let permanent_slot = slot != 0 && Some(slot) != account_slot;
+    let permanent_slot = slot != 0 && Some(slot) != account_slot && Some(slot) != team_slot;
     let code_secret = shared.config.read().unwrap().code_secret.clone();
     let mut tx = tx;
     if let (true, Some(secret)) = (permanent_slot, code_secret) {
@@ -582,7 +612,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
             bail!("{peer}: {reason}");
         }
     }
-    admitted(shared, slot, account_slot, tx, rx, peer, features, profile, profile_name).await
+    admitted(shared, slot, (account_slot, team_slot), tx, rx, peer, features, profile, profile_name).await
 }
 
 /// After the passwords (and the code): approval, then the session itself.
@@ -590,7 +620,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
 async fn admitted(
     shared: Arc<Shared>,
     slot: usize,
-    account_slot: Option<usize>,
+    (account_slot, team_slot): (Option<usize>, Option<usize>),
     tx: SecureSender,
     rx: SecureReceiver,
     peer: String,
@@ -613,6 +643,7 @@ async fn admitted(
     let outcome = match slot {
         0 => Outcome::OneTimePassword,
         slot if Some(slot) == account_slot => Outcome::Account,
+        slot if Some(slot) == team_slot => Outcome::Team,
         _ => Outcome::PermanentPassword,
     };
     let visit = shared.history.add(&peer, profile_name.as_deref(), outcome);

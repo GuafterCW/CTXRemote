@@ -26,11 +26,13 @@ pub enum Outcome {
     Declined,
     /// The permanent password fitted, the code from the authenticator app not.
     WrongCode,
+    /// A member of the team, without a password.
+    Team,
 }
 
 impl Outcome {
     pub fn admitted(self) -> bool {
-        matches!(self, Self::OneTimePassword | Self::PermanentPassword | Self::Account)
+        matches!(self, Self::OneTimePassword | Self::PermanentPassword | Self::Account | Self::Team)
     }
 }
 
