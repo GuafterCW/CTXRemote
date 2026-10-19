@@ -193,6 +193,8 @@ export interface HostFeatures {
   typeText: boolean;
   /** Runs a command line for the viewer. */
   terminal: boolean;
+  /** Lists processes and services, ends and restarts them. */
+  processes: boolean;
 }
 
 /** Mirrors `SystemInfo` in crates/proto/src/session.rs. */
@@ -225,7 +227,51 @@ export const RIGHT = {
   PRIVACY: 1 << 5,
   TUNNEL: 1 << 6,
   TERMINAL: 1 << 7,
+  PROCESSES: 1 << 8,
 } as const;
+
+/** Mirrors `ProcessInfo` in crates/proto/src/session.rs. */
+export interface ProcessInfo {
+  pid: number;
+  parent: number | null;
+  name: string;
+  user: string;
+  /** Percent of one processor. */
+  cpu: number;
+  /** Bytes. */
+  memory: number;
+  exe: string;
+}
+
+export type ServiceState = "Running" | "Stopped" | "Starting" | "Stopping" | "Paused" | "Other";
+export type StartMode = "Automatic" | "Manual" | "Disabled" | "Other";
+export type ServiceActionName = "Start" | "Stop" | "Restart";
+
+/** Mirrors `ServiceInfo` in crates/proto/src/session.rs. */
+export interface ServiceInfo {
+  name: string;
+  display: string;
+  state: ServiceState;
+  start: StartMode;
+  pid: number | null;
+}
+
+/** Mirrors `ProcessListing`; `services` is null where the host has none. */
+export interface ProcessListing {
+  processes: ProcessInfo[];
+  services: ServiceInfo[] | null;
+  cpus: number;
+  memory_total: number;
+}
+
+/** The `processes-<n>` event: a listing, or how an action went. */
+export interface ProcessUpdate {
+  kind: "listing" | "done";
+  ok: boolean;
+  error: string;
+  what: string;
+  listing: ProcessListing | null;
+}
 
 /** Mirrors `Quality` in crates/proto/src/session.rs. */
 export type Quality = "Speed" | "Balanced" | "Sharp";
@@ -378,6 +424,11 @@ export const api = {
   terminalResize: (session: number, id: number, cols: number, rows: number) =>
     invoke<void>("terminal_resize", { session, id, cols, rows }),
   terminalClose: (session: number, id: number) => invoke<void>("terminal_close", { session, id }),
+  /** Asks for the host's processes and services (answer: `processes-<n>` event); false for old hosts. */
+  processesList: (session: number) => invoke<boolean>("processes_list", { session }),
+  processKill: (session: number, pid: number, name: string) => invoke<boolean>("process_kill", { session, pid, name }),
+  serviceAction: (session: number, name: string, action: ServiceActionName) =>
+    invoke<boolean>("service_action", { session, name, action }),
   /** Pauses or resumes the host's picture; false for hosts that always send it. */
   setVideo: (session: number, on: boolean) => invoke<boolean>("set_video", { session, on }),
   /** `127.0.0.1:port` here leads to `target` behind the host; returns the port. */

@@ -127,6 +127,7 @@
     [RIGHT.PRIVACY, "Bildschirm schwarz schalten"],
     [RIGHT.TUNNEL, "Port-Tunnel ins Netzwerk"],
     [RIGHT.TERMINAL, "Terminal", "Befehlszeile als angemeldeter Benutzer"],
+    [RIGHT.PROCESSES, "Prozesse und Dienste", "Prozesse beenden, Dienste starten und anhalten – mit den Rechten von Remocto (unter Windows Administrator)"],
   ];
 
   /** Returns false if the direct settings were rejected; the error shows in their section. */

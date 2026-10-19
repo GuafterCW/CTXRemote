@@ -19,7 +19,7 @@ use ctxremote_core::files::client::{FileClient, TransferEvent};
 use ctxremote_core::files::{self, UserContext};
 use ctxremote_core::host::{Host, Presence};
 use ctxremote_core::profile::Profile;
-use ctxremote_core::proto::session::{CursorShape, HostInfo, InputEvent, Listing, Permissions, Quality, TerminalMsg, VideoFrame, ViewerMsg};
+use ctxremote_core::proto::session::{CursorShape, HostInfo, InputEvent, Listing, Permissions, ProcessListing, ProcessMsg, Quality, ServiceAction, TerminalMsg, VideoFrame, ViewerMsg};
 use ctxremote_core::proto::DeviceId;
 #[cfg(not(feature = "quick"))]
 use ctxremote_core::ui_link::UiRequest;
@@ -702,6 +702,26 @@ async fn connect(
                 };
                 let _ = app.emit_to(session_label(&app, number), &format!("terminal-{number}"), update);
             }
+            ViewerEvent::Processes(msg) => {
+                let update = match msg {
+                    ProcessMsg::Listing(Ok(listing)) => {
+                        ProcessUpdate { kind: "listing", ok: true, error: String::new(), what: String::new(), listing: Some(listing) }
+                    }
+                    ProcessMsg::Listing(Err(error)) => {
+                        ProcessUpdate { kind: "listing", ok: false, error, what: String::new(), listing: None }
+                    }
+                    ProcessMsg::Done { what, result } => {
+                        let (ok, error) = match result {
+                            Ok(()) => (true, String::new()),
+                            Err(error) => (false, error),
+                        };
+                        ProcessUpdate { kind: "done", ok, error, what, listing: None }
+                    }
+                    // Only ever sent by the viewer.
+                    ProcessMsg::List | ProcessMsg::Kill { .. } | ProcessMsg::Service { .. } => return,
+                };
+                let _ = app.emit_to(session_label(&app, number), &format!("processes-{number}"), update);
+            }
             ViewerEvent::Rights(rights) => {
                 link.lock().unwrap().rights = Some(rights.0);
                 let _ = app.emit_to(session_label(&app, number), &format!("rights-{number}"), rights.0);
@@ -993,6 +1013,7 @@ struct Features {
     mic: bool,
     type_text: bool,
     terminal: bool,
+    processes: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -1013,6 +1034,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             mic: f.has(F::MIC),
             type_text: f.has(F::TYPE_TEXT),
             terminal: f.has(F::TERMINAL),
+            processes: f.has(F::PROCESSES),
         }
     }
 }
@@ -1233,6 +1255,46 @@ fn terminal_close(state: State<AppState>, session: u32, id: u32) {
     with_viewer(&state, session, |s| {
         s.terminal(TerminalMsg::Close { id });
     });
+}
+
+/// A process-list event for the session window: a listing, or how an action went.
+#[derive(Clone, Serialize)]
+struct ProcessUpdate {
+    kind: &'static str,
+    ok: bool,
+    error: String,
+    what: String,
+    listing: Option<ProcessListing>,
+}
+
+/// Asks the host for its processes and services; false for hosts that cannot tell.
+#[tauri::command]
+fn processes_list(state: State<AppState>, session: u32) -> bool {
+    let mut supported = false;
+    with_viewer(&state, session, |s| supported = s.processes(ProcessMsg::List));
+    supported
+}
+
+/// Ends process `pid` if it is still called `name`; the answer comes as a `done` event.
+#[tauri::command]
+fn process_kill(state: State<AppState>, session: u32, pid: u32, name: String) -> bool {
+    let mut supported = false;
+    with_viewer(&state, session, |s| supported = s.processes(ProcessMsg::Kill { pid, name }));
+    supported
+}
+
+/// Starts, stops or restarts a service; the answer comes as a `done` event.
+#[tauri::command]
+fn service_action(state: State<AppState>, session: u32, name: String, action: String) -> CmdResult<bool> {
+    let action = match action.as_str() {
+        "Start" => ServiceAction::Start,
+        "Stop" => ServiceAction::Stop,
+        "Restart" => ServiceAction::Restart,
+        _ => return Err("Unbekannte Aktion".into()),
+    };
+    let mut supported = false;
+    with_viewer(&state, session, |s| supported = s.processes(ProcessMsg::Service { name, action }));
+    Ok(supported)
 }
 
 /// Pauses or resumes the picture (a session with only a terminal); false for hosts that always send it.
@@ -1725,6 +1787,9 @@ macro_rules! handlers {
             terminal_input,
             terminal_resize,
             terminal_close,
+            processes_list,
+            process_kill,
+            service_action,
             set_video,
             close_tunnel,
             list_tunnels,

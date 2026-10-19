@@ -7,6 +7,7 @@
   import { api, CODE_NEEDED, errorText, RIGHT, type SystemInfo, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import TerminalPane from "./lib/TerminalPane.svelte";
+  import ProcessPane from "./lib/ProcessPane.svelte";
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
   import { SoundPlayer } from "./lib/sound";
@@ -52,7 +53,7 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false, draw: false, mic: false, typeText: false, terminal: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false, draw: false, mic: false, typeText: false, terminal: false, processes: false });
   /** What the host allows; null from older hosts, which allow everything. */
   let rights = $state<number | null>(null);
   const can = (right: number) => rights === null || (rights & right) !== 0;
@@ -86,11 +87,37 @@
     untrack(() => onterminal?.(only));
   });
 
+  /** The process list shares the side pane with the terminal (one at a time); mounted once opened. */
+  let processesOpen = $state(false);
+  let processesMounted = $state(false);
+  let processPane = $state<ReturnType<typeof ProcessPane>>();
+
+  function showProcesses() {
+    send("ReleaseAll");
+    processesMounted = true;
+    processesOpen = true;
+    terminalOpen = false;
+    keysOpen = false;
+    qualityOpen = false;
+    clearTimeout(hideTimer);
+  }
+
+  function toggleProcesses() {
+    if (processesOpen) {
+      processesOpen = false;
+      canvas?.focus();
+      hideToolbarSoon();
+    } else {
+      showProcesses();
+    }
+  }
+
   function showTerminal() {
     // Keys still held on the remote device would otherwise stay pressed while typing here.
     send("ReleaseAll");
     terminalMounted = true;
     terminalOpen = true;
+    processesOpen = false;
     keysOpen = false;
     qualityOpen = false;
     clearTimeout(hideTimer);
@@ -438,6 +465,7 @@
     const had = (bit: number) => before === null || (before & bit) !== 0;
     if (had(RIGHT.INPUT) && !can(RIGHT.INPUT)) showNotice("Die Gegenseite erlaubt nur noch das Ansehen.");
     else if (!had(RIGHT.INPUT) && can(RIGHT.INPUT)) showNotice("Maus und Tastatur sind jetzt erlaubt.");
+    else if (features.processes && had(RIGHT.PROCESSES) && !can(RIGHT.PROCESSES)) showNotice("Die Gegenseite hat Prozesse und Dienste gesperrt.");
     else if (features.terminal && had(RIGHT.TERMINAL) && !can(RIGHT.TERMINAL)) showNotice("Die Gegenseite hat das Terminal gesperrt.");
     // Taking sound away stops it at the host; giving it back starts it again if wanted.
     if (!had(RIGHT.AUDIO) && can(RIGHT.AUDIO) && soundOn && sound) api.setAudio(session, true).catch(() => {});
@@ -1102,7 +1130,7 @@
 />
 <svelte:document onvisibilitychange={() => document.hidden && send("ReleaseAll")} />
 
-<div class="stage" class:with-terminal={terminalOpen && !terminalOnly}>
+<div class="stage" class:with-terminal={(terminalOpen || processesOpen) && !terminalOnly}>
   <canvas
     bind:this={canvas}
     class:live={streaming}
@@ -1137,6 +1165,11 @@
       >
         {#snippet actions()}
           {#if terminalOnly}
+            {#if features.processes}
+              <button class="head-btn" title={can(RIGHT.PROCESSES) ? "Prozesse und Dienste des Geräts" : "Am Gerät nicht erlaubt"} disabled={!can(RIGHT.PROCESSES)} onclick={showProcesses}>
+                <Icon name="processes" size={14} /> Prozesse
+              </button>
+            {/if}
             <button class="head-btn" title="Das Bild des Geräts zusätzlich zeigen" onclick={showScreen}>
               <Icon name="monitor" size={14} /> Bildschirm zeigen
             </button>
@@ -1146,6 +1179,33 @@
           {/if}
         {/snippet}
       </TerminalPane>
+    </div>
+  {/if}
+
+  {#if processesMounted}
+    <div class="terminal-box process-box" class:full={terminalOnly} class:hidden={!processesOpen}>
+      <ProcessPane
+        bind:this={processPane}
+        {session}
+        hostname={host?.hostname ?? ""}
+        active={processesOpen && active}
+        disabled={closed !== null}
+        onclose={terminalOnly ? undefined : toggleProcesses}
+      >
+        {#snippet actions()}
+          {#if terminalOnly}
+            <button class="head-btn" title="Zurück zur Befehlszeile" onclick={showTerminal}>
+              <Icon name="terminal" size={14} /> Terminal
+            </button>
+            <button class="head-btn" title="Das Bild des Geräts zusätzlich zeigen" onclick={showScreen}>
+              <Icon name="monitor" size={14} /> Bildschirm zeigen
+            </button>
+            <button class="head-btn" title="Sitzung trennen" onclick={disconnect}>
+              <Icon name="power" size={14} /> Trennen
+            </button>
+          {/if}
+        {/snippet}
+      </ProcessPane>
     </div>
   {/if}
 
@@ -1310,6 +1370,18 @@
           onclick={toggleTerminal}
         >
           <Icon name="terminal" size={17} />
+        </button>
+      {/if}
+      {#if features.processes}
+        <button
+          class="tool"
+          class:active={processesOpen}
+          disabled={!can(RIGHT.PROCESSES)}
+          title={can(RIGHT.PROCESSES) ? "Prozesse und Dienste des Geräts" : "Am Gerät nicht erlaubt"}
+          aria-label="Prozesse"
+          onclick={toggleProcesses}
+        >
+          <Icon name="processes" size={17} />
         </button>
       {/if}
       {#if features.files && can(RIGHT.FILES)}
@@ -2035,6 +2107,14 @@
   .with-terminal .info-box,
   .with-terminal .chat-box {
     right: calc(14px + min(560px, 55%));
+  }
+
+  .terminal-box.process-box {
+    border-left-color: var(--line);
+  }
+
+  .terminal-box :global(.head-btn:disabled) {
+    opacity: 0.4;
   }
 
   .terminal-box.hidden {

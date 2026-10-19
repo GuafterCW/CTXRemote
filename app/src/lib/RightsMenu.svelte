@@ -20,6 +20,7 @@
     [RIGHT.AUDIO, "volume", "Ton"],
     [RIGHT.RESTART, "power", "Neu starten"],
     [RIGHT.TERMINAL, "terminal", "Terminal (Befehlszeile als angemeldeter Benutzer)"],
+    [RIGHT.PROCESSES, "processes", "Prozesse und Dienste (mit den Rechten von Remocto, unter Windows Administrator)"],
   ];
   // Only where nobody needs to sit at the computer (not in the quick helper).
   const UNATTENDED: Item[] = [
