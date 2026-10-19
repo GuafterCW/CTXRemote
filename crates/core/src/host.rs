@@ -10,7 +10,7 @@ use ctxremote_proto::framing;
 use ctxremote_proto::rendezvous::{sign_challenge, ClientMsg, HostCaps, ServerMsg, SessionId};
 use ctxremote_proto::framing::Transport;
 use ctxremote_proto::secure::{self, host_handshake, Refusal, SecureReceiver, SecureSender, TransportStream};
-use ctxremote_proto::session::{Features, FileOp, HelloExtras, HostMsg, InputEvent, Permissions, TerminalMsg, Transfer, TunnelMsg, ViewerMsg, MAX_CHAT};
+use ctxremote_proto::session::{Features, FileOp, HelloExtras, HostMsg, InputEvent, Permissions, ProcessMsg, TerminalMsg, Transfer, TunnelMsg, ViewerMsg, MAX_CHAT};
 use ctxremote_proto::DeviceId;
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -837,6 +837,7 @@ fn needed_right(msg: &ViewerMsg) -> Option<u32> {
         ViewerMsg::Terminal(TerminalMsg::Open { .. } | TerminalMsg::Data { .. } | TerminalMsg::Resize { .. }) => {
             Some(Permissions::TERMINAL)
         }
+        ViewerMsg::Processes(_) => Some(Permissions::PROCESSES),
         _ => None,
     }
 }
@@ -1066,6 +1067,19 @@ async fn run_session(
                         ViewerMsg::Terminal(TerminalMsg::Open { id, .. }) => {
                             let result = Err("Das Terminal ist in dieser Sitzung nicht erlaubt".to_string());
                             tx.send(&HostMsg::Terminal(TerminalMsg::Opened { id, result })).await?;
+                        }
+                        ViewerMsg::Processes(msg) => {
+                            let denied = "Prozesse und Dienste sind in dieser Sitzung nicht erlaubt".to_string();
+                            let reply = match msg {
+                                ProcessMsg::List => Some(ProcessMsg::Listing(Err(denied))),
+                                ProcessMsg::Kill { name, .. } | ProcessMsg::Service { name, .. } => {
+                                    Some(ProcessMsg::Done { what: name, result: Err(denied) })
+                                }
+                                _ => None,
+                            };
+                            if let Some(reply) = reply {
+                                tx.send(&HostMsg::Processes(reply)).await?;
+                            }
                         }
                         ViewerMsg::Privacy(_) if route.features.has(Features::PRIVACY) => {
                             let error = Some("Der Privatsphäre-Modus ist in dieser Sitzung nicht erlaubt".to_string());

@@ -37,7 +37,7 @@ argon2 = "0.5"
 opus-rs = "0.1.34"
 sha1 = "0.10"
 hmac = "0.12"
-sysinfo = { version = "0.39.6", default-features = false, features = ["system", "disk", "network"] }
+sysinfo = { version = "0.39.6", default-features = false, features = ["system", "disk", "network", "user"] }
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.62"

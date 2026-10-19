@@ -67,6 +67,9 @@ pub enum HostMsg {
     /// A command line at the host (host → viewer); only to viewers with
     /// [`Features::TERMINAL`].
     Terminal(TerminalMsg),
+    /// Processes and services at the host (host → viewer); only to viewers
+    /// with [`Features::PROCESSES`].
+    Processes(ProcessMsg),
 }
 
 /// A command line on the host computer, shown in a terminal at the viewer.
@@ -84,6 +87,85 @@ pub enum TerminalMsg {
     Resize { id: u32, cols: u16, rows: u16 },
     /// Either side: the shell ended, or the viewer closed it.
     Close { id: u32 },
+}
+
+/// The host's processes and services, to look at and to end, start or stop
+/// without the picture. Actions run with the host's rights (SYSTEM under the
+/// Windows service), so the right for it is off unless switched on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ProcessMsg {
+    /// Viewer → host: what runs now.
+    List,
+    /// Host → viewer: the answer to `List`, or why there is none.
+    Listing(Result<ProcessListing, String>),
+    /// Viewer → host: end process `pid`, if it is still the one named `name`
+    /// (process numbers are reused).
+    Kill { pid: u32, name: String },
+    /// Viewer → host: start, stop or restart service `name`.
+    Service { name: String, action: ServiceAction },
+    /// Host → viewer: how `Kill` or `Service` went; `what` describes it
+    /// (e.g. "Dienst Spooler gestartet").
+    Done { what: String, result: Result<(), String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProcessListing {
+    pub processes: Vec<ProcessInfo>,
+    /// `None` where the host cannot list services (macOS).
+    pub services: Option<Vec<ServiceInfo>>,
+    /// Logical processors, to read `cpu` against.
+    pub cpus: u32,
+    pub memory_total: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub parent: Option<u32>,
+    pub name: String,
+    /// Empty where unknown.
+    pub user: String,
+    /// Percent of one processor since the previous `List` (can exceed 100).
+    pub cpu: f32,
+    /// Resident memory in bytes.
+    pub memory: u64,
+    /// Program path; empty where unknown.
+    pub exe: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServiceInfo {
+    /// What `Service` takes (e.g. "Spooler", "cups.service").
+    pub name: String,
+    pub display: String,
+    pub state: ServiceState,
+    pub start: StartMode,
+    pub pid: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServiceState {
+    Running,
+    Stopped,
+    Starting,
+    Stopping,
+    Paused,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StartMode {
+    Automatic,
+    Manual,
+    Disabled,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServiceAction {
+    Start,
+    Stop,
+    Restart,
 }
 
 /// Port tunnels: TCP connections the viewer accepts locally and the host
@@ -160,6 +242,8 @@ impl Permissions {
     pub const TUNNEL: u32 = 1 << 6;
     /// A command line at the host, as the signed-in user.
     pub const TERMINAL: u32 = 1 << 7;
+    /// List, end and start processes and services, with the host's rights.
+    pub const PROCESSES: u32 = 1 << 8;
 
     pub const ALL: Self = Self(
         Self::INPUT
@@ -169,11 +253,13 @@ impl Permissions {
             | Self::RESTART
             | Self::PRIVACY
             | Self::TUNNEL
-            | Self::TERMINAL,
+            | Self::TERMINAL
+            | Self::PROCESSES,
     );
     /// For someone sitting at the host: no blanking their screen, no way
-    /// into their network, no command line they cannot follow.
-    pub const ATTENDED: Self = Self(Self::ALL.0 & !Self::PRIVACY & !Self::TUNNEL & !Self::TERMINAL);
+    /// into their network, nothing done in the background they cannot follow.
+    pub const ATTENDED: Self =
+        Self(Self::ALL.0 & !Self::PRIVACY & !Self::TUNNEL & !Self::TERMINAL & !Self::PROCESSES);
     pub const VIEW_ONLY: Self = Self(0);
 
     pub fn has(self, right: u32) -> bool {
@@ -243,6 +329,8 @@ impl Features {
     pub const INPUT_PAUSED: u32 = 1 << 22;
     /// Carries `Terminal` and understands `SetVideo`.
     pub const TERMINAL: u32 = 1 << 23;
+    /// Carries `Processes`.
+    pub const PROCESSES: u32 = 1 << 24;
 
     /// Everything this build supports.
     pub const CURRENT: Self = Self(
@@ -269,7 +357,8 @@ impl Features {
             | Self::TYPE_TEXT
             | Self::RESUME
             | Self::INPUT_PAUSED
-            | Self::TERMINAL,
+            | Self::TERMINAL
+            | Self::PROCESSES,
     );
     /// What a peer without a trailer (an older version) understands.
     pub const NONE: Self = Self(0);
@@ -455,6 +544,9 @@ pub enum ViewerMsg {
     /// Pauses or resumes the picture, e.g. for a session with only a
     /// terminal; only to hosts with [`Features::TERMINAL`].
     SetVideo(bool),
+    /// Processes and services at the host (viewer → host); only to hosts
+    /// with [`Features::PROCESSES`].
+    Processes(ProcessMsg),
 }
 
 /// Lines the viewer draws over the shown display, visible to the person at

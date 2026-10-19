@@ -485,3 +485,68 @@ async fn terminal_needs_its_right_and_runs_a_real_shell() {
     session.terminal(TerminalMsg::Data { id: 3, data: EXIT.into() });
     assert!(terminal_closed(&events, 3), "exit beendete das Terminal nicht");
 }
+
+fn process_reply(events: &std_mpsc::Receiver<ViewerEvent>) -> ProcessMsg {
+    wait_for(events, |e| match e {
+        ViewerEvent::Processes(msg) => Some(msg),
+        ViewerEvent::Closed(reason) => panic!("Sitzung beendet: {reason:?}"),
+        _ => None,
+    })
+    .expect("keine Antwort zu Prozessen")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn processes_need_their_right_and_can_be_ended() {
+    let (_server, addr) = start_server().await;
+    let (host, id) = start_host(&addr, false).await;
+    let (session, events) = connect(&addr, &host, id).await;
+    let number = host.sessions()[0].0;
+    assert!(session.features.has(Features::PROCESSES));
+
+    // One-time password: refused, also with the terminal allowed.
+    host.set_rights(number, Permissions(Permissions::ATTENDED.0 | Permissions::TERMINAL)).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(session.processes(ProcessMsg::List));
+    assert!(matches!(process_reply(&events), ProcessMsg::Listing(Err(_))));
+
+    host.set_rights(number, Permissions::ALL).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut child = if cfg!(windows) {
+        std::process::Command::new("ping").args(["-n", "60", "127.0.0.1"]).stdout(std::process::Stdio::null()).spawn()
+    } else {
+        std::process::Command::new("sleep").arg("60").spawn()
+    }
+    .unwrap();
+    session.processes(ProcessMsg::List);
+    let ProcessMsg::Listing(Ok(listing)) = process_reply(&events) else { panic!("keine Liste") };
+    assert!(listing.cpus >= 1 && listing.memory_total > 0);
+    let own = listing.processes.iter().find(|p| p.pid == std::process::id()).expect("eigener Prozess fehlt");
+    assert!(own.memory > 0, "{own:?}");
+    let target = listing.processes.iter().find(|p| p.pid == child.id()).expect("Kindprozess fehlt").clone();
+    assert_eq!(target.parent, Some(std::process::id()));
+    let systemd = std::path::Path::new("/run/systemd/system").exists();
+    if cfg!(windows) || (cfg!(target_os = "linux") && systemd) {
+        // Present wherever systemd or the service manager is; CI runners have them.
+        let services = listing.services.expect("keine Dienste");
+        assert!(!services.is_empty());
+    } else if cfg!(target_os = "macos") {
+        assert!(listing.services.is_none());
+    }
+
+    // Not this agent itself, and not a process whose number now names another.
+    session.processes(ProcessMsg::Kill { pid: std::process::id(), name: own.name.clone() });
+    assert!(matches!(process_reply(&events), ProcessMsg::Done { result: Err(_), .. }));
+    session.processes(ProcessMsg::Kill { pid: target.pid, name: "anderer".into() });
+    assert!(matches!(process_reply(&events), ProcessMsg::Done { result: Err(_), .. }));
+    assert!(child.try_wait().unwrap().is_none(), "falscher Name hat trotzdem beendet");
+
+    session.processes(ProcessMsg::Kill { pid: target.pid, name: target.name.clone() });
+    let done = process_reply(&events);
+    assert!(matches!(done, ProcessMsg::Done { result: Ok(()), .. }), "{done:?}");
+    let status = child.wait().unwrap();
+    assert!(!status.success());
+
+    // Remocto's own service is never stopped from a session.
+    session.processes(ProcessMsg::Service { name: "Remocto".into(), action: ServiceAction::Stop });
+    assert!(matches!(process_reply(&events), ProcessMsg::Done { result: Err(_), .. }));
+}

@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use ctxremote_proto::framing::{self, Transport};
 use ctxremote_proto::rendezvous::ClientMsg;
 use ctxremote_proto::secure::{viewer_handshake, TransportSink, TransportStream};
-use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, InputEvent, MemberProof, Permissions, SystemInfo, TerminalMsg, TunnelMsg, VideoFrame, ViewerMsg};
+use ctxremote_proto::session::{CursorShape, Features, FileOp, HelloExtras, HelperProfile, HostInfo, HostMsg, InputEvent, MemberProof, Permissions, ProcessMsg, SystemInfo, TerminalMsg, TunnelMsg, VideoFrame, ViewerMsg};
 use ctxremote_proto::DeviceId;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
@@ -70,6 +70,8 @@ pub enum ViewerEvent {
     InputPaused(bool),
     /// A command line at the host, after [`ViewerSession::terminal`].
     Terminal(TerminalMsg),
+    /// The host's processes and services, or how an action went.
+    Processes(ProcessMsg),
     /// The session ended; carries the reason if it was not the viewer's choice.
     Closed(Option<String>),
 }
@@ -286,6 +288,7 @@ impl ViewerSession {
                     Ok(Some(HostMsg::Privacy { on, error })) => on_event(ViewerEvent::Privacy { on, error }),
                     Ok(Some(HostMsg::InputPaused(paused))) => on_event(ViewerEvent::InputPaused(paused)),
                     Ok(Some(HostMsg::Terminal(msg))) => on_event(ViewerEvent::Terminal(msg)),
+                    Ok(Some(HostMsg::Processes(msg))) => on_event(ViewerEvent::Processes(msg)),
                     Ok(Some(HostMsg::Chat(text))) => {
                         if let Some(text) = crate::host::chat_text(&text) {
                             on_event(ViewerEvent::Chat(text));
@@ -360,6 +363,16 @@ impl ViewerSession {
             return false;
         }
         self.send(ViewerMsg::Terminal(msg));
+        true
+    }
+
+    /// Asks for the host's processes and services or acts on one; answers
+    /// come as [`ViewerEvent::Processes`]. Returns false for hosts without it.
+    pub fn processes(&self, msg: ProcessMsg) -> bool {
+        if !self.features.has(Features::PROCESSES) {
+            return false;
+        }
+        self.send(ViewerMsg::Processes(msg));
         true
     }
 

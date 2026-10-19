@@ -110,6 +110,8 @@ pub async fn run(
     let mut speaker: Option<crate::speaker::MicPlayer> = None;
     // Command lines for the viewer (see `terminal`).
     let mut terminals = crate::terminal::Terminals::new(outbox.clone());
+    // Processes and services for the viewer (see `processes`).
+    let processes = crate::processes::Processes::new(outbox.clone());
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -153,6 +155,7 @@ pub async fn run(
                     Some(ViewerMsg::SetQuality(quality)) => { let _ = commands.send(VideoCommand::Quality(quality)); }
                     Some(ViewerMsg::SetVideo(on)) => { let _ = commands.send(VideoCommand::Video(on)); }
                     Some(ViewerMsg::Terminal(msg)) => terminals.handle(msg).await?,
+                    Some(ViewerMsg::Processes(msg)) => processes.handle(msg),
                     Some(ViewerMsg::SetAudio(on)) => {
                         if !on {
                             audio = None;
