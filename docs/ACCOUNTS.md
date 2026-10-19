@@ -86,7 +86,7 @@ Geräte eines Kontos können sich ohne Passwort mit einem Gerät verbinden, das 
 - Das Webinterface schreibt unbekannte Felder der Geräteliste unverändert zurück. Ältere App-Versionen kennen `access` nicht und lassen es beim Zurückschreiben weg, bis sie aktualisiert sind.
 - Test: `cargo test -p ctxremote-server --test access`.
 
-## Teams (Entwurf 19. Oktober 2026, in Arbeit)
+## Teams (19. Oktober 2026)
 
 Mehrere Konten arbeiten als Team: geteiltes Adressbuch, Rollen, Zugriff ohne Passwort auf freigegebene Geräte. Entscheidungen des Nutzers (19. Oktober): Beitritt per **Einladungscode** wie beim Koppeln, Rollen **Inhaber, Admin, Techniker**, **Team-Zugriff ohne Passwort** für Geräte, die das erlauben, **ein Team je Konto** (später erweiterbar).
 
@@ -128,12 +128,14 @@ Wird das Konto des Inhabers gelöscht, wird der älteste Admin Inhaber; ohne Adm
 - Freigeben kann jedes Mitglied für die Geräte seines eigenen Kontos (Einstellung am Gerät, mit Dienst über den erhöhten Helfer). Welche Geräte freigegeben sind, schreibt jedes Mitglied in einen eigenen, mit `T` verschlüsselten Eintrag am Server; die Viewer lesen alle.
 - Nach einer neuen Epoche erneuert die App des Hosts beim nächsten Abgleich das Passwort des Slots (ohne Rückfrage, nur für das schon freigegebene Team).
 
-### Umsetzung (Reihenfolge)
+### Umsetzung
 
-1. Protokoll, Krypto im Client, Server mit Rollenprüfung, Tests mit echtem Server.
-2. Team-Zugriff ohne Passwort (Host-Slot, `SameTeam`, Erneuern nach Epoche), Test.
-3. App: Team im Kontopanel (anlegen, einladen, Rollen, entfernen, verlassen), Team-Geräte in der Geräteliste, Freigabe am Gerät.
-4. Webinterface: Team verwalten (braucht X25519 im Browser).
+- **Code:** `crates/proto/src/account.rs` (Team-Varianten von `AccountOp`, `TeamState`, `Rotation`), `crates/server/src/teams.rs` (Speicher in `accounts.json`, Rollenprüfung, Einladungen nur im Speicher), `crates/core/src/team.rs` (Krypto und Abläufe), `app/src-tauri/src/team.rs` (Abgleich, Befehle, Erneuern der Freigabe), `app/src/lib/TeamPanel.svelte` (Kontopanel), Team-Filter in `app/src/PeerList.svelte`. Web: `POST /api/team` reicht Team-Anfragen für das angemeldete Konto durch (`crates/server/src/web.rs`).
+- **Abgleich:** Die App gleicht das Team mit jedem Konto-Abgleich ab (Start, nach Änderungen, alle 5 Minuten). Sie legt den aktuellen Teamschlüssel und die fürs Team offenen Geräte in die Konfiguration (`Config::team`, `team_open`), erneuert nach einer neuen Epoche die Freigabe dieses Rechners (mit Dienst über `UiRequest::RenewTeamAccess`, ohne Rückfrage, der Dienst prüft mit `TeamAccessGrant::renewed_by`) und trägt diesen Rechner in die Zugriffsliste seines Kontos ein oder aus.
+- **Verbinden ohne Passwort:** erst der Konto-Weg, dann der Team-Weg (`team::access_for`). Im Verlauf des Hosts steht so ein Zugriff als „Teammitglied, ohne Passwort“ (`Outcome::Team`).
+- **Drossel:** Anfragen, mit denen man Codes oder Passwörter raten könnte (Kopplung, Einladung, Anmeldung), bleiben bei 30 je Minute und Adresse; alle anderen signierten Kontoanfragen haben 600, damit Büros mit vielen Geräten hinter einer Adresse abgleichen können.
+- **Tests:** `cargo test -p ctxremote-server --test teams` (Team mit Einladung, Rollen, Adressbuch, Entfernen mit neuer Epoche, Verlassen; Team-Zugriff ohne Passwort mit echter Sitzung, Fremde abgewiesen, Entfernte sofort abgewiesen, Erneuern nach Epoche), `teams::tests` im Server (Rollenregeln, Epochen, Erbe des Inhabers), `team::tests` im Kern (Versiegeln, Siegel, Prüfwerte für den Browser), `web::team_requests_pass_through_for_the_signed_in_account`.
+- **Grenzen:** Ein Konto ist in höchstens einem Team, ein Team hat höchstens 50 Konten. Die Freigabe des Dienstes bleibt nach dem Verlassen des Teams stehen, bis ein Administrator sie ausschaltet (sie öffnet dann nichts mehr, weil die Mitgliedschaft fehlt).
 
 ## Konto löschen
 
