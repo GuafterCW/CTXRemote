@@ -95,7 +95,7 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {
     method,
     credentials: "same-origin",
@@ -111,7 +111,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
-function key(): Uint8Array {
+export function key(): Uint8Array {
   if (!accountKey) throw new ApiError("Bitte erneut anmelden", 401);
   return accountKey;
 }

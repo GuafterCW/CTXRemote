@@ -303,6 +303,8 @@ pub enum AccountError {
     InvalidEmail,
     #[error("Die Verbindung zum Server ist nicht verschlüsselt, Anmelden ist so nicht möglich (Update nötig)")]
     Unencrypted,
+    // The web interface recognises these two by their text
+    // (web/src/lib/team.ts, `NO_TEAM` and `STALE_KEY`); change both together.
     #[error("Dieses Konto gehört zu keinem Team")]
     NoTeam,
     #[error("Dieses Konto gehört schon zu einem Team")]

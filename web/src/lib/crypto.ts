@@ -5,7 +5,9 @@
 // server's `auth` values.
 
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
+import { x25519 } from "@noble/curves/ed25519.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
+import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { argon2id } from "hash-wasm";
 
@@ -111,10 +113,14 @@ export function newPairingCode(): { codeId: string; secret: string; display: str
   return { codeId: code.slice(0, 4), secret: code.slice(4), display: `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8)}` };
 }
 
+function bytesOf(v: string | Uint8Array): Uint8Array {
+  return typeof v === "string" ? text.encode(v) : v;
+}
+
 /** `seal`: random nonce, then ChaCha20-Poly1305 with `aad`. */
-export function seal(key: Uint8Array, aad: string, plain: Uint8Array): Uint8Array {
+export function seal(key: Uint8Array, aad: string | Uint8Array, plain: Uint8Array): Uint8Array {
   const nonce = random(12);
-  const sealed = chacha20poly1305(key, nonce, text.encode(aad)).encrypt(plain);
+  const sealed = chacha20poly1305(key, nonce, bytesOf(aad)).encrypt(plain);
   const out = new Uint8Array(12 + sealed.length);
   out.set(nonce);
   out.set(sealed, 12);
@@ -122,9 +128,9 @@ export function seal(key: Uint8Array, aad: string, plain: Uint8Array): Uint8Arra
 }
 
 /** `open`: throws if the key or the data is wrong. */
-export function open(key: Uint8Array, aad: string, sealed: Uint8Array): Uint8Array {
+export function open(key: Uint8Array, aad: string | Uint8Array, sealed: Uint8Array): Uint8Array {
   if (sealed.length < 12 + 16) throw new Error("Daten sind beschädigt");
-  return chacha20poly1305(key, sealed.slice(0, 12), text.encode(aad)).decrypt(sealed.slice(12));
+  return chacha20poly1305(key, sealed.slice(0, 12), bytesOf(aad)).decrypt(sealed.slice(12));
 }
 
 /** `normalize_email` in proto::account. */
@@ -160,6 +166,113 @@ export async function loginSetup(email: string, password: string, accountKey: Ui
     },
     code,
   };
+}
+
+// ---- Teams (crates/core/src/team.rs) ----
+
+export const TEAM_AAD = {
+  book: "ctxremote/team-book/v1",
+  access: "ctxremote/team-access-list/v1",
+  invite: "ctxremote/team-invite/v1",
+  box: "ctxremote/team-box/v1",
+} as const;
+
+function concat(...parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+
+/** An integer as 4 or 8 big-endian bytes. */
+function be(value: number | bigint, bytes: 4 | 8): Uint8Array {
+  const out = new Uint8Array(bytes);
+  let v = BigInt(value);
+  for (let i = bytes - 1; i >= 0; i--) {
+    out[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return out;
+}
+
+/** `context`: team ID and epoch, what team blobs are bound to. */
+export function teamContext(id: Uint8Array, epoch: number): Uint8Array {
+  return concat(id, be(epoch, 4));
+}
+
+/** `aad`: a constant prefix, then the context. */
+export function teamAad(prefix: string, id: Uint8Array, epoch: number): Uint8Array {
+  return concat(text.encode(prefix), teamContext(id, epoch));
+}
+
+/** `access_aad`: also bound to the member whose list it is. */
+export function teamAccessAad(id: Uint8Array, epoch: number, member: number | bigint): Uint8Array {
+  return concat(teamAad(TEAM_AAD.access, id, epoch), be(member, 8));
+}
+
+/** `exchange_secret`: the account's X25519 secret, the same on all devices. */
+export function exchangeSecret(accountKey: Uint8Array): Uint8Array {
+  return hkdf(sha256, accountKey, text.encode("ctxremote/team-kx/v1"), text.encode("x25519"), 32);
+}
+
+export function exchangePublic(accountKey: Uint8Array): Uint8Array {
+  return x25519.getPublicKey(exchangeSecret(accountKey));
+}
+
+function boxKey(shared: Uint8Array, ephemeralPublic: Uint8Array, recipient: Uint8Array): Uint8Array {
+  return hkdf(sha256, shared, text.encode(TEAM_AAD.box), concat(ephemeralPublic, recipient), 32);
+}
+
+/** `seal_to`: fresh key pair, ECDH, HKDF, ChaCha20-Poly1305; bound to `ctx`. */
+export function sealTo(publicKey: Uint8Array, ctx: Uint8Array, plain: Uint8Array): Uint8Array {
+  const ephemeral = random(32);
+  const ephemeralPublic = x25519.getPublicKey(ephemeral);
+  const shared = x25519.getSharedSecret(ephemeral, publicKey);
+  if (shared.every((b) => b === 0)) throw new Error("Ungültiger Schlüssel eines Mitglieds");
+  const key = boxKey(shared, ephemeralPublic, publicKey);
+  return concat(ephemeralPublic, seal(key, concat(text.encode(TEAM_AAD.box), ctx), plain));
+}
+
+/** `open_with`: throws if the secret, the context or the data is wrong. */
+export function openWith(secret: Uint8Array, ctx: Uint8Array, sealed: Uint8Array): Uint8Array {
+  if (sealed.length < 32) throw new Error("Teamschlüssel ist beschädigt");
+  const ephemeralPublic = sealed.slice(0, 32);
+  const shared = x25519.getSharedSecret(secret, ephemeralPublic);
+  const key = boxKey(shared, ephemeralPublic, x25519.getPublicKey(secret));
+  return open(key, concat(text.encode(TEAM_AAD.box), ctx), sealed.slice(32));
+}
+
+/** `tag`: vouches for a member's exchange key; only holders of the team key can make it. */
+export function teamTag(teamKey: Uint8Array, member: number | bigint, publicKey: Uint8Array): Uint8Array {
+  const tagKey = hkdf(sha256, teamKey, text.encode("ctxremote/team-tag/v1"), text.encode("tag"), 32);
+  return hmac(sha256, tagKey, concat(be(member, 8), publicKey));
+}
+
+/** `tag_ok`, comparing in constant time. */
+export function teamTagOk(teamKey: Uint8Array, member: number | bigint, key: [Uint8Array, Uint8Array] | null): boolean {
+  if (!key) return false;
+  const expected = teamTag(teamKey, member, key[0]);
+  return expected.reduce((d, b, i) => d | (b ^ key[1][i]), key[1].length === 32 ? 0 : 1) === 0;
+}
+
+/** `access_password`: what a team member uses for `host` instead of the host's own. */
+export function teamAccessPassword(teamKey: Uint8Array, host: number): string {
+  return toHex(hkdf(sha256, teamKey, text.encode("ctxremote/team-access/v1"), be(host, 4), 32));
+}
+
+/** `normalize_code`: uppercase, no separators, O → 0, I and L → 1; null if it cannot be a code. */
+export function normalizeCode(code: string): string | null {
+  const clean = [...code]
+    .filter((c) => !/\s/.test(c) && c !== "-")
+    .map((c) => {
+      const u = c.toUpperCase();
+      return u === "O" ? "0" : u === "I" || u === "L" ? "1" : u;
+    })
+    .join("");
+  return clean.length === 12 && [...clean].every((c) => ALPHABET.includes(c)) ? clean : null;
 }
 
 export function toBase64(bytes: Uint8Array): string {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Team from "./Team.svelte";
   import { MIN_PASSWORD } from "./lib/crypto";
   import {
     account,
@@ -353,6 +354,8 @@
     <p class="error" role="alert">{bookError}</p>
   {/if}
 </section>
+
+<Team {onExpired} />
 
 <section class="panel" aria-labelledby="h-login">
   <div class="panel-head">
