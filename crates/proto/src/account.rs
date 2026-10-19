@@ -113,6 +113,34 @@ pub enum AccountOp {
     /// This member's own list of devices it opened to the team, encrypted
     /// with the team key of `epoch`.
     SetTeamAccess { epoch: u32, blob: Vec<u8> },
+    /// The hash of the report token of `epoch` (owner, admins), so the server
+    /// can tell who may add reports without knowing the team key.
+    SetReportCheck { epoch: u32, check: [u8; 32] },
+    /// One session report, encrypted with the report key of `epoch`. Any
+    /// device with the team's report token may send it, also one in no
+    /// account (a service host opened to the team).
+    AddReport { team: [u8; 16], epoch: u32, token: [u8; 32], blob: Vec<u8> },
+    /// Reports after sequence number `after` (owner, admins), oldest first,
+    /// at most [`MAX_REPORTS_PER_REPLY`]. Answered with `Reports`.
+    GetReports { after: u64 },
+}
+
+/// Largest encrypted session report.
+pub const MAX_REPORT: usize = 2048;
+/// Reports per `GetReports` answer.
+pub const MAX_REPORTS_PER_REPLY: usize = 500;
+
+/// One stored session report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportEntry {
+    pub seq: u64,
+    /// Unix seconds when the server got it.
+    pub at: u64,
+    pub epoch: u32,
+    /// The member whose device sent it, as far as the server knows; `None`
+    /// for a device in no account of the team (a host opened to the team).
+    pub member: Option<u64>,
+    pub blob: Vec<u8>,
 }
 
 /// A member's exchange key with its tag, and the team key sealed for it.
@@ -263,6 +291,8 @@ pub enum AccountReply {
     Team(Option<TeamState>),
     /// After `JoinTeam`: the team key sealed for the code, and the team.
     JoinedTeam { sealed: Vec<u8>, team: TeamState },
+    /// After `GetReports`; `more`: there are newer ones still.
+    Reports { entries: Vec<ReportEntry>, more: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -317,6 +347,8 @@ pub enum AccountError {
     TeamFull,
     #[error("Der Inhaber muss das Team erst übergeben oder löschen")]
     OwnerStays,
+    #[error("Der Sitzungsbericht wurde abgelehnt (Teamschlüssel erneuert?)")]
+    ReportRefused,
 }
 
 impl AccountOp {
@@ -336,13 +368,19 @@ impl AccountOp {
                 | Self::LeaveTeam
                 | Self::DeleteTeam
                 | Self::SetTeamAccess { .. }
+                | Self::SetReportCheck { .. }
+                | Self::GetReports { .. }
         )
     }
 
-    /// Requests that carry values derived from a password or recovery code;
-    /// the server takes them only over an encrypted connection.
+    /// Requests that carry values derived from a password or recovery code
+    /// (or the report token); the server takes them only over an encrypted
+    /// connection.
     pub fn carries_secrets(&self) -> bool {
-        matches!(self, Self::Register { .. } | Self::SetLogin { .. } | Self::Login { .. } | Self::Recover { .. })
+        matches!(
+            self,
+            Self::Register { .. } | Self::SetLogin { .. } | Self::Login { .. } | Self::Recover { .. } | Self::AddReport { .. }
+        )
     }
 }
 

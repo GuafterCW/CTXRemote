@@ -119,6 +119,8 @@ struct Shared {
     direct_turn: tokio::sync::Mutex<()>,
     /// Who connected when (see [`crate::history`]).
     history: History,
+    /// Session reports for the team, if this computer is opened to it.
+    reports: Arc<crate::report::Outbox>,
     /// The step of the last accepted authenticator code; each counts once.
     last_code_step: Mutex<Option<u64>>,
     /// Messages for the server while registered.
@@ -154,6 +156,9 @@ impl Host {
             direct: Mutex::new(None),
             direct_turn: tokio::sync::Mutex::new(()),
             history: History::open(Config::path().ok().map(|p| History::path_for(&p))),
+            reports: Arc::new(crate::report::Outbox::open(
+                Config::path().ok().map(|p| crate::report::Outbox::path_for(&p, crate::report::Side::Host)),
+            )),
             last_code_step: Mutex::new(None),
             control: Mutex::new(None),
         });
@@ -543,7 +548,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
             // Logged before the refusal goes out, so whoever reads the log
             // after being refused finds the entry.
             record_failure(&shared);
-            shared.history.add(&peer, profile_name.as_deref(), Outcome::NotMember);
+            note(&shared, &peer, profile_name.as_deref(), Outcome::NotMember);
             let mut tx = tx;
             let _ = tx.send(&HostMsg::Bye("Dieses Gerät gehört nicht mehr zum Konto".into())).await;
             tx.close().await;
@@ -564,7 +569,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
         };
         if !member {
             record_failure(&shared);
-            shared.history.add(&peer, profile_name.as_deref(), Outcome::NotMember);
+            note(&shared, &peer, profile_name.as_deref(), Outcome::NotMember);
             let mut tx = tx;
             let _ = tx.send(&HostMsg::Bye("Dieses Gerät gehört nicht mehr zum Team".into())).await;
             tx.close().await;
@@ -606,7 +611,7 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
         };
         if let Some(reason) = problem {
             record_failure(&shared);
-            shared.history.add(&peer, profile_name.as_deref(), Outcome::WrongCode);
+            note(&shared, &peer, profile_name.as_deref(), Outcome::WrongCode);
             let _ = tx.send(&HostMsg::Bye(reason.clone())).await;
             tx.close().await;
             bail!("{peer}: {reason}");
@@ -617,6 +622,43 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
 
 /// After the passwords (and the code): approval, then the session itself.
 #[allow(clippy::too_many_arguments)]
+/// Notes a visit in the history; a refusal also goes to the team's reports.
+fn note(shared: &Arc<Shared>, peer: &str, profile: Option<&str>, outcome: Outcome) -> u64 {
+    let started = shared.history.add(peer, profile, outcome);
+    if !outcome.admitted() {
+        report(shared, peer, profile, started, started, outcome);
+    }
+    started
+}
+
+/// Reports a session to the team, if this computer is opened to it with a
+/// grant that carries the report key (see [`crate::report`]).
+fn report(shared: &Arc<Shared>, peer: &str, profile: Option<&str>, started: u64, ended: u64, outcome: Outcome) {
+    let (server, signing, key, device) = {
+        let config = shared.config.read().unwrap();
+        let Some(grant) = config.team_access.as_ref().filter(|g| Some(g.host) == config.device_id) else { return };
+        let (Some(key), Ok(signing)) = (grant.report.clone(), config.signing_key()) else { return };
+        (config.server_addr(), signing, key, grant.host)
+    };
+    shared.reports.push(crate::report::Report {
+        side: crate::report::Side::Host,
+        device: Some(device.get()),
+        device_name: crate::account::default_label(),
+        peer: None,
+        peer_name: peer.to_string(),
+        profile: profile.map(str::to_string),
+        started,
+        ended,
+        outcome: Some(outcome),
+    });
+    let reports = shared.reports.clone();
+    tokio::spawn(async move {
+        if let Err(e) = reports.flush(&server, &signing, &key).await {
+            debug!("Sitzungsbericht noch nicht gesendet: {e:#}");
+        }
+    });
+}
+
 async fn admitted(
     shared: Arc<Shared>,
     slot: usize,
@@ -632,7 +674,7 @@ async fn admitted(
     if let Some(approve) = approver {
         // Viewer messages sent meanwhile (input) wait unread in the connection.
         if !timeout(APPROVAL_TIMEOUT, approve(peer.clone(), profile.clone())).await.unwrap_or(false) {
-            shared.history.add(&peer, profile_name.as_deref(), Outcome::Declined);
+            note(&shared, &peer, profile_name.as_deref(), Outcome::Declined);
             let mut tx = tx;
             let _ = tx.send(&HostMsg::Bye("Der Zugriff wurde abgelehnt".into())).await;
             tx.close().await;
@@ -646,7 +688,7 @@ async fn admitted(
         slot if Some(slot) == team_slot => Outcome::Team,
         _ => Outcome::PermanentPassword,
     };
-    let visit = shared.history.add(&peer, profile_name.as_deref(), outcome);
+    let visit = note(&shared, &peer, profile_name.as_deref(), outcome);
 
     let number = shared.next_session.fetch_add(1, Ordering::Relaxed);
     let stop = Arc::new(Notify::new());
@@ -697,6 +739,7 @@ async fn admitted(
 
     shared.sessions.lock().unwrap().remove(&number);
     shared.history.end(visit, &peer);
+    report(&shared, &peer, profile_name.as_deref(), visit, crate::history::now(), outcome);
     let _ = shared.events.send(HostEvent::SessionEnded { session: number });
     // A used one-time password is spent, as with any OTP.
     if slot == 0 {

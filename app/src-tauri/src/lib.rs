@@ -652,6 +652,9 @@ async fn connect(
     let number = state.next_viewer.fetch_add(1, Ordering::Relaxed);
     let login = (target.to_string(), password.clone());
     let link = Arc::new(Mutex::new(Link::default()));
+    // For the team's session reports.
+    #[cfg(not(feature = "quick"))]
+    let started = ctxremote_core::history::now();
     let on_event = {
         let link = link.clone();
         let app = app.clone();
@@ -796,6 +799,8 @@ async fn connect(
                 }
                 // Lock order is viewers → link, so the link lock is released first.
                 app.state::<AppState>().viewers.lock().unwrap().remove(&number);
+                #[cfg(not(feature = "quick"))]
+                team::report_session(&app, target, started);
             }
         }
     };
@@ -1975,7 +1980,8 @@ pub fn run() {
         team::team_rename,
         team::team_add_device,
         team::team_remove_device,
-        team::team_set_access
+        team::team_set_access,
+        team::team_reports
     ];
     #[cfg(feature = "quick")]
     let builder = builder.manage(quick::Approvals::default());

@@ -129,6 +129,8 @@ pub struct Accounts {
     pairings: HashMap<String, Pairing>,
     /// Code ID → open team invitation; memory only, like pairings.
     invites: HashMap<String, teams::Invite>,
+    /// Session reports of the teams, in their own files.
+    reports: teams::ReportStore,
     /// Address → account, derived from `stored`.
     by_email: HashMap<String, u64>,
     /// Wrong passwords per account: count and the first one's time.
@@ -158,12 +160,14 @@ impl Accounts {
             .iter()
             .filter_map(|(id, account)| Some((account.login.as_ref()?.email.clone(), *id)))
             .collect();
+        let reports = teams::ReportStore::new(path.with_extension("reports"));
         Ok(Self {
             path,
             stored,
             by_key,
             pairings: HashMap::new(),
             invites: HashMap::new(),
+            reports,
             by_email,
             failures: HashMap::new(),
             pepper,
@@ -370,7 +374,10 @@ impl Accounts {
             | AccountOp::Rotate { .. }
             | AccountOp::LeaveTeam
             | AccountOp::DeleteTeam
-            | AccountOp::SetTeamAccess { .. }) => self.run_team(member.ok_or(AccountError::NotLinked)?, op),
+            | AccountOp::SetTeamAccess { .. }
+            | AccountOp::SetReportCheck { .. }
+            | AccountOp::GetReports { .. }) => self.run_team(member.ok_or(AccountError::NotLinked)?, op),
+            AccountOp::AddReport { team, epoch, token, blob } => self.add_report(member, team, epoch, &token, blob),
             AccountOp::Status => Ok(AccountReply::Status(member.map(|id| self.info(id)))),
             AccountOp::Create => {
                 if member.is_some() {

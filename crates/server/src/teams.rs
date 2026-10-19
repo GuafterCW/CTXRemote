@@ -5,14 +5,17 @@
 //! tags and the team key sealed for each, but never the team key itself.
 //! Invitations live in memory only, like pairings.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::io::Write;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use ctxremote_proto::account::{
-    valid_code_id, AccountError, AccountOp, AccountReply, MemberKey, Rotation, TeamMember, TeamRole, TeamState, MAX_BOOK,
-    MAX_TEAM, PAIRING_SECS,
+    valid_code_id, AccountError, AccountOp, AccountReply, MemberKey, ReportEntry, Rotation, TeamMember, TeamRole, TeamState,
+    MAX_BOOK, MAX_REPORT, MAX_REPORTS_PER_REPLY, MAX_TEAM, PAIRING_SECS,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::{constant_time_eq, unix_now, Accounts, MAX_TRIES};
 
@@ -22,6 +25,9 @@ const MAX_SEALED: usize = 256;
 const MAX_ACCESS: usize = 64 * 1024;
 /// Open invitations per team.
 const MAX_INVITES: usize = 5;
+/// Session reports kept per team, and for how long.
+const MAX_STORED_REPORTS: usize = 5000;
+const REPORT_SECS: u64 = 365 * 24 * 3600;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Team {
@@ -35,6 +41,10 @@ pub(super) struct Team {
     /// Someone left without a new epoch; the next admin's app starts one.
     #[serde(default)]
     stale: bool,
+    /// SHA-256 of the report token of the current epoch (hex); empty until
+    /// an admin's app sets it, and again after each new epoch.
+    #[serde(default)]
+    report_check: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -73,6 +83,105 @@ pub(super) struct Invite {
     sealed: Vec<u8>,
     expires: Instant,
     tries: u32,
+}
+
+/// The teams' session reports: one JSON line each in `<dir>/<team>.jsonl`,
+/// read when first needed. Apart from the accounts file, which is written
+/// whole on every change.
+pub(super) struct ReportStore {
+    dir: PathBuf,
+    loaded: HashMap<u64, Vec<StoredReport>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct StoredReport {
+    seq: u64,
+    at: u64,
+    epoch: u32,
+    #[serde(default)]
+    member: Option<u64>,
+    /// Hex.
+    blob: String,
+}
+
+impl ReportStore {
+    pub(super) fn new(dir: PathBuf) -> Self {
+        Self { dir, loaded: HashMap::new() }
+    }
+
+    fn file(&self, team: u64) -> PathBuf {
+        self.dir.join(format!("{team}.jsonl"))
+    }
+
+    fn entries(&mut self, team: u64) -> &mut Vec<StoredReport> {
+        let file = self.file(team);
+        self.loaded.entry(team).or_insert_with(|| {
+            let text = std::fs::read_to_string(file).unwrap_or_default();
+            // A line cut off by a crash is skipped.
+            let mut entries: Vec<StoredReport> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+            let oldest = unix_now().saturating_sub(REPORT_SECS);
+            entries.retain(|e| e.at >= oldest);
+            entries
+        })
+    }
+
+    fn add(&mut self, team: u64, epoch: u32, member: Option<u64>, blob: &[u8]) -> Result<(), AccountError> {
+        let file = self.file(team);
+        let dir = self.dir.clone();
+        let entries = self.entries(team);
+        let seq = entries.last().map_or(1, |e| e.seq + 1);
+        let entry = StoredReport { seq, at: unix_now(), epoch, member, blob: hex::encode(blob) };
+        let line = serde_json::to_string(&entry).map_err(|_| AccountError::Storage)?;
+        entries.push(entry);
+        let mut write = || -> std::io::Result<()> {
+            std::fs::create_dir_all(&dir)?;
+            if entries.len() > MAX_STORED_REPORTS + MAX_STORED_REPORTS / 10 {
+                // Now and then the file is written anew without the oldest.
+                let excess = entries.len() - MAX_STORED_REPORTS;
+                entries.drain(..excess);
+                let mut text = String::new();
+                for e in entries.iter() {
+                    text.push_str(&serde_json::to_string(e)?);
+                    text.push('\n');
+                }
+                let tmp = file.with_extension("tmp");
+                std::fs::write(&tmp, text)?;
+                std::fs::rename(&tmp, &file)
+            } else {
+                let mut out = std::fs::OpenOptions::new().create(true).append(true).open(&file)?;
+                out.write_all(format!("{line}\n").as_bytes())
+            }
+        };
+        if let Err(e) = write() {
+            tracing::warn!("Sitzungsbericht nicht gespeichert: {e}");
+            entries.pop();
+            return Err(AccountError::Storage);
+        }
+        Ok(())
+    }
+
+    fn after(&mut self, team: u64, after: u64) -> (Vec<ReportEntry>, bool) {
+        let newer: Vec<&StoredReport> = self.entries(team).iter().filter(|e| e.seq > after).collect();
+        let more = newer.len() > MAX_REPORTS_PER_REPLY;
+        let entries = newer
+            .into_iter()
+            .take(MAX_REPORTS_PER_REPLY)
+            .map(|e| ReportEntry {
+                seq: e.seq,
+                at: e.at,
+                epoch: e.epoch,
+                member: e.member,
+                blob: hex::decode(&e.blob).unwrap_or_default(),
+            })
+            .collect();
+        (entries, more)
+    }
+
+    /// The team ended: its reports go.
+    pub(super) fn remove(&mut self, team: u64) {
+        self.loaded.remove(&team);
+        let _ = std::fs::remove_file(self.file(team));
+    }
 }
 
 fn unhex32(text: &str) -> [u8; 32] {
@@ -138,6 +247,7 @@ impl Accounts {
         if team.members.is_empty() {
             self.stored.teams.remove(&id);
             self.invites.retain(|_, i| i.team != id);
+            self.reports.remove(id);
             return;
         }
         team.stale = true;
@@ -153,9 +263,34 @@ impl Accounts {
                 None => {
                     self.stored.teams.remove(&id);
                     self.invites.retain(|_, i| i.team != id);
+                    self.reports.remove(id);
                 }
             }
         }
+    }
+
+    /// `AddReport`: from any device that shows the team's report token for
+    /// the current epoch; `account` is the sender's account, if any.
+    pub(super) fn add_report(
+        &mut self,
+        account: Option<u64>,
+        team: [u8; 16],
+        epoch: u32,
+        token: &[u8; 32],
+        blob: Vec<u8>,
+    ) -> Result<AccountReply, AccountError> {
+        if blob.len() > MAX_REPORT {
+            return Err(AccountError::TooLarge);
+        }
+        let team = hex::encode(team);
+        let (&id, t) = self.stored.teams.iter().find(|(_, t)| t.id == team).ok_or(AccountError::ReportRefused)?;
+        let check: [u8; 32] = Sha256::digest(token).into();
+        if t.epoch != epoch || t.report_check.is_empty() || !constant_time_eq(&unhex32(&t.report_check), &check) {
+            return Err(AccountError::ReportRefused);
+        }
+        let member = account.filter(|a| t.members.contains_key(a));
+        self.reports.add(id, epoch, member, &blob)?;
+        Ok(AccountReply::Done)
     }
 
     /// The team operations of [`AccountOp`], for `account`.
@@ -192,6 +327,7 @@ impl Accounts {
                         book: hex::encode(&blob),
                         members: BTreeMap::from([(account, seat)]),
                         stale: false,
+                        report_check: String::new(),
                     },
                 );
                 self.commit(before)?;
@@ -321,6 +457,7 @@ impl Accounts {
                 self.stored.teams.remove(&id);
                 self.commit(before)?;
                 self.invites.retain(|_, i| i.team != id);
+                self.reports.remove(id);
                 Ok(AccountReply::Done)
             }
             AccountOp::SetTeamAccess { epoch, blob } => {
@@ -336,6 +473,25 @@ impl Accounts {
                     hex::encode(&blob);
                 self.commit(before)?;
                 Ok(AccountReply::Done)
+            }
+            AccountOp::SetReportCheck { epoch, check } => {
+                let id = managing()?;
+                if self.stored.teams[&id].epoch != epoch {
+                    return Err(AccountError::StaleKey);
+                }
+                let check = hex::encode(check);
+                if self.stored.teams[&id].report_check == check {
+                    return Ok(AccountReply::Done);
+                }
+                let before = self.snapshot();
+                self.stored.teams.get_mut(&id).expect("its team").report_check = check;
+                self.commit(before)?;
+                Ok(AccountReply::Done)
+            }
+            AccountOp::GetReports { after } => {
+                let id = managing()?;
+                let (entries, more) = self.reports.after(id, after);
+                Ok(AccountReply::Reports { entries, more })
             }
             _ => unreachable!("only team operations come here"),
         }
@@ -393,6 +549,8 @@ impl Accounts {
         t.revision += 1;
         t.book = hex::encode(&rotation.blob);
         t.stale = false;
+        // The old token stays with whoever was in the team then.
+        t.report_check.clear();
         self.commit(before)?;
         // Their sealed keys belong to the old epoch.
         self.invites.retain(|_, i| i.team != id);

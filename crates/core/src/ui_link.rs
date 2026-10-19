@@ -52,6 +52,9 @@ pub struct ServiceState {
     /// and epoch of the grant.
     #[serde(default)]
     pub team_access: Option<(String, u32)>,
+    /// The team grant carries the key for session reports.
+    #[serde(default)]
+    pub team_reports: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,6 +238,7 @@ mod imp {
                 .as_ref()
                 .filter(|g| Some(g.host) == config.device_id)
                 .map(|g| (g.team.clone(), g.epoch)),
+            team_reports: config.team_access.as_ref().is_some_and(|g| g.report.is_some()),
             direct: config.direct_settings(),
             direct_active: host.direct_active(),
         }

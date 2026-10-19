@@ -32,6 +32,7 @@ pub mod secret;
 pub mod team;
 pub mod terminal;
 pub mod processes;
+pub mod report;
 pub mod speaker;
 pub mod sysinfo;
 pub mod totp;

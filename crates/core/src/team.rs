@@ -55,6 +55,10 @@ pub struct TeamBook {
     pub name: String,
     #[serde(default)]
     pub book: Book,
+    /// Team keys of earlier epochs (epoch → hex), so owners and admins can
+    /// still read the session reports encrypted with them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub past: BTreeMap<u32, String>,
 }
 
 /// One member's devices that let the team in without a password.
@@ -246,11 +250,23 @@ pub async fn create(server: &str, key: &SigningKey, account: &AccountLink, name:
     let ctx = context(&state.id, state.epoch);
     let confirm = AccountOp::ConfirmMember { epoch: state.epoch, key: member_key(&team_key, &ctx, state.me, public)? };
     request(server, key, confirm).await?;
-    let book = TeamBook { name: name.trim().to_string(), book: Book::default() };
+    let book = TeamBook { name: name.trim().to_string(), ..TeamBook::default() };
     let blob = seal(&team_key, &aad(BOOK_AAD, &state.id, state.epoch), &serde_json::to_vec(&book)?)?;
     request(server, key, AccountOp::PutTeamBook { epoch: state.epoch, base: state.revision, blob }).await?;
     let state = get(server, key).await?.context("Team ist verschwunden")?;
-    view(state, team_key)
+    let team = view(state, team_key)?;
+    allow_reports(server, key, &team).await;
+    Ok(team)
+}
+
+/// As owner or admin: lets devices with this epoch's report token write
+/// session reports (see [`crate::report`]). A failure only delays reports.
+async fn allow_reports(server: &str, key: &SigningKey, team: &TeamView) {
+    if team.link.role.manages() {
+        if let Err(e) = crate::report::set_check(server, key, &team.link).await {
+            tracing::debug!("Berichte noch nicht freigegeben: {e:#}");
+        }
+    }
 }
 
 /// The account's team, decrypted; finishes a join whose confirmation got
@@ -268,6 +284,7 @@ pub async fn sync(server: &str, key: &SigningKey, account: &AccountLink, cached:
     if team.stale && team.link.role.manages() {
         return rotate(server, key, account, &[]).await.map(Some);
     }
+    allow_reports(server, key, &team).await;
     Ok(Some(team))
 }
 
@@ -387,7 +404,9 @@ pub async fn rotate(server: &str, key: &SigningKey, account: &AccountLink, remov
             let (public, _) = m.key.context("Mitglied ohne Schlüssel")?;
             members.push((m.id, member_key(&new_key, &ctx, m.id, public)?));
         }
-        let blob = seal(&new_key, &aad(BOOK_AAD, &id, next), &serde_json::to_vec(&old.book)?)?;
+        let mut book = old.book.clone();
+        book.past.insert(epoch, hex::encode(old_key));
+        let blob = seal(&new_key, &aad(BOOK_AAD, &id, next), &serde_json::to_vec(&book)?)?;
         let mut access = Vec::new();
         for (member, sealed) in &state.access {
             if gone.contains(member) {
@@ -399,7 +418,11 @@ pub async fn rotate(server: &str, key: &SigningKey, account: &AccountLink, remov
         }
         let rotation = Rotation { epoch: next, base, blob, members, access };
         match request(server, key, AccountOp::Rotate { remove: gone, rotation }).await {
-            Ok(AccountReply::Team(Some(state))) => return view(state, new_key),
+            Ok(AccountReply::Team(Some(state))) => {
+                let team = view(state, new_key)?;
+                allow_reports(server, key, &team).await;
+                return Ok(team);
+            }
             Ok(other) => return Err(unexpected(other)),
             Err(e) if is(&e, AccountError::Conflict) || is(&e, AccountError::StaleKey) => continue,
             Err(e) => return Err(e),
@@ -435,6 +458,10 @@ pub struct TeamAccessGrant {
     /// Hex public key of a member device on this computer (the app's): a
     /// viewer must be in the same team as this key, the server says.
     pub witness: String,
+    /// For the session reports this host writes; missing in grants from
+    /// before reports.
+    #[serde(default)]
+    pub report: Option<crate::report::ReportKey>,
 }
 
 impl TeamAccessGrant {
@@ -447,6 +474,7 @@ impl TeamAccessGrant {
             epoch: team.epoch,
             password: access_password(&team.key()?, host),
             witness: hex::encode(config.signing_key()?.verifying_key().to_bytes()),
+            report: Some(crate::report::ReportKey::for_team(team)?),
         })
     }
 
@@ -455,9 +483,13 @@ impl TeamAccessGrant {
     }
 
     /// Whether `next` only renews this grant for a later epoch of the same
-    /// team, host and witness; that needs no elevation.
+    /// team, host and witness (or adds the report key to a grant from
+    /// before reports); that needs no elevation.
     pub fn renewed_by(&self, next: &Self) -> bool {
-        next.host == self.host && next.team == self.team && next.witness == self.witness && next.epoch > self.epoch
+        let same = next.host == self.host && next.team == self.team && next.witness == self.witness;
+        let later = next.epoch > self.epoch;
+        let completed = next.epoch == self.epoch && next.password == self.password && self.report.is_none();
+        same && (later || completed)
     }
 }
 

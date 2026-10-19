@@ -146,3 +146,86 @@ async fn team_members_connect_without_a_password_until_they_leave() {
     echo(&session, &events, "neue Epoche");
     session.close();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sessions_are_reported_to_owners_and_admins_only() {
+    use ctxremote_core::report::{self, Outbox, Report, ReportKey, Side};
+    let (_server, addr) = start_server().await;
+    let (boss, tech, desk) = (SigningKey::from_bytes(&[51; 32]), SigningKey::from_bytes(&[52; 32]), SigningKey::from_bytes(&[53; 32]));
+    let boss_link = account::create(&addr, &boss).await.unwrap();
+    let tech_link = account::create(&addr, &tech).await.unwrap();
+    let desk_link = account::create(&addr, &desk).await.unwrap();
+    let created = team::create(&addr, &boss, &boss_link, "Werkstatt").await.unwrap();
+    let code = team::invite(&addr, &boss, &boss_link, TeamRole::Technician).await.unwrap();
+    let tech_team = team::join(&addr, &tech, &tech_link, &code).await.unwrap();
+    let code = team::invite(&addr, &boss, &boss_link, TeamRole::Technician).await.unwrap();
+    let desk_team = team::join(&addr, &desk, &desk_link, &code).await.unwrap();
+
+    // The technician's app reports a session it opened.
+    let viewer_report = Report {
+        side: Side::Viewer,
+        device: Some(7),
+        device_name: "Laptop".into(),
+        peer: Some(8),
+        peer_name: "Kasse".into(),
+        profile: None,
+        started: 100,
+        ended: 160,
+        outcome: None,
+    };
+    let outbox = Outbox::open(None);
+    outbox.push(viewer_report.clone());
+    outbox.flush(&addr, &tech, &ReportKey::for_team(&tech_team.link).unwrap()).await.unwrap();
+    assert!(outbox.is_empty());
+
+    // A host opened to the team (its service key is in no account) reports
+    // who came in.
+    let (_host, id, config) = start_host_shared(&addr, |_| {}).await;
+    let mut app = Config { team: Some(desk_team.link.clone()), device_key: hex::encode(desk.to_bytes()), ..Config::default() };
+    app.server = addr.clone();
+    let grant = team::TeamAccessGrant::for_host(&app, id).unwrap();
+    assert!(grant.report.is_some());
+    config.write().unwrap().team_access = Some(grant.clone());
+    let mut list = team::AccessList::default();
+    list.hosts.insert(id.get(), ("Empfang".into(), team::stamp()));
+    team::set_access(&addr, &desk, &desk_link, &list).await.unwrap();
+    let (session, events) = try_connect(&addr, id, &grant.password, Some(&tech)).await.expect("Techniker kommt rein");
+    echo(&session, &events, "Bericht");
+    session.close();
+
+    let mut rows = Vec::new();
+    for _ in 0..50 {
+        let view = team::sync(&addr, &boss, &boss_link, None).await.unwrap().unwrap();
+        rows = report::fetch(&addr, &boss, &view).await.unwrap();
+        if rows.len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[0].report.as_ref(), Some(&viewer_report));
+    assert_eq!(rows[0].member, Some(tech_team.link.me), "the server names the sender");
+    let host_side = rows[1].report.as_ref().expect("lesbar");
+    assert_eq!((host_side.side, host_side.device), (Side::Host, Some(id.get())));
+    assert_eq!(host_side.outcome, Some(ctxremote_core::history::Outcome::Team));
+    assert!(host_side.ended >= host_side.started);
+    assert_eq!(rows[1].member, None, "the service key is in no account");
+
+    // Technicians do not read them, and a made-up token writes nothing.
+    let tech_view = team::sync(&addr, &tech, &tech_link, None).await.unwrap().unwrap();
+    assert!(report::fetch(&addr, &tech, &tech_view).await.is_err());
+    let mut forged = ReportKey::for_team(&tech_team.link).unwrap();
+    forged.token = hex::encode([9u8; 32]);
+    let other = Outbox::open(None);
+    other.push(viewer_report.clone());
+    assert!(other.flush(&addr, &tech, &forged).await.is_err());
+
+    // After a new epoch the old reports still open; the removed technician's
+    // token writes no more.
+    let after = team::rotate(&addr, &boss, &boss_link, &[tech_team.link.me]).await.unwrap();
+    assert_eq!(after.book.past.get(&created.link.epoch), Some(&created.link.key));
+    let rows = report::fetch(&addr, &boss, &after).await.unwrap();
+    assert!(rows.iter().all(|r| r.report.is_some()), "{rows:?}");
+    assert!(other.flush(&addr, &tech, &ReportKey::for_team(&tech_team.link).unwrap()).await.is_err());
+    assert_eq!(other.len(), 1, "kept for later");
+}

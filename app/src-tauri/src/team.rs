@@ -10,6 +10,7 @@ use std::sync::Mutex;
 
 use ctxremote_core::proto::account::{AccountError, TeamRole};
 use ctxremote_core::proto::DeviceId;
+use ctxremote_core::report;
 use ctxremote_core::team::{self, AccessList, TeamAccessGrant, TeamView};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -140,13 +141,17 @@ fn this_host(state: &AppState) -> Option<DeviceId> {
 }
 
 /// The team and epoch this computer's grant belongs to, if it has one.
-fn granted(state: &AppState) -> Option<(String, u32)> {
+/// Team, epoch and whether it has the report key, of this computer's grant.
+fn granted(state: &AppState) -> Option<(String, u32, bool)> {
     match &state.host {
         crate::Side::Local(_) => {
             let config = state.config.read().unwrap();
-            config.team_access.as_ref().map(|g| (g.team.clone(), g.epoch))
+            config.team_access.as_ref().map(|g| (g.team.clone(), g.epoch, g.report.is_some()))
         }
-        crate::Side::Service(service) => service.state().team_access,
+        crate::Side::Service(service) => {
+            let service = service.state();
+            service.team_access.map(|(team, epoch)| (team, epoch, service.team_reports))
+        }
     }
 }
 
@@ -200,7 +205,8 @@ async fn applied(app: &AppHandle, view: TeamView) {
         let _ = config.save();
     }
     renew(app, &view);
-    let open = granted(&state).is_some_and(|(team, _)| team == view.link.id);
+    let open = granted(&state).is_some_and(|(team, _, _)| team == view.link.id);
+    flush_reports(app);
     if let Err(e) = publish_access(app, &view, open).await {
         tracing::info!("Freigabe für das Team nicht gemeldet: {e:#}");
     }
@@ -214,8 +220,9 @@ async fn applied(app: &AppHandle, view: TeamView) {
 /// service takes that without elevation (see `TeamAccessGrant::renewed_by`).
 fn renew(app: &AppHandle, view: &TeamView) {
     let state = app.state::<AppState>();
-    let Some((team, epoch)) = granted(&state) else { return };
-    if team != view.link.id || epoch >= view.link.epoch {
+    let Some((team, epoch, reports)) = granted(&state) else { return };
+    // A grant from before reports gets the report key the same way.
+    if team != view.link.id || epoch > view.link.epoch || (epoch == view.link.epoch && reports) {
         return;
     }
     let Some(host) = this_host(&state) else { return };
@@ -443,4 +450,83 @@ pub async fn team_set_access(app: AppHandle, state: State<'_, AppState>, sync: S
         crate::Side::Service(_) => crate::service::configure_team_access(grant).await?,
     }
     Ok(refreshed(&app).await)
+}
+
+/// Sessions this app opened, waiting for the server (see `ctxremote_core::report`).
+fn outbox() -> &'static std::sync::Arc<report::Outbox> {
+    static OUTBOX: std::sync::OnceLock<std::sync::Arc<report::Outbox>> = std::sync::OnceLock::new();
+    OUTBOX.get_or_init(|| {
+        let path = ctxremote_core::config::Config::path().ok().map(|p| report::Outbox::path_for(&p, report::Side::Viewer));
+        std::sync::Arc::new(report::Outbox::open(path))
+    })
+}
+
+/// Sends the queued reports with the current team key, in the background.
+fn flush_reports(app: &AppHandle) {
+    if outbox().is_empty() {
+        return;
+    }
+    let state = app.state::<AppState>();
+    let (server, signing, key) = {
+        let config = state.config.read().unwrap();
+        let Some(team) = config.team.as_ref() else { return };
+        let (Ok(key), Ok(signing)) = (report::ReportKey::for_team(team), config.signing_key()) else { return };
+        (config.server_addr(), signing, key)
+    };
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = outbox().flush(&server, &signing, &key).await {
+            tracing::debug!("Sitzungsbericht noch nicht gesendet: {e:#}");
+        }
+    });
+}
+
+/// A session this app opened has ended: reports it to the team, if the
+/// account is in one.
+pub fn report_session(app: &AppHandle, target: DeviceId, started: u64) {
+    let state = app.state::<AppState>();
+    let (device, peer_name) = {
+        let config = state.config.read().unwrap();
+        if config.team.is_none() {
+            return;
+        }
+        let peer_name = config
+            .peer(target)
+            .map(|p| p.alias.clone().unwrap_or_else(|| p.name.clone()))
+            .or_else(|| config.team_open.get(&target.get()).cloned())
+            .unwrap_or_default();
+        (config.device_id.map(|d| d.get()), peer_name)
+    };
+    outbox().push(report::Report {
+        side: report::Side::Viewer,
+        device,
+        device_name: ctxremote_core::account::default_label(),
+        peer: Some(target.get()),
+        peer_name,
+        profile: None,
+        started,
+        ended: ctxremote_core::history::now().max(started),
+        outcome: None,
+    });
+    flush_reports(app);
+}
+
+/// The team's session reports, newest first (owners, admins).
+#[tauri::command]
+pub async fn team_reports(app: AppHandle, state: State<'_, AppState>, sync: State<'_, Sync>) -> CmdResult<Vec<report::ReportRow>> {
+    let view = {
+        let _turn = sync.turn().lock().await;
+        let (server, key, link) = credentials(&state)?;
+        let cached = state.config.read().unwrap().team.clone();
+        let view = team::sync(&server, &key, &link, cached.as_ref()).await.map_err(err)?;
+        let view = view.ok_or("Dieses Konto gehört zu keinem Team")?;
+        applied(&app, view.clone()).await;
+        view
+    };
+    let (server, key, _) = credentials(&state)?;
+    if !view.link.role.manages() {
+        return Err("Sitzungsberichte sehen nur Inhaber und Admins".into());
+    }
+    let mut rows = report::fetch(&server, &key, &view).await.map_err(err)?;
+    rows.reverse();
+    Ok(rows)
 }
