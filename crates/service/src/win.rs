@@ -254,6 +254,7 @@ fn prepare(stderr: bool) -> Result<Config> {
     let dir = ensure_data_dir()?;
     init_logging(&dir, "service.log", stderr)?;
     Config::use_path(dir.join("host.json"));
+    ctxremote_core::secret::bind_to_machine();
     Config::load()
 }
 
@@ -405,6 +406,8 @@ fn install(server: Option<&str>) -> Result<()> {
     let dir = ensure_data_dir()?;
     let host_config = dir.join("host.json");
     Config::use_path(host_config.clone());
+    // Written here by an administrator, read by the service as SYSTEM.
+    ctxremote_core::secret::bind_to_machine();
     adopt_identity(&user_config, &host_config)?;
     if let Some(server) = server {
         let mut config = Config::load()?;

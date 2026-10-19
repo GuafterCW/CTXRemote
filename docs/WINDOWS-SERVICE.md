@@ -47,5 +47,5 @@ Stand 2. Oktober 2026: Alle Schritte sind umgesetzt und auf dem Windows Server g
 
 ## Offene Punkte
 
-- Das feste Passwort ist in `host.json` weiterhin Klartext, aber nur für SYSTEM und Administratoren lesbar. Zusätzlich DPAPI mit Maschinenbindung wäre möglich.
+- Das feste Passwort und das Authenticator-Geheimnis stehen in `host.json` mit DPAPI verschlüsselt, an das Gerät gebunden (`crates/core/src/secret.rs`). Die Datei ist zusätzlich nur für SYSTEM und Administratoren lesbar. Eine Kopie der Datei nützt auf einem anderen Rechner nichts.
 - Wenn an der Konsole niemand angemeldet ist und eine RDP-Sitzung läuft, zeigt der Dienst den Anmeldebildschirm der Konsole.

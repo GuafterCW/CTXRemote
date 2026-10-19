@@ -28,6 +28,7 @@ pub mod input;
 pub mod keymap;
 mod net;
 pub mod sas;
+pub mod secret;
 pub mod speaker;
 pub mod sysinfo;
 pub mod totp;

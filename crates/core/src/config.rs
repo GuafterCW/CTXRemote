@@ -19,7 +19,8 @@ pub struct Config {
     pub device_id: Option<DeviceId>,
     /// Hex-encoded Ed25519 secret key that owns `device_id`.
     pub device_key: String,
-    /// Enables unattended access when set.
+    /// Enables unattended access when set. Encrypted in the file on Windows.
+    #[serde(with = "crate::secret::opt")]
     pub permanent_password: Option<String>,
     /// Known devices: everything with an alias, plus the most recent connections.
     #[serde(alias = "recent")]
@@ -57,6 +58,8 @@ pub struct Config {
     pub rights_unattended: Permissions,
     /// Secret of the authenticator app (base32); with it, the permanent
     /// password also needs the current code (see [`crate::totp`]).
+    /// Encrypted in the file on Windows.
+    #[serde(with = "crate::secret::opt")]
     pub code_secret: Option<String>,
     /// Devices whose screen this viewer locks when it ends a session there.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -225,7 +228,15 @@ impl Config {
     pub fn load() -> Result<Self> {
         let path = Self::path()?;
         match std::fs::read_to_string(&path) {
-            Ok(json) => Ok(serde_json::from_str::<Self>(&json).map(Self::moved).unwrap_or_else(|e| {
+            Ok(json) => Ok(serde_json::from_str::<Self>(&json).map(Self::moved).map(|config| {
+                // Files from before the encryption: encrypt them right away.
+                if cfg!(windows) && crate::secret::has_plain(&json, &["permanent_password", "code_secret"]) {
+                    if let Err(e) = config.save() {
+                        tracing::warn!("Konfiguration nicht neu verschlüsselt: {e}");
+                    }
+                }
+                config
+            }).unwrap_or_else(|e| {
                 // Starting over means a new key and thus a new device ID; keep the
                 // old file so the identity can be restored by hand.
                 let aside = path.with_extension(format!("json.broken-{}", crate::account::now_ms() / 1000));

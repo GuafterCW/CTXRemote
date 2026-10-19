@@ -142,6 +142,7 @@ Noch offen aus der Durchsicht, nach Wichtigkeit:
 - **Umzug auf remocto.com (16. Oktober):** DNS vom Nutzer eingerichtet und geprüft (`remocto.com`/`www` über Cloudflare, `remote.remocto.com` nur DNS), Caddy angepasst, GitHub-Variable `CTXREMOTE_SERVER` = `remote.remocto.com`. Im Code: Einladungslinks und Mail-Links auf `https://remocto.com`; gespeicherte Serveradresse `remote.ctx.ink` wird beim Lesen der Einstellungen zu `remote.remocto.com` (`config::MOVED_SERVERS`, getestet); `--web-origin` nimmt eine Komma-Liste (getestet). Release #68 grün; der Nutzer hat in der systemd-Unit `--web-origin https://remocto.com,https://www.remocto.com,https://ctxremote.ctx.ink` gesetzt. Noch zu prüfen: Anmeldung im Webinterface auf remocto.com, Status-Seite, Mail-Links (`CTXREMOTE_SITE_URL`/`CTXREMOTE_MAIL_FROM` in `/etc/ctxremote/mail.env`). `DEPLOY_HOST` bleibt (SSH-Fingerabdruck). `ctx.ink` erst abschalten, wenn alle Geräte aktualisiert sind.
 - **Tippfehler in `CTXREMOTE_SERVER` (16. Oktober):** Release 0.1.68 wurde mit `remote.redocto.com` gebaut. Betroffen sind nur neue Installationen (Voreinstellung) und die Schnellhilfe dieses Release, auch das MSIX der Store-Einreichung; bestehende Geräte behalten ihre gespeicherte Adresse. Behoben: Der Release-Lauf prüft jetzt vor dem Bau, dass die Adresse im DNS steht und auf `DEPLOY_HOST` zeigt; `remote.redocto.com` steht in `MOVED_SERVERS`. Variable korrigiert; Release 0.1.69 mit `remote.remocto.com` gebaut (Prüfung grün). Store-Einreichung mit dem MSIX aus 0.1.69 ersetzen, für Play das `.aab` aus 0.1.69.
 - **Google Play (16. Oktober):** App heißt in der Console „Remocto“ (neues Logo), 0.1.69 im internen Test verfügbar, Werbe-ID: Nein. Offen beim Nutzer: Änderungen zur Überprüfung senden, geschlossenen Test mit mindestens 12 Testern anlegen (14 Tage), danach Produktionszugriff beantragen; Produktion ist ein Entwurf mit 3 Ländern.
+- **Festes Passwort mit DPAPI (19. Oktober):** Unter Windows stehen das feste Passwort und das Geheimnis der Authenticator-App jetzt verschlüsselt in der Konfiguration (`crates/core/src/secret.rs`, Wert `dpapi:<base64>`). Die `host.json` des Dienstes ist an das Gerät gebunden (`CRYPTPROTECT_LOCAL_MACHINE`), denn sie schreibt der Installer als Administrator und liest der Dienst als SYSTEM. Die Benutzerkonfiguration ist an das Windows-Konto gebunden. Eine Kopie der Datei (Sicherung, Festplattenabbild) nützt auf einem anderen Rechner nichts. Alte Klartext-Dateien werden beim Laden gelesen und sofort verschlüsselt gespeichert. Lässt sich ein Wert nicht entschlüsseln (Datei von einem anderen Rechner oder Konto), fällt nur das Geheimnis weg: Unbeaufsichtigter Zugriff ist dann aus, die Geräte-ID bleibt. Der Geräteschlüssel bleibt bewusst unverschlüsselt, damit sich die ID nie ändert. **Rückweg:** Eine ältere Version hielte den verschlüsselten Text für das Passwort; nach einem Downgrade das feste Passwort neu setzen. Mac, Linux und Android unverändert (Klartext). Getestet: Unit-Tests unter Linux, Windows-Code per Typprüfung; die echte DPAPI prüft `stored_values_load_back` im Windows-Job der CI. Testpunkt 63.
 
 **Als Nächstes, durch den Nutzer an Geräten:** die Testliste weiter unten, besonders Punkte 48 bis 52 (Mac-Viewer, Mac-Host, Android, Mac-Autostart, Linux-Host). Danach Fehler aus diesen Tests beheben. Neue Funktionen erst danach, damit der ungetestete Stapel nicht weiter wächst.
 
@@ -865,6 +866,12 @@ Bricht eine Sitzung mitten in der Übertragung einer einzelnen Datei ab, setzt d
     - Die App startet im Tray mit dem neuen Symbol; Startmenü-Eintrag „Remocto“; Geräteliste und Einstellungen sind noch da.
     - Klappt das automatische Update nicht: CTXRemote deinstallieren, `Remocto-Setup.exe` von der Website installieren; ID und Einstellungen sollten trotzdem übernommen werden.
     - Mac und Linux: Remocto neu installieren (die alte App von Hand löschen); Einstellungen werden übernommen.
+63. Festes Passwort verschlüsselt (Windows, nach dem Update):
+    - Gerät mit Dienst: In `C:\ProgramData\Remocto\host.json` (Admin-Editor) steht bei `permanent_password` ein Wert, der mit `dpapi:` beginnt, nicht mehr das Passwort. Verbinden mit dem festen Passwort geht weiter, auch nach einem Neustart.
+    - Ist der Authenticator-Code eingerichtet: `code_secret` beginnt ebenfalls mit `dpapi:`, und der Code wird weiter angenommen.
+    - In den Einstellungen ein neues festes Passwort setzen: Es gilt sofort, in der Datei steht wieder ein `dpapi:`-Wert.
+    - Ohne Dienst (portable oder nur App): dasselbe in `%APPDATA%\philipp-dev\Remocto\config\config.json`.
+    - Store-Version (MSIX): Verbinden mit festem Passwort geht nach dem Update weiter.
 
 ## Nächste Schritte
 
@@ -924,7 +931,7 @@ Weitere Roadmap: Remote-Mauszeiger, Adressbuch auf dem Server.
 
 ## Bekannte Kompromisse
 
-- Das feste Passwort liegt im Klartext, weil SPAKE2 das Passwort selbst braucht. Mit Dienst steht es in `C:\ProgramData\CTXRemote\host.json`, lesbar nur für SYSTEM und Administratoren. Ohne Dienst steht es in der Benutzerkonfiguration. Möglich wäre später DPAPI mit Maschinenbindung.
+- Das feste Passwort muss entschlüsselbar gespeichert sein, weil SPAKE2 das Passwort selbst braucht (kein Hash möglich). Unter Windows ist es mit DPAPI verschlüsselt (Dienst: an das Gerät gebunden, `C:\ProgramData\Remocto\host.json`, zusätzlich nur für SYSTEM und Administratoren lesbar; sonst an das Windows-Konto). Wer Administrator am Gerät ist, kommt trotzdem heran. Mac und Linux: Klartext in der Benutzerkonfiguration, später Schlüsselbund bzw. Secret Service.
 - Direktverbindungen gibt es nur per TCP: im LAN, mit IPv6 oder mit Portweiterleitung. Zwischen zwei IPv4-NATs bleibt die Sitzung auf dem Relay.
 
 ## Entwicklungsumgebung (Windows)
