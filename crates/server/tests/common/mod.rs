@@ -79,11 +79,18 @@ impl Drop for Server {
 pub fn free_port() -> u16 {
     // Server and hosts use the port for TCP and UDP. On Windows a free TCP
     // port can lie in a range reserved for UDP (os error 10013), so check both.
+    // Tests run in parallel and the port is free again once this returns, so
+    // the system may hand it out twice; never give the same one to two tests.
+    static GIVEN: std::sync::Mutex<Vec<u16>> = std::sync::Mutex::new(Vec::new());
     loop {
         let tcp = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = tcp.local_addr().unwrap().port();
         if std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok() {
-            return port;
+            let mut given = GIVEN.lock().unwrap();
+            if !given.contains(&port) {
+                given.push(port);
+                return port;
+            }
         }
     }
 }
