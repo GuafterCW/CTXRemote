@@ -6,8 +6,9 @@
   let {
     peers,
     onpick,
+    onterminal,
     onchange,
-  }: { peers: Peer[]; onpick: (peer: Peer) => void; onchange: () => void } = $props();
+  }: { peers: Peer[]; onpick: (peer: Peer) => void; onterminal: (peer: Peer) => void; onchange: () => void } = $props();
 
   let editing = $state<string | null>(null);
   let draft = $state("");
@@ -222,6 +223,9 @@
             <span class="peer-when">{peer.lastSeen ? since(peer.lastSeen) : "noch nie verbunden"}</span>
           </button>
           <div class="actions">
+            <button class="icon-btn small" title="Nur Terminal öffnen, ohne Bildschirm" aria-label="Nur Terminal öffnen, ohne Bildschirm" onclick={() => onterminal(peer)}>
+              <Icon name="terminal" size={15} />
+            </button>
             {#if peer.wake}
               <button
                 class="icon-btn small"

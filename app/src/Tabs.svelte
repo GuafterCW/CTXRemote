@@ -8,16 +8,28 @@
   // One window, one tab per session; the backend sends new sessions here.
   let { first }: { first: number } = $props();
 
-  type Tab = { session: number; title: string };
+  type Tab = { session: number; title: string; terminal?: boolean };
   let tabs = $state<Tab[]>([{ session: untrack(() => first), title: "" }]);
   let active = $state(untrack(() => first));
   const appWindow = getCurrentWindow();
 
   // The window is named after the session in front, as a lone session window was.
   $effect(() => {
-    const title = tabs.find((t) => t.session === active)?.title;
+    const tab = tabs.find((t) => t.session === active);
+    const title = tab && shownTitle(tab);
     if (title) appWindow.setTitle(title).catch(() => {});
   });
+
+  /** "Terminal · Gerätename" for a session with only the command line, else the title as it is. */
+  function shownTitle(tab: Tab) {
+    if (!tab.terminal || !tab.title) return tab.title;
+    const cut = tab.title.lastIndexOf(" · ");
+    return `Terminal · ${cut > 0 ? tab.title.slice(0, cut) : tab.title}`;
+  }
+
+  function setTerminal(session: number, terminal: boolean) {
+    tabs = tabs.map((t) => (t.session === session && !!t.terminal !== terminal ? { ...t, terminal } : t));
+  }
 
   async function close(session: number) {
     await api.closeTab(session).catch(() => {});
@@ -57,8 +69,9 @@
         aria-selected={tab.session === active}
         onauxclick={(e) => e.button === 1 && close(tab.session)}
       >
-        <button class="pick" title={tab.title} onclick={() => (active = tab.session)}>
-          {tab.title || "Verbinden …"}
+        <button class="pick" title={shownTitle(tab)} onclick={() => (active = tab.session)}>
+          {#if tab.terminal}<span class="tab-icon"><Icon name="terminal" size={14} /></span>{/if}
+          {shownTitle(tab) || "Verbinden …"}
         </button>
         <button class="close" title="Sitzung beenden" aria-label="Sitzung beenden" onclick={() => close(tab.session)}>
           <Icon name="close" size={14} />
@@ -69,7 +82,12 @@
   <div class="panes">
     {#each tabs as tab (tab.session)}
       <div class="pane" class:hidden={tab.session !== active} role="tabpanel">
-        <Session session={tab.session} active={tab.session === active} onclose={() => close(tab.session)} />
+        <Session
+          session={tab.session}
+          active={tab.session === active}
+          onclose={() => close(tab.session)}
+          onterminal={(only) => setTerminal(tab.session, only)}
+        />
       </div>
     {/each}
   </div>
@@ -128,6 +146,13 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .tab-icon {
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: -2px;
+    color: #4fb495;
   }
 
   .close {

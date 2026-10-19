@@ -19,6 +19,7 @@
     [RIGHT.CLIPBOARD, "copy", "Zwischenablage"],
     [RIGHT.AUDIO, "volume", "Ton"],
     [RIGHT.RESTART, "power", "Neu starten"],
+    [RIGHT.TERMINAL, "terminal", "Terminal (Befehlszeile als angemeldeter Benutzer)"],
   ];
   // Only where nobody needs to sit at the computer (not in the quick helper).
   const UNATTENDED: Item[] = [

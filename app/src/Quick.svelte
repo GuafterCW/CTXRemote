@@ -55,7 +55,11 @@
   async function refresh() {
     overview = await api.overview();
     presence = overview.presence;
-    hosted = overview.hosted;
+    // The overview does not know about open terminals; events do.
+    hosted = overview.hosted.map((h) => {
+      const known = hosted.find((o) => o.session === h.session);
+      return { ...h, terminal: known?.terminal ?? false, terminalOnly: known?.terminalOnly ?? false };
+    });
   }
 
   onMount(() => {
@@ -83,6 +87,10 @@
           ];
         if (event.kind === "recording")
           hosted = hosted.map((h) => (h.session === event.session ? { ...h, recording: event.on } : h));
+        if (event.kind === "terminal")
+          hosted = hosted.map((h) =>
+            h.session === event.session ? { ...h, terminal: event.open, terminalOnly: event.only ?? false } : h,
+          );
         if (event.kind === "rights")
           hosted = hosted.map((h) =>
             h.session === event.session ? { ...h, rights: event.rights, privacy: event.privacy } : h,
@@ -180,6 +188,9 @@
                 <span class="live"></span>
                 <span class="live-text">Verbunden mit <strong>{hostedLabel(h)}</strong></span>
                 {#if h.recording}<span class="rec-tag" title="Die Gegenseite zeichnet die Sitzung als Video auf">● Aufnahme</span>{/if}
+                {#if h.terminal}
+                  <span class="terminal-tag" title="Die Gegenseite hat eine Befehlszeile auf diesem Gerät offen"><Icon name="terminal" size={14} /> Terminal offen</span>
+                {/if}
                 <RightsMenu hosted={h} allowPrivacy={false} class="quick-rights" />
                 <button class="btn btn-quiet end" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
               </div>
@@ -466,6 +477,18 @@
 
   .invite-bad {
     color: var(--bad);
+  }
+
+  .terminal-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 8px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   .rec-tag {

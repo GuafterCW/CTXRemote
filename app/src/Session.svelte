@@ -6,6 +6,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { api, CODE_NEEDED, errorText, RIGHT, type SystemInfo, type HostInfo, type InputEvent, type HostFeatures, type MouseButton, type Quality } from "./lib/api";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
+  import TerminalPane from "./lib/TerminalPane.svelte";
   import Icon from "./lib/Icon.svelte";
   import { Player } from "./lib/player";
   import { SoundPlayer } from "./lib/sound";
@@ -19,12 +20,15 @@
     session,
     active = true,
     onclose,
+    onterminal,
   }: {
     session: number;
     /** False while another tab is in front: keys, mouse and drops are not this session's. */
     active?: boolean;
     /** Set in the tab window: closes the tab instead of the window. */
     onclose?: () => void;
+    /** Set in the tab window: tells whether this session shows only the terminal (for the tab's title). */
+    onterminal?: (only: boolean) => void;
   } = $props();
 
   // Leaving the tab must not leave keys held on the host.
@@ -48,7 +52,7 @@
   let video = $state({ width: 0, height: 0 });
   let confirmRestart = $state(false);
   /** What the host supports; older hosts get no buttons for newer features. */
-  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false, draw: false, mic: false, typeText: false });
+  let features = $state<HostFeatures>({ files: false, restart: false, quality: false, chat: false, audio: false, privacy: false, filePaste: false, sysinfo: false, recording: false, tunnel: false, draw: false, mic: false, typeText: false, terminal: false });
   /** What the host allows; null from older hosts, which allow everything. */
   let rights = $state<number | null>(null);
   const can = (right: number) => rights === null || (rights & right) !== 0;
@@ -71,6 +75,47 @@
     return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   });
 
+  /** The command line at the host: the pane stays mounted once opened, so its shell survives hiding it. */
+  let terminalOpen = $state(false);
+  let terminalMounted = $state(false);
+  let terminalPane = $state<ReturnType<typeof TerminalPane>>();
+  /** Opened with "Terminal" only: the pane fills the window and the host sends no picture. */
+  let terminalOnly = $state(false);
+  $effect(() => {
+    const only = terminalOnly;
+    untrack(() => onterminal?.(only));
+  });
+
+  function showTerminal() {
+    // Keys still held on the remote device would otherwise stay pressed while typing here.
+    send("ReleaseAll");
+    terminalMounted = true;
+    terminalOpen = true;
+    keysOpen = false;
+    qualityOpen = false;
+    clearTimeout(hideTimer);
+    tick().then(() => terminalPane?.focus());
+  }
+
+  function toggleTerminal() {
+    if (terminalOpen) {
+      terminalOpen = false;
+      canvas?.focus();
+      hideToolbarSoon();
+    } else {
+      showTerminal();
+    }
+  }
+
+  /** Leaves the terminal-only view: the picture comes back, the terminal stays as a side pane. */
+  async function showScreen() {
+    await api.setVideo(session, true).catch(() => {});
+    terminalOnly = false;
+    api.requestKeyframe(session).catch(() => {});
+    canvas?.focus();
+    hideToolbarSoon();
+  }
+
   /** Connecting again after the session ended: same password first. */
   let reconnecting = $state(false);
   let reError = $state("");
@@ -84,7 +129,7 @@
     reconnecting = true;
     reError = "";
     try {
-      await api.reconnect(session, askPassword ? rePassword : undefined, askCode ? reCode : undefined);
+      await api.reconnect(session, askPassword ? rePassword : undefined, askCode ? reCode : undefined, terminalOnly);
       // The new session has its own window or tab (on a phone it already took this one).
       if (onclose) onclose();
       else if (!MOBILE) await appWindow.close();
@@ -393,6 +438,7 @@
     const had = (bit: number) => before === null || (before & bit) !== 0;
     if (had(RIGHT.INPUT) && !can(RIGHT.INPUT)) showNotice("Die Gegenseite erlaubt nur noch das Ansehen.");
     else if (!had(RIGHT.INPUT) && can(RIGHT.INPUT)) showNotice("Maus und Tastatur sind jetzt erlaubt.");
+    else if (features.terminal && had(RIGHT.TERMINAL) && !can(RIGHT.TERMINAL)) showNotice("Die Gegenseite hat das Terminal gesperrt.");
     // Taking sound away stops it at the host; giving it back starts it again if wanted.
     if (!had(RIGHT.AUDIO) && can(RIGHT.AUDIO) && soundOn && sound) api.setAudio(session, true).catch(() => {});
     if (!can(RIGHT.AUDIO) && micOn) {
@@ -617,6 +663,15 @@
         if (attached.rights !== null) applyRights(attached.rights);
         privacy = attached.privacy;
         lockOnEnd = attached.lockOnEnd;
+        if (attached.terminalOnly) {
+          if (supported.terminal) {
+            terminalOnly = true;
+            showTerminal();
+            api.setVideo(session, false).catch(() => {});
+          } else {
+            showNotice("Das Gerät kennt das Terminal noch nicht (ältere Version). Es folgt die normale Ansicht.");
+          }
+        }
         if (supported.audio && SoundPlayer.supported()) {
           sound = new SoundPlayer();
           soundReady = true;
@@ -1022,7 +1077,7 @@
   function hideToolbarSoon() {
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (!keysOpen && !qualityOpen && !chatOpen) toolbarVisible = false;
+      if (!keysOpen && !qualityOpen && !chatOpen && !terminalOnly) toolbarVisible = false;
     }, 2400);
   }
 
@@ -1047,7 +1102,7 @@
 />
 <svelte:document onvisibilitychange={() => document.hidden && send("ReleaseAll")} />
 
-<div class="stage">
+<div class="stage" class:with-terminal={terminalOpen && !terminalOnly}>
   <canvas
     bind:this={canvas}
     class:live={streaming}
@@ -1064,10 +1119,33 @@
     onwheel={onWheel}
   ></canvas>
 
-  {#if !streaming && closed === null}
+  {#if !streaming && closed === null && !terminalOnly}
     <div class="overlay">
       <span class="spinner"></span>
       <span>{host ? `Warte auf Bild von ${host.hostname} …` : "Sitzung wird geöffnet …"}</span>
+    </div>
+  {/if}
+
+  {#if terminalMounted}
+    <div class="terminal-box" class:full={terminalOnly} class:hidden={!terminalOpen}>
+      <TerminalPane
+        bind:this={terminalPane}
+        {session}
+        active={terminalOpen && active}
+        disabled={closed !== null}
+        onclose={terminalOnly ? undefined : toggleTerminal}
+      >
+        {#snippet actions()}
+          {#if terminalOnly}
+            <button class="head-btn" title="Das Bild des Geräts zusätzlich zeigen" onclick={showScreen}>
+              <Icon name="monitor" size={14} /> Bildschirm zeigen
+            </button>
+            <button class="head-btn" title="Sitzung trennen" onclick={disconnect}>
+              <Icon name="power" size={14} /> Trennen
+            </button>
+          {/if}
+        {/snippet}
+      </TerminalPane>
     </div>
   {/if}
 
@@ -1093,7 +1171,7 @@
     </div>
   {/if}
 
-  {#if host && closed === null}
+  {#if host && closed === null && !terminalOnly}
     <div
       class="toolbar"
       class:hidden={!toolbarVisible}
@@ -1220,6 +1298,18 @@
         <button class="tool chat-tool" class:active={chatOpen} title="Chat" onclick={toggleChat}>
           <Icon name="chat" size={17} />
           {#if unread > 0}<span class="badge">{unread > 9 ? "9+" : unread}</span>{/if}
+        </button>
+      {/if}
+      {#if features.terminal}
+        <button
+          class="tool"
+          class:active={terminalOpen}
+          disabled={!can(RIGHT.TERMINAL)}
+          title={can(RIGHT.TERMINAL) ? "Terminal: Befehlszeile am Gerät" : "Am Gerät nicht erlaubt"}
+          aria-label="Terminal"
+          onclick={toggleTerminal}
+        >
+          <Icon name="terminal" size={17} />
         </button>
       {/if}
       {#if features.files && can(RIGHT.FILES)}
@@ -1614,6 +1704,7 @@
   }
 
   .overlay.ended {
+    z-index: 6;
     background: color-mix(in srgb, #0b0b0a 82%, transparent);
   }
 
@@ -1676,6 +1767,7 @@
   }
 
   .toolbar {
+    z-index: 5;
     position: absolute;
     top: 10px;
     left: 50%;
@@ -1792,6 +1884,7 @@
   }
 
   .info-box {
+    z-index: 5;
     position: absolute;
     top: 60px;
     right: 14px;
@@ -1915,7 +2008,49 @@
     color: #8f8d86;
   }
 
+  /* The terminal side pane over the picture; full size in a terminal-only session. */
+  .terminal-box {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 4;
+    width: min(560px, 55%);
+    overflow: hidden;
+    border-left: 1px solid #25302b;
+  }
+
+  .terminal-box.full {
+    width: auto;
+    left: 0;
+    border-left: 0;
+  }
+
+  /* The overlays keep to the part of the picture the pane leaves free. */
+  .with-terminal .toolbar,
+  .with-terminal .notice {
+    left: calc((100% - min(560px, 55%)) / 2);
+  }
+
+  .with-terminal .info-box,
+  .with-terminal .chat-box {
+    right: calc(14px + min(560px, 55%));
+  }
+
+  .terminal-box.hidden {
+    display: none;
+  }
+
+  .tool:disabled {
+    opacity: 0.4;
+  }
+
+  .tool:disabled:hover {
+    background: transparent;
+  }
+
   .chat-box {
+    z-index: 5;
     position: absolute;
     right: 14px;
     bottom: 14px;
@@ -2029,6 +2164,7 @@
   }
 
   .notice {
+    z-index: 5;
     position: absolute;
     top: 60px;
     left: 50%;

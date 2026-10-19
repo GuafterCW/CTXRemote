@@ -19,7 +19,7 @@ use ctxremote_core::files::client::{FileClient, TransferEvent};
 use ctxremote_core::files::{self, UserContext};
 use ctxremote_core::host::{Host, Presence};
 use ctxremote_core::profile::Profile;
-use ctxremote_core::proto::session::{CursorShape, HostInfo, InputEvent, Listing, Permissions, Quality, VideoFrame, ViewerMsg};
+use ctxremote_core::proto::session::{CursorShape, HostInfo, InputEvent, Listing, Permissions, Quality, TerminalMsg, VideoFrame, ViewerMsg};
 use ctxremote_core::proto::DeviceId;
 #[cfg(not(feature = "quick"))]
 use ctxremote_core::ui_link::UiRequest;
@@ -98,6 +98,8 @@ struct Viewer {
     link: Arc<Mutex<Link>>,
     /// Lock the host's screen when this session ends here.
     lock_on_end: bool,
+    /// Opened with "Terminal" only: the window starts with a command line, not the picture.
+    terminal_only: bool,
 }
 
 impl Drop for Viewer {
@@ -621,6 +623,7 @@ async fn connect(
     target: String,
     password: String,
     code: Option<String>,
+    terminal: Option<bool>,
 ) -> CmdResult<u32> {
     let (server, own_id, local) = {
         let config = state.config.read().unwrap();
@@ -682,6 +685,23 @@ async fn connect(
                 let _ = app.emit_to(session_label(&app, number), &format!("chat-{number}"), text);
             }
             // Kept for a window that attaches later; it comes right after `Welcome`.
+            ViewerEvent::Terminal(msg) => {
+                let update = match msg {
+                    TerminalMsg::Opened { id, result } => match result {
+                        Ok(text) => TerminalUpdate { kind: "opened", id, ok: true, text, data: String::new() },
+                        Err(text) => TerminalUpdate { kind: "opened", id, ok: false, text, data: String::new() },
+                    },
+                    TerminalMsg::Data { id, data } => {
+                        TerminalUpdate { kind: "data", id, ok: true, text: String::new(), data: base64_encode(&data) }
+                    }
+                    TerminalMsg::Close { id } => {
+                        TerminalUpdate { kind: "close", id, ok: true, text: String::new(), data: String::new() }
+                    }
+                    // Only ever sent by the viewer.
+                    TerminalMsg::Open { .. } | TerminalMsg::Resize { .. } => return,
+                };
+                let _ = app.emit_to(session_label(&app, number), &format!("terminal-{number}"), update);
+            }
             ViewerEvent::Rights(rights) => {
                 link.lock().unwrap().rights = Some(rights.0);
                 let _ = app.emit_to(session_label(&app, number), &format!("rights-{number}"), rights.0);
@@ -803,7 +823,7 @@ async fn connect(
         state.viewers.lock().unwrap().clear();
         state.logins.lock().unwrap().clear();
     }
-    state.viewers.lock().unwrap().insert(number, Viewer { session, target, link, lock_on_end });
+    state.viewers.lock().unwrap().insert(number, Viewer { session, target, link, lock_on_end, terminal_only: terminal.unwrap_or(false) });
     state.logins.lock().unwrap().insert(number, login);
 
     #[cfg(desktop)]
@@ -945,6 +965,8 @@ struct Attached {
     rights: Option<u32>,
     privacy: bool,
     lock_on_end: bool,
+    /// The window starts with the terminal alone (the picture is paused).
+    terminal_only: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -970,6 +992,7 @@ struct Features {
     draw: bool,
     mic: bool,
     type_text: bool,
+    terminal: bool,
 }
 
 impl From<ctxremote_core::proto::session::Features> for Features {
@@ -989,6 +1012,7 @@ impl From<ctxremote_core::proto::session::Features> for Features {
             draw: f.has(F::DRAW),
             mic: f.has(F::MIC),
             type_text: f.has(F::TYPE_TEXT),
+            terminal: f.has(F::TERMINAL),
         }
     }
 }
@@ -1026,6 +1050,7 @@ fn attach(
         rights: link.rights,
         privacy: link.privacy,
         lock_on_end: viewer.lock_on_end,
+        terminal_only: viewer.terminal_only,
     })
 }
 
@@ -1101,10 +1126,11 @@ async fn reconnect(
     session: u32,
     password: Option<String>,
     code: Option<String>,
+    terminal: Option<bool>,
 ) -> CmdResult<u32> {
     let (target, remembered) = state.logins.lock().unwrap().get(&session).cloned().ok_or("Das Gerät ist nicht mehr bekannt")?;
     let password = password.filter(|p| !p.is_empty()).unwrap_or(remembered);
-    connect(app, state, target, password, code).await
+    connect(app, state, target, password, code, terminal).await
 }
 
 /// Lock the host's screen when this session ends, and next time for this device, too.
@@ -1161,6 +1187,59 @@ fn request_keyframe(state: State<AppState>, session: u32) {
 fn set_audio(state: State<AppState>, session: u32, on: bool) -> bool {
     let mut supported = false;
     with_viewer(&state, session, |s| supported = s.set_audio(on));
+    supported
+}
+
+/// A terminal event for the session window; `data` is base64.
+#[derive(Clone, Serialize)]
+struct TerminalUpdate {
+    kind: &'static str,
+    id: u32,
+    ok: bool,
+    text: String,
+    data: String,
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// Opens a shell at the host in a window of `cols`×`rows`; false for hosts without terminals.
+#[tauri::command]
+fn terminal_open(state: State<AppState>, session: u32, id: u32, cols: u16, rows: u16) -> bool {
+    let mut supported = false;
+    with_viewer(&state, session, |s| supported = s.terminal(TerminalMsg::Open { id, cols, rows }));
+    supported
+}
+
+/// Keys typed in the terminal (UTF-8 from the terminal widget).
+#[tauri::command]
+fn terminal_input(state: State<AppState>, session: u32, id: u32, data: String) {
+    with_viewer(&state, session, |s| {
+        s.terminal(TerminalMsg::Data { id, data: data.into_bytes() });
+    });
+}
+
+#[tauri::command]
+fn terminal_resize(state: State<AppState>, session: u32, id: u32, cols: u16, rows: u16) {
+    with_viewer(&state, session, |s| {
+        s.terminal(TerminalMsg::Resize { id, cols, rows });
+    });
+}
+
+#[tauri::command]
+fn terminal_close(state: State<AppState>, session: u32, id: u32) {
+    with_viewer(&state, session, |s| {
+        s.terminal(TerminalMsg::Close { id });
+    });
+}
+
+/// Pauses or resumes the picture (a session with only a terminal); false for hosts that always send it.
+#[tauri::command]
+fn set_video(state: State<AppState>, session: u32, on: bool) -> bool {
+    let mut supported = false;
+    with_viewer(&state, session, |s| supported = s.set_video(on));
     supported
 }
 
@@ -1642,6 +1721,11 @@ macro_rules! handlers {
             draw,
             mic_packet,
             open_tunnel,
+            terminal_open,
+            terminal_input,
+            terminal_resize,
+            terminal_close,
+            set_video,
             close_tunnel,
             list_tunnels,
             start_recording,

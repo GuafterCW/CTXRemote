@@ -131,7 +131,11 @@
   async function refresh() {
     overview = await api.overview();
     presence = overview.presence;
-    hosted = overview.hosted;
+    // The overview does not know about open terminals; events do.
+    hosted = overview.hosted.map((h) => {
+      const known = hosted.find((o) => o.session === h.session);
+      return { ...h, terminal: known?.terminal ?? false, terminalOnly: known?.terminalOnly ?? false };
+    });
   }
 
   /** macOS: what still has to be allowed before this Mac can be controlled. */
@@ -183,6 +187,10 @@
           ];
         if (event.kind === "recording")
           hosted = hosted.map((h) => (h.session === event.session ? { ...h, recording: event.on } : h));
+        if (event.kind === "terminal")
+          hosted = hosted.map((h) =>
+            h.session === event.session ? { ...h, terminal: event.open, terminalOnly: event.only ?? false } : h,
+          );
         if (event.kind === "rights")
           hosted = hosted.map((h) =>
             h.session === event.session ? { ...h, rights: event.rights, privacy: event.privacy } : h,
@@ -270,7 +278,11 @@
     error = "";
   }
 
-  function choose(peer: Peer) {
+  /** The next connection opens with the command line only (the "Terminal" action). */
+  let terminalMode = $state(false);
+
+  function choose(peer: Peer, terminal = false) {
+    terminalMode = terminal;
     target = { id: peer.id, label: peer.alias || peer.name ? peerLabel(peer) : null };
     query = "";
     error = "";
@@ -284,7 +296,7 @@
   async function connectWithAccount() {
     connecting = true;
     try {
-      await api.connect(target.id, "");
+      await api.connect(target.id, "", undefined, terminalMode);
       step = "id";
       refresh();
     } catch (e) {
@@ -295,17 +307,17 @@
     }
   }
 
-  function submitQuery() {
-    if (showSuggestions) return choose(suggestions[highlighted] ?? suggestions[0]);
+  function submitQuery(terminal = false) {
+    if (showSuggestions) return choose(suggestions[highlighted] ?? suggestions[0], terminal);
     if (typingId && isCompleteId(query)) {
       const known = peers.find((p) => p.id === query);
-      return choose(known ?? { id: query, alias: null, name: "", lastSeen: 0, access: false, wake: false, tags: [], online: null });
+      return choose(known ?? { id: query, alias: null, name: "", lastSeen: 0, access: false, wake: false, tags: [], online: null }, terminal);
     }
-    if (suggestions.length === 1) return choose(suggestions[0]);
+    if (suggestions.length === 1) return choose(suggestions[0], terminal);
     // Not in the own list: a public alias, which the server resolves.
     if (!typingId && isPublicAlias(query)) {
       const alias = query.trim().toLowerCase();
-      return choose({ id: alias, alias, name: "", lastSeen: 0, access: false, wake: false, tags: [], online: null });
+      return choose({ id: alias, alias, name: "", lastSeen: 0, access: false, wake: false, tags: [], online: null }, terminal);
     }
   }
 
@@ -323,7 +335,7 @@
     connecting = true;
     error = "";
     try {
-      await api.connect(target.id, password, codeAsked ? code : undefined);
+      await api.connect(target.id, password, codeAsked ? code : undefined, terminalMode);
       step = "id";
       password = "";
       code = "";
@@ -372,7 +384,8 @@
           {#if h.profile?.logo}
             <img class="banner-logo" src={`data:image/png;base64,${h.profile.logo}`} alt="" />
           {/if}
-          <span title={h.profile ? `Gerät: ${h.peer}` : undefined}><strong>{hostedLabel(h)}</strong> steuert dieses Gerät</span>
+          <span title={h.profile ? `Gerät: ${h.peer}` : undefined}><strong>{hostedLabel(h)}</strong>
+            {h.terminalOnly ? "nutzt das Terminal auf diesem Gerät (ohne Bildschirm)" : "steuert dieses Gerät"}</span>
           {#if h.chat}
             <button class="banner-btn chat-btn" onclick={() => (chatOpen[h.session] = !chatOpen[h.session])}>
               <Icon name="chat" size={14} /> Chat
@@ -381,6 +394,9 @@
             <span class="no-chat" title="Gegenstelle hat eine ältere Version ohne Chat">Kein Chat</span>
           {/if}
           {#if h.recording}<span class="private-tag" title="Die Gegenseite zeichnet die Sitzung als Video auf">● Aufnahme</span>{/if}
+          {#if h.terminal}
+            <span class="terminal-tag" title="Die Gegenseite hat eine Befehlszeile auf diesem Gerät offen"><Icon name="terminal" size={14} /> Terminal offen</span>
+          {/if}
           {#if h.privacy}<span class="private-tag" title="Der Bildschirm hier ist für die Gegenseite schwarz">Privat</span>{/if}
           <RightsMenu hosted={h} class="banner-rights" />
           <button class="banner-btn" onclick={() => api.endHostedSession(h.session)}>Trennen</button>
@@ -616,9 +632,21 @@
               </ul>
             {/if}
           </div>
-          <button class="btn btn-primary" disabled={!canSubmit}>
-            Verbinden <Icon name="arrowRight" size={16} />
-          </button>
+          <div class="connect-actions">
+            <button class="btn btn-primary" disabled={!canSubmit}>
+              Verbinden <Icon name="arrowRight" size={16} />
+            </button>
+            <button
+              type="button"
+              class="btn terminal-btn"
+              title="Nur Terminal öffnen, ohne Bildschirm"
+              aria-label="Nur Terminal öffnen, ohne Bildschirm"
+              disabled={!canSubmit}
+              onclick={() => submitQuery(true)}
+            >
+              <Icon name="terminal" size={18} />
+            </button>
+          </div>
         </form>
       {:else}
         <form
@@ -633,7 +661,7 @@
               <Icon name="arrowLeft" size={16} />
             </button>
             <span class="to-text">
-              <span>Passwort für <strong>{target.label ?? target.id}</strong></span>
+              <span>{terminalMode ? "Terminal: Passwort für" : "Passwort für"} <strong>{target.label ?? target.id}</strong></span>
               {#if target.label}<span class="to-id">{target.id}</span>{/if}
             </span>
           </div>
@@ -663,6 +691,8 @@
           <button class="btn btn-primary" disabled={!password || connecting || (codeAsked && code.trim().length < 6)}>
             {#if connecting}
               <span class="spinner"></span> Verbinde …
+            {:else if terminalMode}
+              <Icon name="terminal" size={16} /> Terminal öffnen
             {:else}
               Verbinden <Icon name="arrowRight" size={16} />
             {/if}
@@ -675,7 +705,7 @@
       {/if}
 
       <div class="recent">
-        <PeerList {peers} onpick={choose} onchange={refresh} />
+        <PeerList {peers} onpick={(peer) => choose(peer)} onterminal={(peer) => choose(peer, true)} onchange={refresh} />
       </div>
     </section>
   </main>
@@ -1013,6 +1043,28 @@
     max-width: 420px;
   }
 
+  .connect-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .connect-actions .btn-primary {
+    flex: 1;
+  }
+
+  .terminal-btn {
+    width: 44px;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--ink-2);
+  }
+
+  .terminal-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   .id-field {
     height: 52px;
     font: 600 22px var(--font-display);
@@ -1225,6 +1277,19 @@
     margin-left: auto;
     opacity: 0.65;
     font-size: 12.5px;
+  }
+
+  .terminal-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   .private-tag {

@@ -468,7 +468,7 @@ async fn terminal_needs_its_right_and_runs_a_real_shell() {
     assert!(terminal_closed(&events, 2), "Terminal blieb offen");
     let mut seen = Vec::new();
     while let Ok(Ok(event)) = tokio::time::timeout(Duration::from_secs(2), host_events.recv()).await {
-        if let ctxremote_core::host::HostEvent::Terminal { session, open } = event {
+        if let ctxremote_core::host::HostEvent::Terminal { session, open, .. } = event {
             assert_eq!(session, number);
             seen.push(open);
             if !open {

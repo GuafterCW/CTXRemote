@@ -30,6 +30,7 @@ export type HostEvent =
   | { kind: "sessionStarted"; session: number; peer: string; chat: boolean; profile?: Profile | null; rights?: number }
   | { kind: "rights"; session: number; rights: number; privacy: boolean }
   | { kind: "recording"; session: number; on: boolean }
+  | { kind: "terminal"; session: number; open: boolean; only?: boolean }
   | { kind: "sessionEnded"; session: number }
   | { kind: "chat"; session: number; text: string }
   | { kind: "passwordChanged" };
@@ -76,6 +77,10 @@ export interface Hosted {
   privacy: boolean;
   /** The viewer records the session. */
   recording: boolean;
+  /** The viewer has a command line open on this computer (events only, not in the overview). */
+  terminal?: boolean;
+  /** …and sees no picture: it uses only the command line. */
+  terminalOnly?: boolean;
 }
 
 /** Who controls a hosted session, as shown on this device. */
@@ -186,6 +191,8 @@ export interface HostFeatures {
   /** Plays this computer's microphone. */
   mic: boolean;
   typeText: boolean;
+  /** Runs a command line for the viewer. */
+  terminal: boolean;
 }
 
 /** Mirrors `SystemInfo` in crates/proto/src/session.rs. */
@@ -217,6 +224,7 @@ export const RIGHT = {
   RESTART: 1 << 4,
   PRIVACY: 1 << 5,
   TUNNEL: 1 << 6,
+  TERMINAL: 1 << 7,
 } as const;
 
 /** Mirrors `Quality` in crates/proto/src/session.rs. */
@@ -310,8 +318,9 @@ export const api = {
   setAlias: (id: string, alias: string | null) => invoke<void>("set_alias", { id, alias }),
   /** `target` is an ID or an alias. */
   /** `code`: from the host's authenticator app, once it asked (see `CODE_NEEDED`). */
-  connect: (target: string, password: string, code?: string) =>
-    invoke<number>("connect", { target, password, code: code ?? null }),
+  /** `terminal`: the session window starts with the command line alone, without the picture. */
+  connect: (target: string, password: string, code?: string, terminal?: boolean) =>
+    invoke<number>("connect", { target, password, code: code ?? null, terminal: terminal ?? false }),
   attach: (session: number, channel: Channel<ArrayBuffer>) =>
     invoke<{
       host: HostInfo;
@@ -324,6 +333,8 @@ export const api = {
       privacy: boolean;
       /** Lock the host's screen when this session ends here. */
       lockOnEnd: boolean;
+      /** Opened with "Terminal" only. */
+      terminalOnly: boolean;
     }>(
       "attach",
       { session, channel },
@@ -354,12 +365,21 @@ export const api = {
   hostPermissions: () => invoke<{ screen: boolean; input: boolean } | null>("host_permissions"),
   requestHostPermission: (kind: "screen" | "input") => invoke<void>("request_host_permission", { kind }),
   /** Connects again to an ended session's device; opens a new window. */
-  reconnect: (session: number, password?: string, code?: string) =>
-    invoke<number>("reconnect", { session, password: password ?? null, code: code ?? null }),
+  reconnect: (session: number, password?: string, code?: string, terminal?: boolean) =>
+    invoke<number>("reconnect", { session, password: password ?? null, code: code ?? null, terminal: terminal ?? false }),
   /** Turns the host's sound on or off; false if the host has none. */
   setAudio: (session: number, on: boolean) => invoke<boolean>("set_audio", { session, on }),
   /** Blanks the host's screen and blocks its local input, or ends that. */
   setPrivacy: (session: number, on: boolean) => invoke<boolean>("set_privacy", { session, on }),
+  /** Starts a shell `id` at the host; false for hosts without terminals. */
+  terminalOpen: (session: number, id: number, cols: number, rows: number) =>
+    invoke<boolean>("terminal_open", { session, id, cols, rows }),
+  terminalInput: (session: number, id: number, data: string) => invoke<void>("terminal_input", { session, id, data }),
+  terminalResize: (session: number, id: number, cols: number, rows: number) =>
+    invoke<void>("terminal_resize", { session, id, cols, rows }),
+  terminalClose: (session: number, id: number) => invoke<void>("terminal_close", { session, id }),
+  /** Pauses or resumes the host's picture; false for hosts that always send it. */
+  setVideo: (session: number, on: boolean) => invoke<boolean>("set_video", { session, on }),
   /** `127.0.0.1:port` here leads to `target` behind the host; returns the port. */
   openTunnel: (session: number, target: string, port?: number) =>
     invoke<number>("open_tunnel", { session, target, port: port ?? null }),

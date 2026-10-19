@@ -71,8 +71,14 @@ pub enum HostEvent {
     Rights { session: u64, rights: Permissions, privacy: bool },
     /// The viewer of `session` started or stopped recording it.
     Recording { session: u64, on: bool },
-    /// The viewer of `session` has a command line open here, or closed the last.
-    Terminal { session: u64, open: bool },
+    /// The viewer of `session` has a command line open here, or closed the
+    /// last; `only`: without the picture, so it does not see the screen.
+    Terminal {
+        session: u64,
+        open: bool,
+        #[serde(default)]
+        only: bool,
+    },
     /// Someone this device invited offers access (see
     /// `ctxremote_proto::invite`). Sealed: only the app that holds the
     /// invitation's token can read it.
@@ -793,11 +799,15 @@ impl Route {
         self.rights.borrow().has(right)
     }
 
-    /// Tells the person at the host when a command line opens or the last one closes.
-    fn terminal_event(&self, was_open: bool, open: bool) {
-        if was_open != open {
-            info!(open, "Terminal der Sitzung");
-            let _ = self.events.send(HostEvent::Terminal { session: self.number, open });
+    /// Tells the person at the host when a command line opens, the last one
+    /// closes, or the picture goes off or on meanwhile; `shown` is what they
+    /// were told last.
+    fn terminal_event(&self, shown: &mut (bool, bool), open: bool, without_picture: bool) {
+        let now = (open, open && without_picture);
+        if *shown != now {
+            *shown = now;
+            info!(open, only = now.1, "Terminal der Sitzung");
+            let _ = self.events.send(HostEvent::Terminal { session: self.number, open, only: now.1 });
         }
     }
 
@@ -882,6 +892,8 @@ async fn run_session(
     let mut terminals: HashSet<u32> = HashSet::new();
     // Off for a session with only a terminal; a new screen side is told again.
     let mut video_on = true;
+    // What the person at the host was told about terminals (open, without picture).
+    let mut shown = (false, false);
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -904,7 +916,6 @@ async fn run_session(
                     }
                     Some(HostMsg::Terminal(_)) if !route.features.has(Features::TERMINAL) => {}
                     Some(HostMsg::Terminal(msg)) => {
-                        let was_open = !terminals.is_empty();
                         match &msg {
                             // Taken away while it started: end it right away.
                             TerminalMsg::Opened { id, result: Ok(_) } if !route.allows(Permissions::TERMINAL) => {
@@ -918,7 +929,7 @@ async fn run_session(
                             }
                             _ => {}
                         }
-                        route.terminal_event(was_open, !terminals.is_empty());
+                        route.terminal_event(&mut shown, !terminals.is_empty(), !video_on);
                         // Output still on its way after the right was taken away stays here.
                         if route.allows(Permissions::TERMINAL) || matches!(msg, TerminalMsg::Close { .. }) {
                             tx.send(&HostMsg::Terminal(msg)).await?;
@@ -981,11 +992,10 @@ async fn run_session(
                                 let _ = to_agent.send(ViewerMsg::SetVideo(false)).await;
                             }
                             // The shells ended with the old screen side.
-                            let was_open = !terminals.is_empty();
                             for id in std::mem::take(&mut terminals) {
                                 tx.send(&HostMsg::Terminal(TerminalMsg::Close { id })).await?;
                             }
-                            route.terminal_event(was_open, false);
+                            route.terminal_event(&mut shown, false, !video_on);
                         }
                         None => {
                             let _ = tx.send(&HostMsg::Bye("Der Bildschirm ist nicht mehr verfügbar".into())).await;
@@ -1013,12 +1023,11 @@ async fn run_session(
                         tunnels.close_all();
                     }
                     if !rights.has(Permissions::TERMINAL) {
-                        let was_open = !terminals.is_empty();
                         for id in std::mem::take(&mut terminals) {
                             let _ = to_agent.send(ViewerMsg::Terminal(TerminalMsg::Close { id })).await;
                             tx.send(&HostMsg::Terminal(TerminalMsg::Close { id })).await?;
                         }
-                        route.terminal_event(was_open, false);
+                        route.terminal_event(&mut shown, false, !video_on);
                     }
                     if route.privacy.load(Ordering::Relaxed) && !rights.has(Permissions::PRIVACY) {
                         // The agent confirms with `Privacy { on: false }`.
@@ -1124,7 +1133,10 @@ async fn run_session(
                     Some(msg) => {
                         match msg {
                             ViewerMsg::SetAudio(on) => audio_on = on,
-                            ViewerMsg::SetVideo(on) => video_on = on,
+                            ViewerMsg::SetVideo(on) => {
+                                video_on = on;
+                                route.terminal_event(&mut shown, !terminals.is_empty(), !video_on);
+                            }
                             _ => {}
                         }
                         // A failed send means the agent is gone; the branch above notices.
@@ -1142,7 +1154,7 @@ async fn run_session(
 
     // Tunnels hold their sockets until cut.
     tunnels.close_all();
-    route.terminal_event(!terminals.is_empty(), false);
+    route.terminal_event(&mut shown, false, !video_on);
     // Dropping the sender ends the screen side.
     drop(to_agent);
     drop(from_agent);
