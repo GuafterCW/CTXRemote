@@ -1,6 +1,8 @@
 <script lang="ts">
   import { api, errorText, RIGHT, type Hosted } from "./api";
   import Icon, { type IconName } from "./Icon.svelte";
+  import RiskConfirm from "./RiskConfirm.svelte";
+  import { RISKY } from "./risky";
 
   // What the viewer of a session at this computer may do, changeable while it
   // runs. Always in view: one switch per right, lit while it is allowed.
@@ -30,6 +32,15 @@
   const items = $derived(allowPrivacy ? [...ITEMS, ...UNATTENDED] : ITEMS);
   const viewOnly = $derived((hosted.rights & RIGHT.INPUT) === 0);
 
+  /** A risky right waiting for the person here to confirm it. */
+  let asking = $state<number | null>(null);
+
+  function request(bit: number) {
+    const turningOn = (hosted.rights & bit) === 0;
+    if (turningOn && RISKY[bit]) asking = bit;
+    else toggle(bit);
+  }
+
   async function toggle(bit: number) {
     error = "";
     const before = hosted.rights;
@@ -52,13 +63,18 @@
       class:on
       aria-pressed={on}
       title={`${label}: ${on ? "erlaubt" : "gesperrt"} (klicken zum ${on ? "Sperren" : "Erlauben"})`}
-      onclick={() => toggle(bit)}
+      onclick={() => request(bit)}
     >
       <Icon name={icon} size={14} />
     </button>
   {/each}
   {#if error}<span class="error" title={error}>!</span>{/if}
 </div>
+
+{#if asking !== null}
+  {@const bit = asking}
+  <RiskConfirm {bit} oncancel={() => (asking = null)} onconfirm={() => ((asking = null), toggle(bit))} />
+{/if}
 
 <style>
   .rights {

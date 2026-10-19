@@ -3,6 +3,8 @@
   import { api, errorText, RIGHT, type DirectSettings, type Profile } from "./lib/api";
   import Icon from "./lib/Icon.svelte";
   import ProfileCard from "./lib/ProfileCard.svelte";
+  import RiskConfirm from "./lib/RiskConfirm.svelte";
+  import { RISKY } from "./lib/risky";
   import { IDLE_KEY, readIdleMinutes } from "./lib/idle";
 
   let {
@@ -118,6 +120,21 @@
   let attended = $state(untrack(() => rightsAttended));
   let unattendedRights = $state(untrack(() => rightsUnattended));
   const rightsChanged = $derived(attended !== rightsAttended || unattendedRights !== rightsUnattended);
+  /** A risky right waiting to be confirmed before it is ticked. */
+  let asking = $state<{ bit: number; apply: () => void } | null>(null);
+
+  /** Ticks or unticks a right; switching on a risky one asks first. */
+  function flip(column: "attended" | "unattended", bit: number, box: HTMLInputElement) {
+    const apply = () => (column === "attended" ? (attended ^= bit) : (unattendedRights ^= bit));
+    if (box.checked && RISKY[bit]) {
+      // Stays unticked unless confirmed.
+      box.checked = false;
+      asking = { bit, apply };
+    } else {
+      apply();
+    }
+  }
+
   /** Bit, label, hint; `warn` marks a hint that must not be overlooked. */
   const RIGHTS: [number, string, string?, boolean?][] = [
     [RIGHT.INPUT, "Maus und Tastatur"],
@@ -131,7 +148,7 @@
     [
       RIGHT.PROCESSES,
       "Prozesse und Dienste",
-      "Prozesse beenden, Dienste starten und anhalten. Achtung: unter Windows mit Administratorrechten, also mehr, als der angemeldete Benutzer selbst darf.",
+      "Unter Windows mit Administratorrechten",
       true,
     ],
   ];
@@ -242,7 +259,8 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && onclose()} />
+<!-- With a question open, Escape only closes that. -->
+<svelte:window onkeydown={(e) => e.key === "Escape" && !asking && onclose()} />
 
 <div class="scrim" role="presentation" onclick={onclose}></div>
 <form class="sheet" onsubmit={save}>
@@ -360,7 +378,7 @@
                 type="checkbox"
                 aria-label={`${label}, mit Einmalpasswort`}
                 checked={(attended & bit) !== 0}
-                onchange={() => (attended ^= bit)}
+                onchange={(e) => flip("attended", bit, e.currentTarget)}
               />
             </span>
             <span role="cell">
@@ -368,7 +386,7 @@
                 type="checkbox"
                 aria-label={`${label}, unbeaufsichtigt`}
                 checked={(unattendedRights & bit) !== 0}
-                onchange={() => (unattendedRights ^= bit)}
+                onchange={(e) => flip("unattended", bit, e.currentTarget)}
               />
             </span>
           </div>
@@ -509,6 +527,11 @@
     <button class="btn btn-primary" disabled={saving || needsPassword}>Speichern</button>
   </footer>
 </form>
+
+{#if asking}
+  {@const { bit, apply } = asking}
+  <RiskConfirm {bit} oncancel={() => (asking = null)} onconfirm={() => ((asking = null), apply())} />
+{/if}
 
 <style>
   .scrim {
