@@ -9,6 +9,9 @@ import {
   pairingKeys,
   newPairingCode,
   random,
+  reportAad,
+  reportCheck,
+  reportSecrets,
   seal,
   sealTo,
   TEAM_AAD,
@@ -19,6 +22,7 @@ import {
   teamTagOk,
   exchangePublic,
   exchangeSecret,
+  fromHex,
   toHex,
 } from "./crypto";
 import { ApiError, call, key, type Book } from "./session";
@@ -59,6 +63,8 @@ interface TeamState {
 export interface TeamBook {
   name: string;
   book: Book;
+  /** Keys of earlier epochs (hex), so old reports stay readable. */
+  past?: Record<string, string>;
   [field: string]: unknown;
 }
 
@@ -194,6 +200,17 @@ function remember(state: TeamState, teamKey: Uint8Array) {
   cached = { id: toHex(idBytes(state)), epoch: state.epoch, key: teamKey };
 }
 
+/** Owners and admins: hands the server the check for this epoch's report token.
+ * Failures are only logged; reports are not worth blocking the team page. */
+async function announceReportCheck(state: TeamState, teamKey: Uint8Array): Promise<void> {
+  try {
+    const { token } = reportSecrets(teamKey);
+    await request({ SetReportCheck: { epoch: state.epoch, check: list(reportCheck(token)) } });
+  } catch (err) {
+    console.warn("Berichtsprüfwert nicht gesetzt", err);
+  }
+}
+
 /** Creates a team named `name` with this account as its owner. */
 export async function createTeam(name: string): Promise<TeamView> {
   // The server picks the team's ID, which the blobs are bound to; so the
@@ -224,6 +241,7 @@ export async function syncTeam(): Promise<TeamView | null> {
   }
   const team = view(state, teamKey);
   if (team.stale && manages(team.role)) return rotateTeam([]);
+  if (manages(team.role)) await announceReportCheck(state, teamKey);
   return team;
 }
 
@@ -307,7 +325,9 @@ export async function rotateTeam(remove: number[]): Promise<TeamView> {
       if (!m.key) throw new Error("Mitglied ohne Schlüssel");
       members.push([m.id, memberKey(newKey, ctx, m.id, bytes(m.key[0]))]);
     }
-    const blob = seal(newKey, teamAad(TEAM_AAD.book, id, next), encode.encode(JSON.stringify(old.book)));
+    // Keep the old key under its epoch, as the app does, for old reports.
+    const nextBook: TeamBook = { ...old.book, past: { ...old.book.past, [String(state.epoch)]: toHex(oldKey) } };
+    const blob = seal(newKey, teamAad(TEAM_AAD.book, id, next), encode.encode(JSON.stringify(nextBook)));
     const access: [number, Bytes][] = [];
     for (const [member, sealed] of state.access) {
       if (gone.includes(member)) continue;
@@ -323,6 +343,7 @@ export async function rotateTeam(remove: number[]): Promise<TeamView> {
       const fresh: TeamState | null = variant(await request({ Rotate: { remove: gone, rotation } }), "Team");
       if (!fresh) throw new Error("unerwartete Serverantwort");
       remember(fresh, newKey);
+      await announceReportCheck(fresh, newKey);
       return view(fresh, newKey);
     } catch (err) {
       if (!isConflict(err) && !isStale(err)) throw err;
@@ -343,6 +364,76 @@ export async function leaveTeam(): Promise<void> {
 export async function deleteTeam(): Promise<void> {
   await request("DeleteTeam");
   cached = null;
+}
+
+/** One session report as the members' devices wrote it (`Report` in Rust). */
+export type Outcome =
+  | "oneTimePassword"
+  | "permanentPassword"
+  | "account"
+  | "wrongPassword"
+  | "notMember"
+  | "declined"
+  | "wrongCode"
+  | "team";
+
+export interface Report {
+  side: "viewer" | "host";
+  device: number | null;
+  deviceName: string;
+  peer: number | null;
+  peerName: string;
+  profile: string | null;
+  /** Unix seconds. */
+  started: number;
+  ended: number;
+  outcome: Outcome | null;
+}
+
+/** A stored report; `report` is null if its epoch's key is missing or it is damaged. */
+export interface ReportRow {
+  seq: number;
+  /** When the server got it (Unix seconds). */
+  at: number;
+  member: number | null;
+  memberEmail: string | null;
+  report: Report | null;
+}
+
+/** All reports of the team (owners, admins), oldest first, decrypted. */
+export async function loadReports(): Promise<ReportRow[]> {
+  const state = await must();
+  const teamKey = teamKeyOf(state);
+  const team = view(state, teamKey);
+  const id = idBytes(state);
+  const keyOf = (epoch: number): Uint8Array | null => {
+    if (epoch === state.epoch) return teamKey;
+    const hex = team.book.past?.[String(epoch)];
+    return hex && /^[0-9a-f]{64}$/i.test(hex) ? fromHex(hex) : null;
+  };
+  const rows: ReportRow[] = [];
+  let after = 0;
+  for (;;) {
+    const { entries, more } = variant(await request({ GetReports: { after } }), "Reports") as {
+      entries: { seq: number; at: number; epoch: number; member: number | null; blob: Bytes }[];
+      more: boolean;
+    };
+    for (const e of entries) {
+      let report: Report | null = null;
+      const k = keyOf(e.epoch);
+      if (k) {
+        try {
+          report = JSON.parse(decode.decode(open(reportSecrets(k).key, reportAad(id, e.epoch), bytes(e.blob)))) as Report;
+        } catch {
+          report = null;
+        }
+      }
+      const memberEmail = e.member === null ? null : (state.members.find((m) => m.id === e.member)?.email ?? null);
+      rows.push({ seq: e.seq, at: e.at, member: e.member, memberEmail, report });
+    }
+    if (!more || entries.length === 0) return rows;
+    after = entries[entries.length - 1].seq;
+  }
 }
 
 /** A device for the team's book, as the app stores it. */

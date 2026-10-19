@@ -75,4 +75,12 @@ assert.equal(c.normalizeCode("abcd-efgh-jkmn"), "ABCDEFGHJKMN");
 assert.equal(c.normalizeCode(" O1IL 2345 6789 "), "011112345678".slice(0, 4) + "23456789");
 assert.equal(c.normalizeCode("ABCD-EFGH-JKM"), null);
 assert.equal(c.normalizeCode("ABCD-EFGH-JKMU"), null);
+// Session reports: values from `report::tests::vectors_stay_stable` in crates/core/src/report.rs.
+const reportSecrets = c.reportSecrets(filled(32, 7));
+assert.equal(hex(reportSecrets.key), "a1ad62d9a59100295c4e606058f0316993c00e849a46c025cab485a08da893f9");
+assert.equal(hex(reportSecrets.token), "67ad34d1b923db354266bf4f7c4d060528cfe73f1af8d589955a9f8c24b6da9f");
+assert.equal(hex(c.reportCheck(reportSecrets.token)), "fb8bca47970036236846afcb74efee14cb05a7a166339c4695e0b8be3844b1c8");
+const reportBlob = c.seal(reportSecrets.key, c.reportAad(teamId, 3), new TextEncoder().encode("{}"));
+assert.equal(dec(c.open(reportSecrets.key, c.reportAad(teamId, 3), reportBlob)), "{}");
+assert.throws(() => c.open(reportSecrets.key, c.reportAad(teamId, 4), reportBlob));
 console.log("Krypto-Prüfwerte inkl. Team: ok (Browser = App)");

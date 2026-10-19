@@ -275,6 +275,27 @@ export function normalizeCode(code: string): string | null {
   return clean.length === 12 && [...clean].every((c) => ALPHABET.includes(c)) ? clean : null;
 }
 
+const REPORT_AAD = "ctxremote/team-report/v1";
+
+/** `report::secrets`: the report key and the report token of a team key. */
+export function reportSecrets(teamKey: Uint8Array): { key: Uint8Array; token: Uint8Array } {
+  const salt = text.encode(REPORT_AAD);
+  return {
+    key: hkdf(sha256, teamKey, salt, text.encode("key"), 32),
+    token: hkdf(sha256, teamKey, salt, text.encode("token"), 32),
+  };
+}
+
+/** `report::check`: what the server keeps to check the token. */
+export function reportCheck(token: Uint8Array): Uint8Array {
+  return sha256(token);
+}
+
+/** `report::aad`: bound to the team and the epoch. */
+export function reportAad(id: Uint8Array, epoch: number): Uint8Array {
+  return concat(text.encode(REPORT_AAD), id, be(epoch, 4));
+}
+
 export function toBase64(bytes: Uint8Array): string {
   let s = "";
   for (const b of bytes) s += String.fromCharCode(b);

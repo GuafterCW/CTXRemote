@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, canManageTeam, errorText, type TeamInfo, type TeamMember, type TeamRole } from "./api";
   import Icon from "./Icon.svelte";
+  import TeamReports from "./TeamReports.svelte";
 
   // The team section of the account panel; the account panel owns the team and hears about changes.
   let { team, onupdate }: { team: TeamInfo | null; onupdate: (team: TeamInfo | null) => void } = $props();
@@ -260,6 +261,10 @@
           <button type="button" class="btn btn-quiet" disabled={busy} onclick={invite}>Mitglied einladen</button>
         </div>
       {/if}
+    {/if}
+
+    {#if manage}
+      <TeamReports />
     {/if}
 
     {#if leaving}

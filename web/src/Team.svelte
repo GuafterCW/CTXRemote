@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import TeamReports from "./TeamReports.svelte";
   import { ApiError } from "./lib/session";
   import {
     createTeam,
@@ -434,6 +435,10 @@
           </li>
         {/each}
       </ul>
+    {/if}
+
+    {#if canManage}
+      <TeamReports {onExpired} />
     {/if}
 
     <h3>Team verlassen oder löschen</h3>

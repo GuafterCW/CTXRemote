@@ -530,3 +530,21 @@ pub async fn team_reports(app: AppHandle, state: State<'_, AppState>, sync: Stat
     rows.reverse();
     Ok(rows)
 }
+
+/// Saves the CSV export of the reports in the download folder; returns its path.
+#[tauri::command]
+pub fn team_save_csv(app: AppHandle, text: String) -> CmdResult<String> {
+    let dir = app.path().download_dir().or_else(|_| app.path().home_dir()).map_err(err)?;
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let stem = format!("remocto-sitzungen-{}", chrono::Local::now().format("%Y-%m-%d"));
+    let mut file = dir.join(format!("{stem}.csv"));
+    for n in 2.. {
+        if !file.exists() {
+            break;
+        }
+        file = dir.join(format!("{stem}-{n}.csv"));
+    }
+    // BOM so that Excel reads the file as UTF-8.
+    std::fs::write(&file, format!("\u{feff}{text}")).map_err(err)?;
+    Ok(file.to_string_lossy().into_owned())
+}

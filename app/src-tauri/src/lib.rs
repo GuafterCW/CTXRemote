@@ -1981,7 +1981,8 @@ pub fn run() {
         team::team_add_device,
         team::team_remove_device,
         team::team_set_access,
-        team::team_reports
+        team::team_reports,
+        team::team_save_csv
     ];
     #[cfg(feature = "quick")]
     let builder = builder.manage(quick::Approvals::default());

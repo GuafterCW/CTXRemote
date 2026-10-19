@@ -193,6 +193,29 @@ export interface TeamInfo {
 }
 
 /** Owners and admins manage the team; technicians only use it. */
+/** Mirrors `ReportRow` in app/src-tauri/src/team.rs; the report is null when it cannot be decrypted. */
+export interface ReportRow {
+  seq: number;
+  /** Unix seconds, arrival at the server. */
+  at: number;
+  member: number | null;
+  memberEmail: string | null;
+  report: SessionReport | null;
+}
+
+export interface SessionReport {
+  side: "viewer" | "host";
+  device: number | null;
+  deviceName: string;
+  peer: number | null;
+  peerName: string;
+  profile: string | null;
+  /** Unix seconds. */
+  started: number;
+  ended: number;
+  outcome: null | Outcome;
+}
+
 export const canManageTeam = (team: TeamInfo | null): boolean => team?.role === "Owner" || team?.role === "Admin";
 
 export interface DisplayInfo {
@@ -418,6 +441,10 @@ export const api = {
   teamSetAccess: (enabled: boolean) => invoke<TeamInfo | null>("team_set_access", { enabled }),
   /** A code like "ABCD-EFGH-JKMN" for a new member; valid for ten minutes, once. */
   teamInvite: (role: "Admin" | "Technician") => invoke<string>("team_invite", { role }),
+  /** Session reports of the team, newest first; owners and admins only. */
+  teamReports: () => invoke<ReportRow[]>("team_reports"),
+  /** Saves the CSV in the download folder; returns the file's path. */
+  teamSaveCsv: (text: string) => invoke<string>("team_save_csv", { text }),
   teamLeave: () => invoke<void>("team_leave"),
   teamDelete: () => invoke<void>("team_delete"),
   /** An empty profile removes it; returns the profile as stored. */
