@@ -202,6 +202,17 @@ fn move_settings(former: &std::path::Path, dir: &std::path::Path) {
     }
 }
 
+/// Writes a file only its owner can read: it holds the device key and the
+/// permanent password. On Windows the folder's permissions decide.
+fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(data)
+}
+
 impl Config {
     /// Pins the config file for this process. Only the first call has an effect.
     pub fn use_path(path: PathBuf) {
@@ -229,6 +240,14 @@ impl Config {
         let path = Self::path()?;
         match std::fs::read_to_string(&path) {
             Ok(json) => Ok(serde_json::from_str::<Self>(&json).map(Self::moved).map(|config| {
+                // Files from before 0600: readable by every user on the machine.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if std::fs::metadata(&path).is_ok_and(|m| m.permissions().mode() & 0o077 != 0) {
+                        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+                    }
+                }
                 // Files from before the encryption: encrypt them right away.
                 if cfg!(windows) && crate::secret::has_plain(&json, &["permanent_password", "code_secret"]) {
                     if let Err(e) = config.save() {
@@ -276,7 +295,7 @@ impl Config {
         static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let tmp = path.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
-        if let Err(e) = std::fs::write(&tmp, serde_json::to_string_pretty(self)?).and_then(|()| std::fs::rename(&tmp, path)) {
+        if let Err(e) = write_private(&tmp, serde_json::to_string_pretty(self)?.as_bytes()).and_then(|()| std::fs::rename(&tmp, path)) {
             let _ = std::fs::remove_file(&tmp);
             return Err(e.into());
         }
@@ -497,6 +516,17 @@ pub fn generate_password() -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    #[cfg(unix)]
+    fn only_the_owner_can_read_the_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("ctxremote-private-{}.json", std::process::id()));
+        Config::default().save_to(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(mode & 0o777, 0o600);
+    }
 
     #[test]
     fn saves_at_the_same_time_do_not_collide() {
