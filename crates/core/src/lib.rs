@@ -19,6 +19,7 @@ pub mod privacy;
 pub mod profile;
 pub mod record;
 pub mod punch;
+pub mod queue;
 pub mod encoder;
 #[cfg(windows)]
 mod encoder_mf;

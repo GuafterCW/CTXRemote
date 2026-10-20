@@ -20,6 +20,8 @@ use crate::DeviceId;
 pub const ALPHABET: &[u8; 32] = b"abcdefghijkmnpqrstuvwxyz23456789";
 /// 20 letters of 5 bits: 100 bits.
 pub const TOKEN_LEN: usize = 20;
+/// Letters of a team's queue name in its help link (after a `t`).
+pub const QUEUE_LEN: usize = 8;
 /// Longest password and name an offer carries.
 pub const MAX_FIELD: usize = 64;
 /// Longest sealed offer the server forwards.
@@ -42,6 +44,26 @@ pub fn new_token() -> String {
 
 pub fn valid_token(token: &str) -> bool {
     token.len() == TOKEN_LEN && token.bytes().all(|b| ALPHABET.contains(&b))
+}
+
+/// A new name for a team's support queue; the server checks it is free.
+pub fn new_queue() -> String {
+    let mut rng = rand::thread_rng();
+    (0..QUEUE_LEN).map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char).collect()
+}
+
+pub fn valid_queue(queue: &str) -> bool {
+    queue.len() == QUEUE_LEN && queue.bytes().all(|b| ALPHABET.contains(&b))
+}
+
+/// Who a quick helper's link came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Inviter {
+    /// One helper's device.
+    Device(DeviceId),
+    /// A team's support queue: whoever of its members is free takes it (see
+    /// `docs/ACCOUNTS.md`, "Warteschlange").
+    Team(String),
 }
 
 /// Lets the app pick the token without trying all of them; tells the server nothing.
@@ -80,19 +102,28 @@ pub fn open(token: &str, from: DeviceId, sealed: &[u8]) -> Option<HelpOffer> {
     fits.then_some(offer)
 }
 
-/// The inviting device and token from a quick helper's file name, as the
-/// download page names it: `Remocto-Hilfe-<ID>-<token>.exe` (or, from links
-/// made before the rename, `CTXRemote-Hilfe-…`). Browsers may add " (1)" and
-/// the like; everything after the token is ignored.
-pub fn from_file_name(name: &str) -> Option<(DeviceId, String)> {
+/// The inviter and token from a quick helper's file name, as the download
+/// page names it: `Remocto-Hilfe-<ID>-<token>.exe` for a device (or, from
+/// links made before the rename, `CTXRemote-Hilfe-…`), and
+/// `Remocto-Hilfe-t<queue>-<token>.exe` for a team. Browsers may add " (1)"
+/// and the like; everything after the token is ignored.
+pub fn from_file_name(name: &str) -> Option<(Inviter, String)> {
     let lower = name.to_ascii_lowercase();
     let rest = ["remocto-hilfe-", "ctxremote-hilfe-"]
         .iter()
         .find_map(|prefix| lower.find(prefix).map(|at| &lower[at + prefix.len()..]))?;
-    let (id, rest) = rest.split_at_checked(9)?;
-    let id: DeviceId = id.parse().ok()?;
+    let (inviter, rest) = match rest.strip_prefix('t') {
+        Some(rest) => {
+            let (queue, rest) = rest.split_at_checked(QUEUE_LEN)?;
+            (valid_queue(queue).then(|| Inviter::Team(queue.to_string()))?, rest)
+        }
+        None => {
+            let (id, rest) = rest.split_at_checked(9)?;
+            (Inviter::Device(id.parse().ok()?), rest)
+        }
+    };
     let token = rest.strip_prefix('-')?.get(..TOKEN_LEN)?;
-    valid_token(token).then(|| (id, token.to_string()))
+    valid_token(token).then(|| (inviter, token.to_string()))
 }
 
 #[cfg(test)]
@@ -124,9 +155,15 @@ mod tests {
         let token = "abcdefghijkmnpqrst234";
         let token = &token[..TOKEN_LEN];
         let id = DeviceId::new(482_913_077).unwrap();
-        assert_eq!(from_file_name(&format!("Remocto-Hilfe-482913077-{token}.exe")), Some((id, token.to_string())));
-        assert_eq!(from_file_name(&format!("CTXRemote-Hilfe-482913077-{token}.exe")), Some((id, token.to_string())), "older links");
-        assert_eq!(from_file_name(&format!("C:\\Users\\a\\Downloads\\Remocto-Hilfe-482913077-{token} (1).exe")), Some((id, token.to_string())));
+        let device = Some((Inviter::Device(id), token.to_string()));
+        assert_eq!(from_file_name(&format!("Remocto-Hilfe-482913077-{token}.exe")), device);
+        assert_eq!(from_file_name(&format!("CTXRemote-Hilfe-482913077-{token}.exe")), device, "older links");
+        assert_eq!(from_file_name(&format!("C:\\Users\\a\\Downloads\\Remocto-Hilfe-482913077-{token} (1).exe")), device);
+        let team = Some((Inviter::Team("k3x9pq7m".into()), token.to_string()));
+        assert_eq!(from_file_name(&format!("Remocto-Hilfe-tk3x9pq7m-{token}.exe")), team);
+        assert_eq!(from_file_name(&format!("Remocto-Hilfe-tK3X9PQ7M-{token} (2).exe")), team, "case from the browser");
+        assert_eq!(from_file_name(&format!("Remocto-Hilfe-tk3x9pq7-{token}.exe")), None, "queue too short");
+        assert_eq!(from_file_name(&format!("Remocto-Hilfe-tk3x9pq7l-{token}.exe")), None, "no l in the alphabet");
         assert_eq!(from_file_name("Remocto-Hilfe.exe"), None);
         assert_eq!(from_file_name("CTXRemote-Hilfe-482913077-short.exe"), None);
         assert_eq!(from_file_name(&format!("CTXRemote-Hilfe-012345678-{token}.exe")), None, "not a valid ID");

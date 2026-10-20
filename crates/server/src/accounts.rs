@@ -131,6 +131,8 @@ pub struct Accounts {
     invites: HashMap<String, teams::Invite>,
     /// Session reports of the teams, in their own files.
     reports: teams::ReportStore,
+    /// Offers waiting in the teams' support queues, in memory only.
+    queues: teams::HelpQueues,
     /// Address → account, derived from `stored`.
     by_email: HashMap<String, u64>,
     /// Wrong passwords per account: count and the first one's time.
@@ -168,6 +170,7 @@ impl Accounts {
             pairings: HashMap::new(),
             invites: HashMap::new(),
             reports,
+            queues: teams::HelpQueues::default(),
             by_email,
             failures: HashMap::new(),
             pepper,
@@ -377,7 +380,10 @@ impl Accounts {
             | AccountOp::SetTeamAccess { .. }
             | AccountOp::SetReportCheck { .. }
             | AccountOp::GetReports { .. }
-            | AccountOp::SetPolicy { .. }) => self.run_team(member.ok_or(AccountError::NotLinked)?, op),
+            | AccountOp::SetPolicy { .. }
+            | AccountOp::SetHelpQueue { .. }
+            | AccountOp::GetQueue
+            | AccountOp::ClaimHelp { .. }) => self.run_team(member.ok_or(AccountError::NotLinked)?, op),
             AccountOp::AddReport { team, epoch, token, blob } => self.add_report(member, team, epoch, &token, blob),
             AccountOp::GetPolicy { team, epoch, token } => self.get_policy(team, epoch, &token),
             AccountOp::Status => Ok(AccountReply::Status(member.map(|id| self.info(id)))),

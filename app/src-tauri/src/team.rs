@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use ctxremote_core::proto::account::{AccountError, TeamRole};
 use ctxremote_core::proto::DeviceId;
 use ctxremote_core::policy::{self, TeamPolicy};
+use ctxremote_core::queue::{self, HelpLink};
 use ctxremote_core::report;
 use ctxremote_core::team::{self, AccessList, TeamAccessGrant, TeamView};
 use serde::Serialize;
@@ -24,6 +25,8 @@ use crate::{err, AppState, CmdResult};
 pub struct TeamCache {
     info: Mutex<Option<TeamInfo>>,
     error: Mutex<Option<String>>,
+    /// The team's help link from the last sync, for polling its queue.
+    help: Mutex<Option<HelpLink>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -37,6 +40,8 @@ pub struct TeamInfo {
     devices: Vec<DeviceInfo>,
     /// This computer lets the team's members in without a password.
     access: bool,
+    /// The team's help link for its support queue, if it has one.
+    help_link: Option<String>,
     /// Why the last team sync failed, if it did.
     error: Option<String>,
 }
@@ -124,6 +129,7 @@ fn info(view: &TeamView, access: bool, error: Option<String>) -> TeamInfo {
         members,
         devices,
         access,
+        help_link: view.book.help.as_ref().map(|h| h.url(crate::invite::WEBSITE, &view.book.name)),
         error,
     }
 }
@@ -214,6 +220,7 @@ async fn applied(app: &AppHandle, view: TeamView) {
     let cache = app.state::<TeamCache>();
     *cache.error.lock().unwrap() = None;
     *cache.info.lock().unwrap() = Some(info(&view, open, None));
+    *cache.help.lock().unwrap() = view.book.help.clone();
     let _ = app.emit("team-changed", ());
 }
 
@@ -271,6 +278,7 @@ fn cleared(app: &AppHandle) {
         if config.team.is_none() && config.team_open.is_empty() && config.team_access.is_none() {
             drop(config);
             *app.state::<TeamCache>().info.lock().unwrap() = None;
+            *app.state::<TeamCache>().help.lock().unwrap() = None;
             return;
         }
         config.team = None;
@@ -281,6 +289,7 @@ fn cleared(app: &AppHandle) {
         let _ = config.save();
     }
     *app.state::<TeamCache>().info.lock().unwrap() = None;
+    *app.state::<TeamCache>().help.lock().unwrap() = None;
     let _ = app.emit("team-changed", ());
 }
 
@@ -562,6 +571,46 @@ pub fn device_policy(state: State<'_, AppState>) -> Option<TeamPolicy> {
         crate::Side::Local(_) => state.config.read().unwrap().followed_policy().cloned(),
         crate::Side::Service(service) => service.state().team_policy,
     }
+}
+
+/// Owners and admins: a new help link for the team's support queue; one it
+/// had stops working. Returns the link.
+#[tauri::command]
+pub async fn team_open_help_link(app: AppHandle, state: State<'_, AppState>, sync: State<'_, Sync>) -> CmdResult<String> {
+    let _turn = sync.turn().lock().await;
+    let (server, key, link) = credentials(&state)?;
+    let view = queue::open_link(&server, &key, &link).await.map_err(err)?;
+    let url = view.book.help.as_ref().map(|h| h.url(crate::invite::WEBSITE, &view.book.name)).unwrap_or_default();
+    applied(&app, view).await;
+    Ok(url)
+}
+
+/// Owners and admins: ends the team's help link.
+#[tauri::command]
+pub async fn team_close_help_link(app: AppHandle, state: State<'_, AppState>, sync: State<'_, Sync>) -> CmdResult<()> {
+    let _turn = sync.turn().lock().await;
+    let (server, key, link) = credentials(&state)?;
+    let view = queue::close_link(&server, &key, &link).await.map_err(err)?;
+    applied(&app, view).await;
+    Ok(())
+}
+
+/// The offers waiting in the team's support queue, oldest first; empty
+/// without a help link. Cheap enough to poll.
+#[tauri::command]
+pub async fn team_queue(state: State<'_, AppState>, cache: State<'_, TeamCache>) -> CmdResult<Vec<queue::Waiting>> {
+    let Some(link) = cache.help.lock().unwrap().clone() else { return Ok(Vec::new()) };
+    let (server, key, _) = credentials(&state)?;
+    queue::waiting(&server, &key, &link).await.map_err(err)
+}
+
+/// Takes an offer from the queue: ID, password and name to connect with.
+#[tauri::command]
+pub async fn team_claim_help(state: State<'_, AppState>, cache: State<'_, TeamCache>, ticket: u64) -> CmdResult<serde_json::Value> {
+    let link = cache.help.lock().unwrap().clone().ok_or("Das Team hat keinen Hilfelink")?;
+    let (server, key, _) = credentials(&state)?;
+    let offer = queue::claim(&server, &key, &link, ticket).await.map_err(err)?;
+    Ok(serde_json::json!({ "id": offer.from.to_string(), "password": offer.password, "name": offer.name }))
 }
 
 /// Saves the CSV export of the reports in the download folder; returns its path.

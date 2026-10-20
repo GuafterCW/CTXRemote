@@ -130,6 +130,15 @@ pub enum AccountOp {
     /// also one in no account (a service host opened to the team). Answered
     /// with `Policy`.
     GetPolicy { team: [u8; 16], epoch: u32, token: [u8; 32] },
+    /// Names the team's support queue (owners, admins), `None` closes it;
+    /// the name must be free. Its token stays in the team's book.
+    SetHelpQueue { queue: Option<String> },
+    /// The offers waiting in the team's support queue (any member), oldest
+    /// first. Answered with `Queue`.
+    GetQueue,
+    /// Takes an offer from the queue (any member); only the first gets it.
+    /// Answered with `Claimed`.
+    ClaimHelp { ticket: u64 },
 }
 
 /// Largest encrypted session report.
@@ -138,6 +147,19 @@ pub const MAX_REPORT: usize = 2048;
 pub const MAX_REPORTS_PER_REPLY: usize = 500;
 /// Largest encrypted team policy.
 pub const MAX_POLICY: usize = 4096;
+
+/// An offer waiting in a team's support queue, kept in the server's memory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueueEntry {
+    pub ticket: u64,
+    /// The asking device, as registered with the server.
+    pub from: crate::DeviceId,
+    /// Sealed with the token of the team's help link (see [`crate::invite`]).
+    pub hint: [u8; 4],
+    pub sealed: Vec<u8>,
+    /// Unix seconds since it waits.
+    pub since: u64,
+}
 
 /// One stored session report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,6 +327,9 @@ pub enum AccountReply {
     /// After `GetPolicy`: the stored policy and the epoch it was encrypted
     /// for; an empty blob if the team has none.
     Policy { epoch: u32, blob: Vec<u8> },
+    Queue(Vec<QueueEntry>),
+    /// After `ClaimHelp`: the offer, now this member's.
+    Claimed(QueueEntry),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -361,6 +386,8 @@ pub enum AccountError {
     OwnerStays,
     #[error("Der Sitzungsbericht wurde abgelehnt (Teamschlüssel erneuert?)")]
     ReportRefused,
+    #[error("Diese Anfrage hat schon jemand anderes übernommen")]
+    Taken,
 }
 
 impl AccountOp {
@@ -383,6 +410,9 @@ impl AccountOp {
                 | Self::SetReportCheck { .. }
                 | Self::GetReports { .. }
                 | Self::SetPolicy { .. }
+                | Self::SetHelpQueue { .. }
+                | Self::GetQueue
+                | Self::ClaimHelp { .. }
         )
     }
 

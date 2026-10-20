@@ -176,6 +176,40 @@ Inhaber und Admins legen fest, was alle fürs Team freigegebenen Rechner erlaube
 
   Prüfwert für den Browser in `policy::tests`, im Browser `npm test`.
 
+### Warteschlange für Support (20. Oktober 2026)
+
+Ein fester Hilfelink fürs ganze Team statt des persönlichen Einladungslinks. Anfragen darüber sehen alle Mitglieder, wer zuerst „Übernehmen“ klickt, bekommt ID und Passwort und verbindet sich. Bei den anderen verschwindet die Anfrage.
+
+- **Link:** `https://remocto.com/hilfe.html#t<Warteschlange>-<Code>/<Teamname>`.
+  - Die Warteschlange hat 8 Zeichen und steht beim Server. Der Code hat 20 Zeichen wie beim Einladungslink und erreicht den Server nie.
+  - Der Teamname dient nur der Anzeige auf der Seite.
+  - Die Seite nennt die Schnellhilfe `Remocto-Hilfe-t<Warteschlange>-<Code>.exe` (`invite::from_file_name` → `Inviter::Team`).
+  - Erzeugen und Abschalten dürfen nur Inhaber und Admins (`AccountOp::SetHelpQueue`, der Server prüft, dass der Name frei ist). Ein neuer Link macht den alten ungültig.
+  - Name und Code stehen im Team-Adressbuch (`TeamBook::help`), so können alle Mitglieder die Anfragen öffnen.
+- **Ablauf:**
+  - Die Schnellhilfe schickt ID, Einmalpasswort und Benutzernamen, mit dem Code verschlüsselt wie beim Einladungslink, über ihre Steuerverbindung (`ClientMsg::QueueHelp`).
+  - Der Server hält die Anfrage nur im Speicher: höchstens 50 je Team, 30 Minuten. Fragt dasselbe Gerät erneut, ersetzt das die alte Anfrage. Unbekannte Links bekommen „Dieser Hilfelink gilt nicht mehr“.
+  - Die Apps der Mitglieder fragen alle 10 Sekunden nach (`GetQueue`) und zeigen nur, was der Code öffnet.
+  - „Übernehmen“ (`ClaimHelp`) gibt die Anfrage genau einem Mitglied, alle anderen bekommen „schon jemand anderes übernommen“.
+  - Die Schnellhilfe erfährt es (`ServerMsg::HelpClaimed`, Fähigkeit `HostCaps::QUEUE`) und zeigt „Ein Techniker hat Ihre Anfrage übernommen“. Danach folgt das übliche „Zulassen“.
+- **Sicherheit:** Der Server kann die Passwörter nicht lesen und gibt die Anfragen nur an Mitglieder des Teams. Ein entferntes Mitglied kennt den Code noch, bekommt aber keine Anfragen mehr vom Server. Wer sichergehen will, erzeugt einen neuen Link.
+- **Code:**
+  - `crates/core/src/queue.rs` (Link, Warteschlange, Übernehmen)
+  - Server `crates/server/src/teams.rs` (`HelpQueues`, `enqueue`) und `main.rs` (`QueueHelp`, `tell_claimed`)
+  - Schnellhilfe `Host::offer_help`
+  - App `app/src-tauri/src/team.rs` (`team_open_help_link`, `team_queue`, `team_claim_help`)
+  - Seite `website/hilfe.js`
+- **Tests:** `invite::a_team_queue_hands_each_offer_to_one_member` mit echtem Server prüft:
+  - Nur der Inhaber erzeugt den Link.
+  - Alle Mitglieder sehen die Anfrage, andere Teams nicht.
+  - Eine erneute Anfrage ersetzt die alte.
+  - Der Techniker übernimmt, der Inhaber kommt zu spät.
+  - Der Kunde erfährt es, und die Verbindung klappt.
+  - Alter und abgeschalteter Link werden abgewiesen.
+
+  Dazu kommen Dateinamen-Tests in `invite.rs`.
+- **Nicht im Webinterface**, dort gibt es keine Verbindungen.
+
 ## Konto löschen
 
 Im Webinterface unter „Konto löschen“, mit dem Passwort zur Bestätigung (`POST /api/account/delete`). Der Server entfernt Konto, Anmeldung, Geräteliste und Mitgliedschaften, beendet alle Browser-Sitzungen und schickt eine Mail. Die Apps merken es beim nächsten Abgleich (`NotLinked`) und entfernen ihre Verknüpfung selbst.

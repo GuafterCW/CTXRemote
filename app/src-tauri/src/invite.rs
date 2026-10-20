@@ -24,7 +24,7 @@ use crate::CmdResult;
 
 /// Where the download page for invited people lives.
 #[cfg(not(feature = "quick"))]
-const WEBSITE: &str = match option_env!("CTXREMOTE_WEBSITE") {
+pub(crate) const WEBSITE: &str = match option_env!("CTXREMOTE_WEBSITE") {
     Some(site) => site,
     None => "https://remocto.com",
 };
@@ -106,16 +106,20 @@ pub fn on_request(app: &AppHandle, from: &str, hint: [u8; 4], sealed: &[u8]) {
 
 /// Quick helper: who invited it, from the file name the download page gave it.
 #[cfg(feature = "quick")]
-fn inviter() -> Option<(DeviceId, String)> {
+fn inviter() -> Option<(invite::Inviter, String)> {
     let exe = std::env::current_exe().ok()?;
     invite::from_file_name(&exe.file_name()?.to_string_lossy())
 }
 
-/// The inviting device's ID (formatted), if this helper came through a link.
+/// The inviting device's ID (formatted), or `team: true` for a team's
+/// support queue, if this helper came through a link.
 #[cfg(feature = "quick")]
 #[tauri::command]
 pub fn invitation() -> Option<serde_json::Value> {
-    inviter().map(|(id, _)| json!({ "id": id.to_string() }))
+    inviter().map(|(inviter, _)| match inviter {
+        invite::Inviter::Device(id) => json!({ "id": id.to_string(), "team": false }),
+        invite::Inviter::Team(_) => json!({ "id": null, "team": true }),
+    })
 }
 
 /// Quick helper: sends ID and password to whoever invited it.

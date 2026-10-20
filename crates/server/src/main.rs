@@ -243,7 +243,7 @@ impl Server {
         match first {
             ClientMsg::Tunnel { .. } => bail!("doppelter Verbindungsaufbau"),
             // Only from a registered device, whose ID the server vouches for.
-            ClientMsg::HelpRequest { .. } => {
+            ClientMsg::HelpRequest { .. } | ClientMsg::QueueHelp { .. } => {
                 framing::send(&mut t, &ServerMsg::HelpSent(Err(ServerError::BadSignature))).await
             }
             ClientMsg::Register { id, public_key, signature } => {
@@ -341,6 +341,9 @@ impl Server {
                     self.wake_for(auth.public_key, macs)
                 } else {
                     let result = self.accounts.lock().unwrap().handle(auth.public_key, op);
+                    if let Ok(AccountReply::Claimed(entry)) = &result {
+                        self.tell_claimed(entry.from);
+                    }
                     result.map(|reply| self.with_presence(reply))
                 };
                 if let Err(e) = &result {
@@ -402,6 +405,17 @@ impl Server {
                                 let sent = self.forward_help(id, peer, to, hint, sealed);
                                 framing::send(&mut t, &ServerMsg::HelpSent(sent)).await?;
                             }
+                            ClientMsg::QueueHelp { queue, hint, sealed } => {
+                                let sent = if self.allow_connect(peer.ip()) {
+                                    self.accounts.lock().unwrap().enqueue(&queue, id, hint, sealed)
+                                } else {
+                                    Err(ServerError::RateLimited)
+                                };
+                                if sent.is_ok() {
+                                    info!(%id, "Hilfe-Anfrage in die Warteschlange gestellt");
+                                }
+                                framing::send(&mut t, &ServerMsg::HelpSent(sent)).await?;
+                            }
                             other => bail!("unerwartete Nachricht: {other:?}"),
                         },
                         None => return Ok(()),
@@ -455,6 +469,13 @@ impl Server {
         let (up, down) = relay(viewer, host).await?;
         info!(%target, up, down, "Sitzung beendet");
         Ok(())
+    }
+
+    /// Tells a device waiting in a support queue that a member took its offer.
+    fn tell_claimed(&self, device: DeviceId) {
+        if let Some(waiting) = self.online.lock().unwrap().get(&device) {
+            let _ = waiting.try_send(ServerMsg::HelpClaimed);
+        }
     }
 
     /// Passes a sealed help offer from `from` to the device that invited it.

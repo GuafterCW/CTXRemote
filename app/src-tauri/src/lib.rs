@@ -1985,7 +1985,11 @@ pub fn run() {
         team::team_save_csv,
         team::team_policy,
         team::team_set_policy,
-        team::device_policy
+        team::device_policy,
+        team::team_open_help_link,
+        team::team_close_help_link,
+        team::team_queue,
+        team::team_claim_help
     ];
     #[cfg(feature = "quick")]
     let builder = builder.manage(quick::Approvals::default());

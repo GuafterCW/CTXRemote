@@ -59,6 +59,10 @@ pub struct TeamBook {
     /// still read the session reports encrypted with them.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub past: BTreeMap<u32, String>,
+    /// The team's help link for its support queue, if it has one (see
+    /// [`crate::queue`]); every member needs its token to open the offers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<crate::queue::HelpLink>,
 }
 
 /// One member's devices that let the team in without a password.

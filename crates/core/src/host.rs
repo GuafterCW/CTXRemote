@@ -87,6 +87,9 @@ pub enum HostEvent {
     /// `ctxremote_proto::invite`). Sealed: only the app that holds the
     /// invitation's token can read it.
     HelpRequest { from: String, hint: [u8; 4], sealed: Vec<u8> },
+    /// This device's offer in a team's support queue was taken; a member
+    /// connects shortly.
+    HelpClaimed,
 }
 
 /// A message for the server on the control connection, and where its answer goes.
@@ -207,10 +210,11 @@ impl Host {
     }
 
     /// Sends this device's ID and one-time password to the device that
-    /// invited it, sealed with the invitation's token, so the person there
-    /// can connect without anything read out over the phone.
-    pub async fn offer_help(&self, inviter: DeviceId, token: &str, name: &str) -> Result<(), String> {
-        use ctxremote_proto::invite;
+    /// invited it, or into the team's support queue, sealed with the
+    /// invitation's token, so the person there can connect without anything
+    /// read out over the phone.
+    pub async fn offer_help(&self, inviter: ctxremote_proto::invite::Inviter, token: &str, name: &str) -> Result<(), String> {
+        use ctxremote_proto::invite::{self, Inviter};
         use ctxremote_proto::rendezvous::ServerError;
         let from = self.shared.config.read().unwrap().device_id.ok_or("Noch nicht mit dem Server verbunden")?;
         let offer = invite::HelpOffer {
@@ -218,7 +222,11 @@ impl Host {
             password: self.password(),
             name: name.chars().take(40).collect(),
         };
-        let request = ClientMsg::HelpRequest { to: inviter, hint: invite::hint(token), sealed: invite::seal(token, &offer) };
+        let (hint, sealed) = (invite::hint(token), invite::seal(token, &offer));
+        let request = match inviter {
+            Inviter::Device(to) => ClientMsg::HelpRequest { to, hint, sealed },
+            Inviter::Team(queue) => ClientMsg::QueueHelp { queue, hint, sealed },
+        };
         let control = self.shared.control.lock().unwrap().clone().ok_or("Noch nicht mit dem Server verbunden")?;
         let (reply, answer) = tokio::sync::oneshot::channel();
         control.send((request, reply)).await.map_err(|_| "Verbindung zum Server getrennt")?;
@@ -478,6 +486,9 @@ async fn stay_online(shared: &Arc<Shared>, t: &mut Transport, requests: &mut mps
                 // Someone this device invited; only the app can open it.
                 ServerMsg::HelpRequest { from, hint, sealed } => {
                     let _ = shared.events.send(HostEvent::HelpRequest { from: from.to_string(), hint, sealed });
+                }
+                ServerMsg::HelpClaimed => {
+                    let _ = shared.events.send(HostEvent::HelpClaimed);
                 }
                 ServerMsg::Error(e) => return Err(e.into()),
                 other => bail!("unerwartete Serverantwort: {other:?}"),

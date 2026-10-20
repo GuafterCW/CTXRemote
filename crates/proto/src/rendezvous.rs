@@ -67,6 +67,9 @@ pub enum ServerMsg {
     SameTeam(bool),
     /// Answer to `TeamRole`; `None` if they are not in one team.
     TeamRole(Option<crate::account::TeamRole>),
+    /// To a device whose offer waits in a support queue ([`HostCaps::QUEUE`]):
+    /// a member of the team took it and will connect.
+    HelpClaimed,
 }
 
 /// What a registering host can do beyond the first version, sent as a
@@ -80,7 +83,9 @@ impl HostCaps {
     pub const WAKE: u32 = 1 << 0;
     /// Understands `ServerMsg::HelpRequest`.
     pub const HELP: u32 = 1 << 1;
-    pub const CURRENT: Self = Self(Self::WAKE | Self::HELP);
+    /// Understands `ServerMsg::HelpClaimed`.
+    pub const QUEUE: u32 = 1 << 2;
+    pub const CURRENT: Self = Self(Self::WAKE | Self::HELP | Self::QUEUE);
 
     pub fn has(self, cap: u32) -> bool {
         self.0 & cap == cap
@@ -156,6 +161,11 @@ pub enum ClientMsg {
     /// Like `SameTeam`, answered with `a`'s role if both are confirmed
     /// members of one team; the host caps a session by it (see "Richtlinien").
     TeamRole { a: [u8; 32], b: [u8; 32] },
+    /// On the control connection of a registered device (the quick helper):
+    /// put this offer into the support queue named `queue` (see
+    /// [`crate::invite::Inviter::Team`]). The server answers `HelpSent`, and
+    /// `HelpClaimed` once a member took it.
+    QueueHelp { queue: String, hint: [u8; 4], sealed: Vec<u8> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
@@ -172,6 +182,10 @@ pub enum ServerError {
     RateLimited,
     #[error("Dieses Update ist auf dem Server nicht mehr vorhanden")]
     UpdateGone,
+    #[error("Dieser Hilfelink gilt nicht mehr, bitte um einen neuen bitten")]
+    UnknownQueue,
+    #[error("Die Warteschlange ist gerade voll, bitte später nochmal versuchen")]
+    QueueFull,
 }
 
 fn register_payload(nonce: &Nonce) -> Vec<u8> {

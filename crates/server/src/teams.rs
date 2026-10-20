@@ -11,11 +11,13 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use ctxremote_proto::account::{
-    valid_code_id, AccountError, AccountOp, AccountReply, MemberKey, ReportEntry, Rotation, TeamMember, TeamRole, TeamState,
+    valid_code_id, AccountError, AccountOp, AccountReply, MemberKey, QueueEntry, ReportEntry, Rotation, TeamMember, TeamRole, TeamState,
     MAX_BOOK, MAX_POLICY, MAX_REPORT, MAX_REPORTS_PER_REPLY, MAX_TEAM, PAIRING_SECS,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use ctxremote_proto::rendezvous::ServerError;
 
 use super::{constant_time_eq, unix_now, Accounts, MAX_TRIES};
 
@@ -28,6 +30,9 @@ const MAX_INVITES: usize = 5;
 /// Session reports kept per team, and for how long.
 const MAX_STORED_REPORTS: usize = 5000;
 const REPORT_SECS: u64 = 365 * 24 * 3600;
+/// Offers waiting per team, and for how long.
+const MAX_QUEUED: usize = 50;
+const QUEUE_SECS: u64 = 30 * 60;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Team {
@@ -52,6 +57,26 @@ pub(super) struct Team {
     policy: String,
     #[serde(default)]
     policy_epoch: u32,
+    /// The name of the team's support queue, empty if it has none.
+    #[serde(default)]
+    help_queue: String,
+}
+
+/// The teams' support queues: team → waiting offers, oldest first.
+#[derive(Default)]
+pub(super) struct HelpQueues {
+    waiting: HashMap<u64, Vec<QueueEntry>>,
+    next: u64,
+}
+
+impl HelpQueues {
+    /// The offers of `team` still waiting.
+    fn of(&mut self, team: u64) -> &mut Vec<QueueEntry> {
+        let now = unix_now();
+        let list = self.waiting.entry(team).or_default();
+        list.retain(|e| now.saturating_sub(e.since) < QUEUE_SECS);
+        list
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -311,6 +336,25 @@ impl Accounts {
         Ok(id)
     }
 
+    /// Puts an offer from `from` into the support queue named `queue`; a
+    /// device that asks again replaces its earlier offer.
+    pub fn enqueue(&mut self, queue: &str, from: ctxremote_proto::DeviceId, hint: [u8; 4], sealed: Vec<u8>) -> Result<(), ServerError> {
+        if !ctxremote_proto::invite::valid_queue(queue) || sealed.len() > ctxremote_proto::invite::MAX_SEALED {
+            return Err(ServerError::UnknownQueue);
+        }
+        let team = self.stored.teams.iter().find(|(_, t)| t.help_queue == queue).map(|(id, _)| *id);
+        let team = team.ok_or(ServerError::UnknownQueue)?;
+        self.queues.next += 1;
+        let ticket = self.queues.next;
+        let list = self.queues.of(team);
+        list.retain(|e| e.from != from);
+        if list.len() >= MAX_QUEUED {
+            return Err(ServerError::QueueFull);
+        }
+        list.push(QueueEntry { ticket, from, hint, sealed, since: unix_now() });
+        Ok(())
+    }
+
     /// The team's policy, for a device with its report token.
     pub(super) fn get_policy(&self, team: [u8; 16], epoch: u32, token: &[u8; 32]) -> Result<AccountReply, AccountError> {
         let t = &self.stored.teams[&self.by_token(team, epoch, token)?];
@@ -355,6 +399,7 @@ impl Accounts {
                         report_check: String::new(),
                         policy: String::new(),
                         policy_epoch: 0,
+                        help_queue: String::new(),
                     },
                 );
                 self.commit(before)?;
@@ -485,6 +530,7 @@ impl Accounts {
                 self.commit(before)?;
                 self.invites.retain(|_, i| i.team != id);
                 self.reports.remove(id);
+                self.queues.waiting.remove(&id);
                 Ok(AccountReply::Done)
             }
             AccountOp::SetTeamAccess { epoch, blob } => {
@@ -534,6 +580,32 @@ impl Accounts {
                 t.policy_epoch = if blob.is_empty() { 0 } else { epoch };
                 self.commit(before)?;
                 Ok(AccountReply::Done)
+            }
+            AccountOp::SetHelpQueue { queue } => {
+                let id = managing()?;
+                let queue = queue.unwrap_or_default();
+                if !queue.is_empty() && !ctxremote_proto::invite::valid_queue(&queue) {
+                    return Err(AccountError::UnknownCode);
+                }
+                if !queue.is_empty() && self.stored.teams.iter().any(|(&other, t)| other != id && t.help_queue == queue) {
+                    return Err(AccountError::Conflict);
+                }
+                let before = self.snapshot();
+                self.stored.teams.get_mut(&id).expect("its team").help_queue = queue;
+                self.commit(before)?;
+                // A new link: offers made through the old one go.
+                self.queues.waiting.remove(&id);
+                Ok(AccountReply::Done)
+            }
+            AccountOp::GetQueue => {
+                let id = team.ok_or(AccountError::NoTeam)?;
+                Ok(AccountReply::Queue(self.queues.of(id).clone()))
+            }
+            AccountOp::ClaimHelp { ticket } => {
+                let id = team.ok_or(AccountError::NoTeam)?;
+                let list = self.queues.of(id);
+                let at = list.iter().position(|e| e.ticket == ticket).ok_or(AccountError::Taken)?;
+                Ok(AccountReply::Claimed(list.remove(at)))
             }
             _ => unreachable!("only team operations come here"),
         }
