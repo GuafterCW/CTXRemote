@@ -376,8 +376,10 @@ impl Accounts {
             | AccountOp::DeleteTeam
             | AccountOp::SetTeamAccess { .. }
             | AccountOp::SetReportCheck { .. }
-            | AccountOp::GetReports { .. }) => self.run_team(member.ok_or(AccountError::NotLinked)?, op),
+            | AccountOp::GetReports { .. }
+            | AccountOp::SetPolicy { .. }) => self.run_team(member.ok_or(AccountError::NotLinked)?, op),
             AccountOp::AddReport { team, epoch, token, blob } => self.add_report(member, team, epoch, &token, blob),
+            AccountOp::GetPolicy { team, epoch, token } => self.get_policy(team, epoch, &token),
             AccountOp::Status => Ok(AccountReply::Status(member.map(|id| self.info(id)))),
             AccountOp::Create => {
                 if member.is_some() {

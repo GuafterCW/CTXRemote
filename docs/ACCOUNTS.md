@@ -151,6 +151,31 @@ Inhaber und Admins sehen, wer wann wie lange mit welchem Gerät verbunden war, i
 - **Code:** `crates/core/src/report.rs` (Krypto, Warteschlange, Abrufen), Meldung am Host in `crates/core/src/host.rs` (`note`, `report`), in der App `app/src-tauri/src/team.rs` (`report_session`, `team_reports`), Server `crates/server/src/teams.rs` (`ReportStore`, `add_report`).
 - **Tests:** `teams::sessions_are_reported_to_owners_and_admins_only` mit echtem Server und echter Sitzung über den Team-Zugriff: Bericht der App und des Dienstes kommen an, der Server nennt das sendende Mitglied, Techniker lesen nichts, ein falsches Token schreibt nichts, nach dem Entfernen bleiben alte Berichte lesbar und das alte Token schreibt nicht mehr. Prüfwerte für den Browser in `report::tests`, im Browser `npm test`. Webinterface einmal gegen echten Server (Skript im Scratchpad): Inhaber liest, Techniker nicht, alter Schlüssel nach Rotation im Team-Buch, Prüfwert neu gesetzt, Umbenennen erhält ihn.
 
+### Richtlinien (20. Oktober 2026)
+
+Inhaber und Admins legen fest, was alle fürs Team freigegebenen Rechner erlauben (App: Kontopanel → Team → „Richtlinien“, Web: Team-Seite). Alle Mitglieder können die Richtlinie lesen.
+
+- **Nur einschränken:** Eine Richtlinie nimmt Rechte weg und schließt Zugangswege, sie gibt nie mehr frei, als die Einstellungen des Rechners erlauben. Wirksam sind die Rechte des Rechners ohne die vom Team weggenommenen.
+- **Inhalt** (`TeamPolicy` in `crates/core/src/policy.rs`, JSON):
+  - weggenommene Rechte getrennt für Techniker, für Inhaber und Admins (Sitzungen über das Team) und für alle Sitzungen ohne Team (Einmalpasswort, festes Passwort, Geräte des eigenen Kontos), als Bitmasken wie `Permissions`. Neue Rechte sind damit erst einmal erlaubt.
+  - Zugangswege: Einmalpasswort, festes Passwort, Zugriff über das Konto (jeweils an/aus), dazu „festes Passwort nur mit Bestätigungscode“.
+- **Durchsetzung am Rechner** (`crates/core/src/host.rs`, `serve` und `current_policy`):
+  - Beim Verbindungsaufbau holt der Rechner die Richtlinie (parallel zum Beitritt, höchstens 5 Sekunden). Kann der Server nicht antworten, gilt die zuletzt geholte, gespeichert in der Konfiguration (`team_policy`, an das Team gebunden). Ohne Freigabe fürs Team gilt keine Richtlinie.
+  - Ein geschlossener Zugangsweg wird nach dem Passwort mit Begründung abgewiesen („Das Team erlaubt an diesem Gerät keinen Zugriff mit dem Einmalpasswort“), ohne als Fehlversuch zu zählen. Im Verlauf und in den Berichten steht „Von der Teamrichtlinie abgelehnt“ (`Outcome::Policy`).
+  - Die Rolle fragt der Rechner beim Server nach (`ClientMsg::TeamRole`, statt nur `SameTeam`). Ein älterer Server kennt das nicht, dann gilt das Mitglied als Techniker.
+  - Die Person am Rechner kann weggenommene Rechte während der Sitzung nicht zurückgeben (`set_rights` kappt). Eine geänderte Richtlinie gilt ab der nächsten Sitzung.
+- **Verschlüsselung und Speicher:** mit dem Berichtsschlüssel `R` versiegelt, gebunden an „ctxremote/team-policy/v1“, Team-ID und Epoche. So kann auch der Dienst eines Rechners in keinem Konto sie mit dem Berichts-Token lesen (`GetPolicy`, nur verschlüsselt, Token wie bei `AddReport` geprüft). Speichern dürfen nur Inhaber und Admins (`SetPolicy`, vom Server geprüft, höchstens 4 KB). Der Server legt sie mit ihrer Epoche im Team ab. Nach einer neuen Epoche verschlüsselt die App bzw. das Webinterface eines Inhabers oder Admins sie neu (`carry_over`). Bis dahin behalten Rechner die zuletzt geholte.
+- **Grenzen:** Wer den Teamschlüssel hat (auch Techniker), kennt `R`. Ein Techniker könnte zusammen mit einem kompromittierten Server eine strengere Richtlinie unterschieben, aber nie eine lockerere, als der Rechner selbst erlaubt. Die Richtlinie gilt nur für freigegebene Rechner, nicht für die Apps der Mitglieder als Viewer.
+- **Oberfläche:** App `app/src/lib/TeamPolicy.svelte`, Hinweis in den Einstellungen bei „Rechte der Gegenseite“, wenn der Rechner einer Richtlinie folgt (`device_policy`). Web `web/src/TeamPolicy.svelte`.
+- **Tests:** `teams::the_team_policy_caps_what_its_devices_allow` mit echtem Server und echten Sitzungen:
+  - Nur Inhaber speichern, Techniker lesen.
+  - Der Techniker kommt ohne Terminal und Dateien herein, und die Person am Rechner kann sie nicht zurückgeben. Der Inhaber bekommt alles.
+  - Einmalpasswort und festes Passwort werden mit Begründung abgewiesen.
+  - Mit ungültigem Token gilt die zuletzt geholte Richtlinie.
+  - Nach einer Rotation ist sie neu verschlüsselt, nach dem Entfernen wieder alles offen.
+
+  Prüfwert für den Browser in `policy::tests`, im Browser `npm test`.
+
 ## Konto löschen
 
 Im Webinterface unter „Konto löschen“, mit dem Passwort zur Bestätigung (`POST /api/account/delete`). Der Server entfernt Konto, Anmeldung, Geräteliste und Mitgliedschaften, beendet alle Browser-Sitzungen und schickt eine Mail. Die Apps merken es beim nächsten Abgleich (`NotLinked`) und entfernen ihre Verknüpfung selbst.

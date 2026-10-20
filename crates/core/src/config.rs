@@ -58,6 +58,10 @@ pub struct Config {
     pub team_open: std::collections::BTreeMap<u32, String>,
     /// Set when this device lets its team's members in without a password.
     pub team_access: Option<crate::team::TeamAccessGrant>,
+    /// The team's policy as last fetched, for a device opened to the team
+    /// (see [`crate::policy`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_policy: Option<crate::policy::HeldPolicy>,
     /// What viewers may do in sessions opened with the one-time password,
     /// i.e. with someone at the computer. Changeable per session.
     pub rights_attended: Permissions,
@@ -149,6 +153,7 @@ impl Default for Config {
             team: None,
             team_open: Default::default(),
             team_access: None,
+            team_policy: None,
             rights_attended: Permissions::ATTENDED,
             rights_unattended: Permissions::ALL,
             code_secret: None,
@@ -373,6 +378,12 @@ impl Config {
         self.direct_port = new.port;
         self.direct_addresses = new.addresses;
         Ok(changed)
+    }
+
+    /// The team's policy as fetched last, if this device is opened to that team.
+    pub fn followed_policy(&self) -> Option<&crate::policy::TeamPolicy> {
+        let grant = self.team_access.as_ref().filter(|g| Some(g.host) == self.device_id)?;
+        self.team_policy.as_ref().filter(|h| h.team == grant.team).map(|h| &h.policy)
     }
 
     pub fn server_addr(&self) -> String {

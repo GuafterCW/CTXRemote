@@ -14,6 +14,7 @@ pub mod config;
 mod congestion;
 pub mod desktop;
 pub mod direct;
+pub mod policy;
 pub mod privacy;
 pub mod profile;
 pub mod record;

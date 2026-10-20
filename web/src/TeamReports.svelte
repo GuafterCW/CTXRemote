@@ -29,8 +29,9 @@
     declined: "Abgelehnt",
     wrongCode: "Falscher Code",
     team: "Teammitglied, ohne Passwort",
+    policy: "Von der Teamrichtlinie abgelehnt",
   };
-  const REFUSED: Outcome[] = ["wrongPassword", "notMember", "declined", "wrongCode"];
+  const REFUSED: Outcome[] = ["wrongPassword", "notMember", "declined", "wrongCode", "policy"];
 
   onMount(async () => {
     try {

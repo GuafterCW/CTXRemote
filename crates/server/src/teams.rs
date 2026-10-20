@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use ctxremote_proto::account::{
     valid_code_id, AccountError, AccountOp, AccountReply, MemberKey, ReportEntry, Rotation, TeamMember, TeamRole, TeamState,
-    MAX_BOOK, MAX_REPORT, MAX_REPORTS_PER_REPLY, MAX_TEAM, PAIRING_SECS,
+    MAX_BOOK, MAX_POLICY, MAX_REPORT, MAX_REPORTS_PER_REPLY, MAX_TEAM, PAIRING_SECS,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -45,6 +45,13 @@ pub(super) struct Team {
     /// an admin's app sets it, and again after each new epoch.
     #[serde(default)]
     report_check: String,
+    /// The policy, encrypted with the report key of `policy_epoch` (hex);
+    /// empty if there is none. Kept across epochs until an admin's app
+    /// encrypts it anew.
+    #[serde(default)]
+    policy: String,
+    #[serde(default)]
+    policy_epoch: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -196,14 +203,19 @@ impl Accounts {
 
     /// Whether both device keys belong to confirmed members of one team.
     pub fn same_team(&self, a: &[u8; 32], b: &[u8; 32]) -> bool {
-        let (Some(&x), Some(&y)) = (self.by_key.get(&hex::encode(a)), self.by_key.get(&hex::encode(b))) else {
-            return false;
-        };
+        self.team_role(a, b).is_some()
+    }
+
+    /// The role of `a`'s account if both device keys belong to confirmed
+    /// members of one team.
+    pub fn team_role(&self, a: &[u8; 32], b: &[u8; 32]) -> Option<TeamRole> {
+        let (&x, &y) = (self.by_key.get(&hex::encode(a))?, self.by_key.get(&hex::encode(b))?);
         let confirmed = |account: u64| {
             let team = self.team_of(account)?;
             self.stored.teams[&team].members[&account].key.as_ref().map(|_| team)
         };
-        matches!((confirmed(x), confirmed(y)), (Some(s), Some(t)) if s == t)
+        let team = confirmed(x)?;
+        (confirmed(y)? == team).then(|| self.stored.teams[&team].members[&x].role)
     }
 
     fn team_state(&self, team: u64, me: u64) -> TeamState {
@@ -282,15 +294,28 @@ impl Accounts {
         if blob.len() > MAX_REPORT {
             return Err(AccountError::TooLarge);
         }
+        let id = self.by_token(team, epoch, token)?;
+        let member = account.filter(|a| self.stored.teams[&id].members.contains_key(a));
+        self.reports.add(id, epoch, member, &blob)?;
+        Ok(AccountReply::Done)
+    }
+
+    /// The team whose report token of its current epoch `token` is.
+    fn by_token(&self, team: [u8; 16], epoch: u32, token: &[u8; 32]) -> Result<u64, AccountError> {
         let team = hex::encode(team);
         let (&id, t) = self.stored.teams.iter().find(|(_, t)| t.id == team).ok_or(AccountError::ReportRefused)?;
         let check: [u8; 32] = Sha256::digest(token).into();
         if t.epoch != epoch || t.report_check.is_empty() || !constant_time_eq(&unhex32(&t.report_check), &check) {
             return Err(AccountError::ReportRefused);
         }
-        let member = account.filter(|a| t.members.contains_key(a));
-        self.reports.add(id, epoch, member, &blob)?;
-        Ok(AccountReply::Done)
+        Ok(id)
+    }
+
+    /// The team's policy, for a device with its report token.
+    pub(super) fn get_policy(&self, team: [u8; 16], epoch: u32, token: &[u8; 32]) -> Result<AccountReply, AccountError> {
+        let t = &self.stored.teams[&self.by_token(team, epoch, token)?];
+        let blob = hex::decode(&t.policy).unwrap_or_default();
+        Ok(AccountReply::Policy { epoch: t.policy_epoch, blob })
     }
 
     /// The team operations of [`AccountOp`], for `account`.
@@ -328,6 +353,8 @@ impl Accounts {
                         members: BTreeMap::from([(account, seat)]),
                         stale: false,
                         report_check: String::new(),
+                        policy: String::new(),
+                        policy_epoch: 0,
                     },
                 );
                 self.commit(before)?;
@@ -492,6 +519,21 @@ impl Accounts {
                 let id = managing()?;
                 let (entries, more) = self.reports.after(id, after);
                 Ok(AccountReply::Reports { entries, more })
+            }
+            AccountOp::SetPolicy { epoch, blob } => {
+                let id = managing()?;
+                if blob.len() > MAX_POLICY {
+                    return Err(AccountError::TooLarge);
+                }
+                if self.stored.teams[&id].epoch != epoch {
+                    return Err(AccountError::StaleKey);
+                }
+                let before = self.snapshot();
+                let t = self.stored.teams.get_mut(&id).expect("its team");
+                t.policy = hex::encode(&blob);
+                t.policy_epoch = if blob.is_empty() { 0 } else { epoch };
+                self.commit(before)?;
+                Ok(AccountReply::Done)
             }
             _ => unreachable!("only team operations come here"),
         }

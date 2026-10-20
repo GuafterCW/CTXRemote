@@ -386,7 +386,35 @@ export type Outcome =
   | "declined"
   | "wrongCode"
   /** A member of the team, without a password. */
-  | "team";
+  | "team"
+  /** Refused by the team policy. */
+  | "policy";
+
+/** Mirrors `TeamPolicy` in crates/core/src/policy.rs. deny* are `RIGHT` bitmasks of withdrawn rights. */
+export interface TeamPolicy {
+  denyTechnician: number;
+  denyAdmin: number;
+  denyOthers: number;
+  /** Whether the access paths stay open on team devices. */
+  oneTime: boolean;
+  permanent: boolean;
+  account: boolean;
+  requireCode: boolean;
+  /** Unix seconds of the last change; 0 = never. */
+  changed: number;
+}
+
+/** The state without a policy: nothing withdrawn, everything open. */
+export const defaultPolicy = (): TeamPolicy => ({
+  denyTechnician: 0,
+  denyAdmin: 0,
+  denyOthers: 0,
+  oneTime: true,
+  permanent: true,
+  account: true,
+  requireCode: false,
+  changed: 0,
+});
 
 export interface Visit {
   /** Unix seconds. */
@@ -445,6 +473,12 @@ export const api = {
   teamReports: () => invoke<ReportRow[]>("team_reports"),
   /** Saves the CSV in the download folder; returns the file's path. */
   teamSaveCsv: (text: string) => invoke<string>("team_save_csv", { text }),
+  /** The team policy; any member may read it. Null without one. */
+  teamPolicy: () => invoke<TeamPolicy | null>("team_policy"),
+  /** Owners and admins only; null removes the policy. */
+  teamSetPolicy: (policy: TeamPolicy | null) => invoke<void>("team_set_policy", { policy }),
+  /** The policy this device follows as a team device; null if none. */
+  devicePolicy: () => invoke<TeamPolicy | null>("device_policy"),
   teamLeave: () => invoke<void>("team_leave"),
   teamDelete: () => invoke<void>("team_delete"),
   /** An empty profile removes it; returns the profile as stored. */

@@ -260,12 +260,16 @@ pub async fn create(server: &str, key: &SigningKey, account: &AccountLink, name:
 }
 
 /// As owner or admin: lets devices with this epoch's report token write
-/// session reports (see [`crate::report`]). A failure only delays reports.
+/// session reports and read the policy (see [`crate::report`],
+/// [`crate::policy`]), and encrypts the policy for this epoch. A failure
+/// only delays both.
 async fn allow_reports(server: &str, key: &SigningKey, team: &TeamView) {
     if team.link.role.manages() {
         if let Err(e) = crate::report::set_check(server, key, &team.link).await {
             tracing::debug!("Berichte noch nicht freigegeben: {e:#}");
+            return;
         }
+        crate::policy::carry_over(server, key, team).await;
     }
 }
 
@@ -499,6 +503,28 @@ pub fn access_for(config: &crate::config::Config, target: DeviceId) -> Option<St
     let team = config.team.as_ref()?;
     config.team_open.contains_key(&target.get()).then_some(())?;
     Some(access_password(&team.key().ok()?, target))
+}
+
+/// The role of `a`'s account if the server counts both device keys as
+/// confirmed members of one team. A server from before roles were asked
+/// for answers only whether they are, then the member counts as a
+/// technician; anything but a clear yes (error) is `None`.
+pub async fn team_role(server: &str, a: [u8; 32], b: [u8; 32]) -> Option<TeamRole> {
+    use ctxremote_proto::framing;
+    use ctxremote_proto::rendezvous::{ClientMsg, ServerMsg};
+    let ask = async {
+        let (mut t, _) = crate::net::dial(server).await?;
+        framing::send(&mut t, &ClientMsg::TeamRole { a, b }).await?;
+        match framing::recv::<ServerMsg>(&mut t).await? {
+            ServerMsg::TeamRole(role) => anyhow::Ok(role),
+            other => anyhow::bail!("unerwartete Serverantwort: {other:?}"),
+        }
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(15), ask).await {
+        Ok(Ok(role)) => role,
+        // Old servers close the connection on the unknown message.
+        _ => same_team(server, a, b).await.then_some(TeamRole::Technician),
+    }
 }
 
 /// Whether the server counts both device keys as confirmed members of one

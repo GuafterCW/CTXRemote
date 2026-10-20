@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { api, errorText, RIGHT, type DirectSettings, type Profile } from "./lib/api";
+  import { api, errorText, type DirectSettings, type Profile, type TeamPolicy } from "./lib/api";
+  import { RIGHTS } from "./lib/rights";
   import Icon from "./lib/Icon.svelte";
   import ProfileCard from "./lib/ProfileCard.svelte";
   import RiskConfirm from "./lib/RiskConfirm.svelte";
@@ -135,23 +136,40 @@
     }
   }
 
-  /** Bit, label, hint; `warn` marks a hint that must not be overlooked. */
-  const RIGHTS: [number, string, string?, boolean?][] = [
-    [RIGHT.INPUT, "Maus und Tastatur"],
-    [RIGHT.FILES, "Dateien"],
-    [RIGHT.CLIPBOARD, "Zwischenablage"],
-    [RIGHT.AUDIO, "Ton"],
-    [RIGHT.RESTART, "Neu starten"],
-    [RIGHT.PRIVACY, "Bildschirm schwarz schalten"],
-    [RIGHT.TUNNEL, "Port-Tunnel ins Netzwerk"],
-    [RIGHT.TERMINAL, "Terminal", "Befehlszeile als angemeldeter Benutzer"],
-    [
-      RIGHT.PROCESSES,
-      "Prozesse und Dienste",
-      "Unter Windows mit Administratorrechten",
-      true,
-    ],
-  ];
+  // The team policy this device follows, if it is released for the team; local settings stay as saved.
+  let teamPolicy = $state<TeamPolicy | null>(null);
+  api.devicePolicy().then(
+    (p) => (teamPolicy = p),
+    () => {},
+  );
+
+  const names = (mask: number) => RIGHTS.filter(([bit]) => (mask & bit) !== 0).map(([, label]) => label);
+
+  /** What the policy switches off, one line each. */
+  const policyLines = $derived.by(() => {
+    const p = teamPolicy;
+    if (!p) return [];
+    const lines: string[] = [];
+    if (!p.oneTime) lines.push("Kein Einmalpasswort");
+    if (!p.permanent) lines.push("Kein festes Passwort");
+    else if (p.requireCode) lines.push("Festes Passwort nur mit Bestätigungscode");
+    if (!p.account) lines.push("Kein Zugriff über Geräte des eigenen Kontos");
+    const groups: [string, number][] = [
+      ["Techniker", p.denyTechnician],
+      ["Inhaber und Admins", p.denyAdmin],
+      ["Sitzungen ohne Team", p.denyOthers],
+    ];
+    for (const [who, mask] of groups) if (mask) lines.push(`${who} ohne: ${names(mask).join(", ")}`);
+    return lines;
+  });
+
+  /** "locked" if the team withdraws the right from everyone, "limited" if from some. */
+  function teamState(bit: number): "locked" | "limited" | null {
+    const p = teamPolicy;
+    if (!p) return null;
+    const hits = [p.denyTechnician, p.denyAdmin, p.denyOthers].filter((m) => (m & bit) !== 0).length;
+    return hits === 3 ? "locked" : hits > 0 ? "limited" : null;
+  }
 
   /** Returns false if the direct settings were rejected; the error shows in their section. */
   async function saveDirect(): Promise<boolean> {
@@ -364,6 +382,16 @@
       <span class="note">
         Gilt für neue Sitzungen. Während einer Sitzung lässt sich das im Hauptfenster unter „Rechte“ ändern.
       </span>
+      {#if teamPolicy}
+        <div class="policy-note" role="status">
+          <strong>Dieses Gerät folgt der Richtlinie des Teams.</strong>
+          {#if policyLines.length}
+            <ul>
+              {#each policyLines as line (line)}<li>{line}</li>{/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
       <div class="rights" role="table">
         <div class="rights-row head" role="row">
           <span role="columnheader"></span>
@@ -388,6 +416,11 @@
                 checked={(unattendedRights & bit) !== 0}
                 onchange={(e) => flip("unattended", bit, e.currentTarget)}
               />
+              {#if teamState(bit) === "locked"}
+                <small class="team-lock">vom Team gesperrt</small>
+              {:else if teamState(bit) === "limited"}
+                <small class="team-lock">vom Team eingeschränkt</small>
+              {/if}
             </span>
           </div>
         {/each}
@@ -727,6 +760,25 @@
   }
   .rights-row small.warn {
     color: var(--warn);
+  }
+
+  .rights-row small.team-lock {
+    color: var(--warn);
+  }
+
+  .policy-note {
+    padding: 10px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font-size: 12.5px;
+    color: var(--ink-2);
+  }
+
+  .policy-note ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    color: var(--ink-3);
   }
 
   .rights-row.head {

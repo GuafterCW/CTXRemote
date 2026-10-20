@@ -296,6 +296,13 @@ export function reportAad(id: Uint8Array, epoch: number): Uint8Array {
   return concat(text.encode(REPORT_AAD), id, be(epoch, 4));
 }
 
+const POLICY_AAD = "ctxremote/team-policy/v1";
+
+/** `policy::aad`: bound to the team and the epoch, like the report one. */
+export function policyAad(id: Uint8Array, epoch: number): Uint8Array {
+  return concat(text.encode(POLICY_AAD), id, be(epoch, 4));
+}
+
 export function toBase64(bytes: Uint8Array): string {
   let s = "";
   for (const b of bytes) s += String.fromCharCode(b);

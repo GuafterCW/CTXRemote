@@ -20,9 +20,10 @@
     notMember: "Kein Kontomitglied",
     declined: "Abgelehnt",
     wrongCode: "Falscher Code",
+    policy: "Von der Teamrichtlinie abgelehnt",
     team: "Teammitglied, ohne Passwort",
   };
-  const refused = (o: Outcome | null) => o === "wrongPassword" || o === "notMember" || o === "declined" || o === "wrongCode";
+  const refused = (o: Outcome | null) => o === "wrongPassword" || o === "notMember" || o === "declined" || o === "wrongCode" || o === "policy";
 
   const memberName = (r: ReportRow) => r.memberEmail ?? (r.member !== null ? `Konto ${r.member}` : "");
   const startOf = (r: ReportRow) => r.report?.started || r.at;

@@ -229,3 +229,92 @@ async fn sessions_are_reported_to_owners_and_admins_only() {
     assert!(other.flush(&addr, &tech, &ReportKey::for_team(&tech_team.link).unwrap()).await.is_err());
     assert_eq!(other.len(), 1, "kept for later");
 }
+
+/// The first `Rights` the viewer gets after it came in.
+fn first_rights(events: &std_mpsc::Receiver<ctxremote_core::viewer::ViewerEvent>) -> Option<ctxremote_core::proto::session::Permissions> {
+    wait_for(events, |e| match e {
+        ctxremote_core::viewer::ViewerEvent::Rights(r) => Some(r),
+        _ => None,
+    })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_team_policy_caps_what_its_devices_allow() {
+    use ctxremote_core::policy::{self, TeamPolicy};
+    use ctxremote_core::proto::session::Permissions;
+    let (_server, addr) = start_server().await;
+    let (boss, tech, desk) = (SigningKey::from_bytes(&[61; 32]), SigningKey::from_bytes(&[62; 32]), SigningKey::from_bytes(&[63; 32]));
+    let boss_link = account::create(&addr, &boss).await.unwrap();
+    let tech_link = account::create(&addr, &tech).await.unwrap();
+    let desk_link = account::create(&addr, &desk).await.unwrap();
+    let created = team::create(&addr, &boss, &boss_link, "Werkstatt").await.unwrap();
+    let code = team::invite(&addr, &boss, &boss_link, TeamRole::Technician).await.unwrap();
+    let tech_team = team::join(&addr, &tech, &tech_link, &code).await.unwrap();
+    let code = team::invite(&addr, &boss, &boss_link, TeamRole::Technician).await.unwrap();
+    let desk_team = team::join(&addr, &desk, &desk_link, &code).await.unwrap();
+
+    // Only owners and admins set it; every member can read it.
+    let rule = TeamPolicy {
+        deny_technician: Permissions(Permissions::TERMINAL | Permissions::FILES),
+        one_time: false,
+        permanent: false,
+        changed: 1,
+        ..TeamPolicy::default()
+    };
+    let boss_view = team::sync(&addr, &boss, &boss_link, None).await.unwrap().unwrap();
+    assert!(policy::load(&addr, &boss, &boss_view).await.unwrap().is_none());
+    assert!(policy::save(&addr, &tech, &tech_team.link, Some(&rule)).await.is_err(), "Techniker dürfen nicht");
+    policy::save(&addr, &boss, &created.link, Some(&rule)).await.unwrap();
+    let tech_view = team::sync(&addr, &tech, &tech_link, None).await.unwrap().unwrap();
+    assert_eq!(policy::load(&addr, &tech, &tech_view).await.unwrap(), Some(rule.clone()));
+
+    // A computer opened to the team, with every right and a permanent password.
+    let (host, id, config) = start_host_shared(&addr, |c| c.permanent_password = Some("Lange-Geheim-42".into())).await;
+    let mut app = Config { team: Some(desk_team.link.clone()), device_key: hex::encode(desk.to_bytes()), ..Config::default() };
+    app.server = addr.clone();
+    let grant = team::TeamAccessGrant::for_host(&app, id).unwrap();
+    config.write().unwrap().team_access = Some(grant.clone());
+
+    // The technician comes in without terminal and files …
+    let (session, events) = try_connect(&addr, id, &grant.password, Some(&tech)).await.expect("Techniker kommt rein");
+    let rights = first_rights(&events).expect("Rechte");
+    assert_eq!(rights, Permissions(Permissions::ALL.0 & !(Permissions::TERMINAL | Permissions::FILES)));
+    // … and the person at the computer cannot give them back.
+    let number = host.sessions()[0].0;
+    host.set_rights(number, Permissions::ALL).unwrap();
+    assert!(!host.session_rights()[0].1.has(Permissions::TERMINAL));
+    session.close();
+    assert_eq!(config.read().unwrap().team_policy.as_ref().map(|h| &h.policy), Some(&rule), "kept for later");
+
+    // The owner keeps everything.
+    let (session, events) = try_connect(&addr, id, &grant.password, Some(&boss)).await.expect("Inhaber kommt rein");
+    assert_eq!(first_rights(&events), Some(Permissions::ALL));
+    session.close();
+
+    // Passwords the policy closes are refused with a reason.
+    let refused = try_connect(&addr, id, &host.password(), None).await.err().expect("Einmalpasswort zu");
+    assert!(refused.to_string().contains("Einmalpasswort"), "{refused:#}");
+    let refused = try_connect(&addr, id, "Lange-Geheim-42", None).await.err().expect("festes Passwort zu");
+    assert!(refused.to_string().contains("festen Passwort"), "{refused:#}");
+
+    // Without the server the policy fetched last still applies.
+    let mut broken = grant.clone();
+    if let Some(key) = broken.report.as_mut() {
+        key.token = hex::encode([9u8; 32]);
+    }
+    config.write().unwrap().team_access = Some(broken);
+    assert!(try_connect(&addr, id, &host.password(), None).await.is_err(), "zuletzt geholte Richtlinie gilt");
+    config.write().unwrap().team_access = Some(grant.clone());
+
+    // After a new epoch the owner's app encrypts it anew; removed, it is gone.
+    let after = team::rotate(&addr, &boss, &boss_link, &[tech_team.link.me]).await.unwrap();
+    app.team = Some(team::sync(&addr, &desk, &desk_link, None).await.unwrap().unwrap().link);
+    let renewed = team::TeamAccessGrant::for_host(&app, id).unwrap();
+    assert_eq!(policy::fetch(&addr, &desk, renewed.report.as_ref().unwrap()).await.unwrap(), Some(rule.clone()));
+    policy::save(&addr, &boss, &after.link, None).await.unwrap();
+    assert_eq!(policy::fetch(&addr, &desk, renewed.report.as_ref().unwrap()).await.unwrap(), None);
+    config.write().unwrap().team_access = Some(renewed);
+    let (session, _events) = try_connect(&addr, id, &host.password(), None).await.expect("Einmalpasswort wieder offen");
+    session.close();
+    assert!(config.read().unwrap().team_policy.is_none());
+}

@@ -28,6 +28,8 @@ pub enum Outcome {
     WrongCode,
     /// A member of the team, without a password.
     Team,
+    /// The team's policy does not allow this way in (see `crate::policy`).
+    Policy,
 }
 
 impl Outcome {

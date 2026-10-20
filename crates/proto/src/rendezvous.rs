@@ -65,6 +65,8 @@ pub enum ServerMsg {
     HelpSent(Result<(), ServerError>),
     /// Answer to `SameTeam`.
     SameTeam(bool),
+    /// Answer to `TeamRole`; `None` if they are not in one team.
+    TeamRole(Option<crate::account::TeamRole>),
 }
 
 /// What a registering host can do beyond the first version, sent as a
@@ -151,6 +153,9 @@ pub enum ClientMsg {
     /// host asks before it lets a team member in without a password (see
     /// `docs/ACCOUNTS.md`, "Teams"). Servers from before this close the connection.
     SameTeam { a: [u8; 32], b: [u8; 32] },
+    /// Like `SameTeam`, answered with `a`'s role if both are confirmed
+    /// members of one team; the host caps a session by it (see "Richtlinien").
+    TeamRole { a: [u8; 32], b: [u8; 32] },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]

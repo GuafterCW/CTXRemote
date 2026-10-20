@@ -83,4 +83,11 @@ assert.equal(hex(c.reportCheck(reportSecrets.token)), "fb8bca47970036236846afcb7
 const reportBlob = c.seal(reportSecrets.key, c.reportAad(teamId, 3), new TextEncoder().encode("{}"));
 assert.equal(dec(c.open(reportSecrets.key, c.reportAad(teamId, 3), reportBlob)), "{}");
 assert.throws(() => c.open(reportSecrets.key, c.reportAad(teamId, 4), reportBlob));
+// Team policy: `policy::tests::sealed_for_the_team_and_epoch` in crates/core/src/policy.rs.
+const fixedPolicy = Uint8Array.from(Buffer.from("a2d543def81f0944867d2d2cc870dc74be8ba4b7d73d5c3e550b7f7368da05d458c0039c87cbd9dc627905936c209673a10dc17743f1fb02a33f57d01207", "hex"));
+assert.equal(dec(c.open(reportSecrets.key, c.policyAad(filled(16, 1), 2), fixedPolicy)), '{"denyTechnician":128,"changed":5}');
+const policyBlob = c.seal(reportSecrets.key, c.policyAad(teamId, 3), new TextEncoder().encode("{}"));
+assert.equal(dec(c.open(reportSecrets.key, c.policyAad(teamId, 3), policyBlob)), "{}");
+assert.throws(() => c.open(reportSecrets.key, c.policyAad(teamId, 4), policyBlob));
+assert.throws(() => c.open(reportSecrets.key, c.reportAad(teamId, 3), policyBlob));
 console.log("Krypto-Prüfwerte inkl. Team: ok (Browser = App)");

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, canManageTeam, errorText, type TeamInfo, type TeamMember, type TeamRole } from "./api";
   import Icon from "./Icon.svelte";
+  import TeamPolicyPanel from "./TeamPolicy.svelte";
   import TeamReports from "./TeamReports.svelte";
 
   // The team section of the account panel; the account panel owns the team and hears about changes.
@@ -262,6 +263,8 @@
         </div>
       {/if}
     {/if}
+
+    <TeamPolicyPanel {manage} />
 
     {#if manage}
       <TeamReports />

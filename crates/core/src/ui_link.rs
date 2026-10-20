@@ -55,6 +55,9 @@ pub struct ServiceState {
     /// The team grant carries the key for session reports.
     #[serde(default)]
     pub team_reports: bool,
+    /// The team's policy this computer follows, as fetched last.
+    #[serde(default)]
+    pub team_policy: Option<crate::policy::TeamPolicy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,6 +242,7 @@ mod imp {
                 .filter(|g| Some(g.host) == config.device_id)
                 .map(|g| (g.team.clone(), g.epoch)),
             team_reports: config.team_access.as_ref().is_some_and(|g| g.report.is_some()),
+            team_policy: config.followed_policy().cloned(),
             direct: config.direct_settings(),
             direct_active: host.direct_active(),
         }

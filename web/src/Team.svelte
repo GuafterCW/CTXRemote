@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import TeamPolicy from "./TeamPolicy.svelte";
   import TeamReports from "./TeamReports.svelte";
   import { ApiError } from "./lib/session";
   import {
@@ -436,6 +437,8 @@
         {/each}
       </ul>
     {/if}
+
+    <TeamPolicy {canManage} {onExpired} />
 
     {#if canManage}
       <TeamReports {onExpired} />

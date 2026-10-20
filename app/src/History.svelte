@@ -31,10 +31,11 @@
     notMember: "Kein Kontomitglied",
     declined: "Abgelehnt",
     wrongCode: "Falscher Code",
+    policy: "Von der Teamrichtlinie abgelehnt",
     team: "Teammitglied, ohne Passwort",
   };
 
-  const refused = (o: Outcome) => o === "wrongPassword" || o === "notMember" || o === "declined" || o === "wrongCode";
+  const refused = (o: Outcome) => o === "wrongPassword" || o === "notMember" || o === "declined" || o === "wrongCode" || o === "policy";
 
   function when(seconds: number): string {
     const date = new Date(seconds * 1000);

@@ -10,6 +10,7 @@ import {
   newPairingCode,
   random,
   reportAad,
+  policyAad,
   reportCheck,
   reportSecrets,
   seal,
@@ -241,7 +242,10 @@ export async function syncTeam(): Promise<TeamView | null> {
   }
   const team = view(state, teamKey);
   if (team.stale && manages(team.role)) return rotateTeam([]);
-  if (manages(team.role)) await announceReportCheck(state, teamKey);
+  if (manages(team.role)) {
+    await announceReportCheck(state, teamKey);
+    await carryOverPolicy(state, teamKey, team);
+  }
   return team;
 }
 
@@ -344,7 +348,9 @@ export async function rotateTeam(remove: number[]): Promise<TeamView> {
       if (!fresh) throw new Error("unerwartete Serverantwort");
       remember(fresh, newKey);
       await announceReportCheck(fresh, newKey);
-      return view(fresh, newKey);
+      const rotated = view(fresh, newKey);
+      await carryOverPolicy(fresh, newKey, rotated);
+      return rotated;
     } catch (err) {
       if (!isConflict(err) && !isStale(err)) throw err;
     }
@@ -375,7 +381,8 @@ export type Outcome =
   | "notMember"
   | "declined"
   | "wrongCode"
-  | "team";
+  | "team"
+  | "policy";
 
 export interface Report {
   side: "viewer" | "host";
@@ -433,6 +440,91 @@ export async function loadReports(): Promise<ReportRow[]> {
     }
     if (!more || entries.length === 0) return rows;
     after = entries[entries.length - 1].seq;
+  }
+}
+
+/** The team policy (`TeamPolicy` in Rust). The deny masks hold the rights taken away. */
+export interface TeamPolicy {
+  denyTechnician: number;
+  denyAdmin: number;
+  denyOthers: number;
+  oneTime: boolean;
+  permanent: boolean;
+  account: boolean;
+  requireCode: boolean;
+  /** Unix seconds. */
+  changed: number;
+}
+
+export function defaultPolicy(): TeamPolicy {
+  return { denyTechnician: 0, denyAdmin: 0, denyOthers: 0, oneTime: true, permanent: true, account: true, requireCode: false, changed: 0 };
+}
+
+/** The policy's fields in the order Rust writes them, with defaults for missing ones. */
+function normalizePolicy(raw: Partial<TeamPolicy>): TeamPolicy {
+  const d = defaultPolicy();
+  const mask = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const flag = (v: unknown, fallback: boolean) => (typeof v === "boolean" ? v : fallback);
+  return {
+    denyTechnician: mask(raw.denyTechnician),
+    denyAdmin: mask(raw.denyAdmin),
+    denyOthers: mask(raw.denyOthers),
+    oneTime: flag(raw.oneTime, d.oneTime),
+    permanent: flag(raw.permanent, d.permanent),
+    account: flag(raw.account, d.account),
+    requireCode: flag(raw.requireCode, d.requireCode),
+    changed: mask(raw.changed),
+  };
+}
+
+/** Fetches the stored policy blob for the current epoch's token. */
+async function fetchPolicy(state: TeamState, teamKey: Uint8Array): Promise<{ epoch: number; blob: Bytes }> {
+  const { token } = reportSecrets(teamKey);
+  return variant(await request({ GetPolicy: { team: list(idBytes(state)), epoch: state.epoch, token: list(token) } }), "Policy");
+}
+
+/** The team's policy, decrypted; null if there is none. */
+export async function loadPolicy(): Promise<TeamPolicy | null> {
+  const state = await must();
+  const teamKey = teamKeyOf(state);
+  const team = view(state, teamKey);
+  const stored = await fetchPolicy(state, teamKey);
+  if (stored.blob.length === 0) return null;
+  let k: Uint8Array | null = teamKey;
+  if (stored.epoch !== state.epoch) {
+    const hex = team.book.past?.[String(stored.epoch)];
+    k = hex && /^[0-9a-f]{64}$/i.test(hex) ? fromHex(hex) : null;
+  }
+  if (!k) throw new Error("Die Richtlinie ist mit einem früheren Teamschlüssel verschlüsselt und nicht lesbar");
+  const plain = open(reportSecrets(k).key, policyAad(idBytes(state), stored.epoch), bytes(stored.blob));
+  return normalizePolicy(JSON.parse(decode.decode(plain)) as Partial<TeamPolicy>);
+}
+
+/** Stores `policy` (owners, admins); null removes it. */
+export async function savePolicy(policy: TeamPolicy | null): Promise<void> {
+  const state = await must();
+  const teamKey = teamKeyOf(state);
+  let blob: Uint8Array = new Uint8Array(0);
+  if (policy) {
+    const json = JSON.stringify(normalizePolicy(policy));
+    blob = seal(reportSecrets(teamKey).key, policyAad(idBytes(state), state.epoch), encode.encode(json));
+  }
+  await request({ SetPolicy: { epoch: state.epoch, blob: list(blob) } });
+}
+
+/** Owners and admins: after a new epoch, seals a policy of an earlier epoch with
+ * the current key. Failures are only logged. */
+async function carryOverPolicy(state: TeamState, teamKey: Uint8Array, team: TeamView): Promise<void> {
+  try {
+    const stored = await fetchPolicy(state, teamKey);
+    if (stored.epoch === state.epoch || stored.blob.length === 0) return;
+    const hex = team.book.past?.[String(stored.epoch)];
+    if (!hex || !/^[0-9a-f]{64}$/i.test(hex)) throw new Error("Schlüssel der früheren Epoche fehlt");
+    const plain = open(reportSecrets(fromHex(hex)).key, policyAad(idBytes(state), stored.epoch), bytes(stored.blob));
+    const blob = seal(reportSecrets(teamKey).key, policyAad(idBytes(state), state.epoch), plain);
+    await request({ SetPolicy: { epoch: state.epoch, blob: list(blob) } });
+  } catch (err) {
+    console.warn("Richtlinie nicht übernommen", err);
   }
 }
 

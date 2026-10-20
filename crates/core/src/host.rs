@@ -26,6 +26,7 @@ use crate::direct::{DirectListener, Offer};
 use crate::profile::Profile;
 use crate::punch::PunchHost;
 use crate::net;
+use crate::policy::{self, HeldPolicy, TeamPolicy};
 
 const PING_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_FAILURES: u32 = 5;
@@ -35,6 +36,9 @@ pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long the viewer may take to send the authenticator code; it asks the
 /// user first, so like the approval this must stay below its wait for `Welcome`.
 const CODE_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long a connecting viewer waits at most for the team's policy; after
+/// that the one fetched last applies.
+const POLICY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Decides whether the named viewer may connect, e.g. by asking the user.
 /// Also gets the profile the viewer sent, if any (self-declared).
@@ -96,6 +100,8 @@ struct SessionHandle {
     /// Chat messages to the viewer; `None` if the viewer has no chat.
     chat: Option<mpsc::UnboundedSender<String>>,
     rights: watch::Sender<Permissions>,
+    /// What the team's policy takes away; nobody gives it back during the session.
+    denied: Permissions,
     /// Privacy mode is on (the host's screen is blank).
     privacy: Arc<AtomicBool>,
     /// The viewer records the session.
@@ -315,7 +321,7 @@ impl Host {
     pub fn set_rights(&self, session: u64, rights: Permissions) -> Result<(), String> {
         let sessions = self.shared.sessions.lock().unwrap();
         let handle = sessions.get(&session).ok_or("Die Sitzung ist beendet")?;
-        handle.rights.send_replace(rights);
+        handle.rights.send_replace(policy::capped(rights, handle.denied));
         Ok(())
     }
 
@@ -482,9 +488,14 @@ async fn stay_online(shared: &Arc<Shared>, t: &mut Transport, requests: &mut mps
 
 async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<()> {
     let server = shared.config.read().unwrap().server_addr();
-    let (mut t, _) = net::dial(&server).await?;
-    framing::send(&mut t, &ClientMsg::Join { session }).await?;
-    net::await_ready(&mut t, Duration::from_secs(20)).await?;
+    let join = async {
+        let (mut t, _) = net::dial(&server).await?;
+        framing::send(&mut t, &ClientMsg::Join { session }).await?;
+        net::await_ready(&mut t, Duration::from_secs(20)).await?;
+        anyhow::Ok(t)
+    };
+    let (t, team_policy) = tokio::join!(join, current_policy(&shared));
+    let mut t = t?;
 
     if locked_out(&shared) {
         secure::refuse(&mut t, Refusal::LockedOut).await?;
@@ -558,16 +569,17 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     }
     // The same for the team: its key alone is not enough, the viewer's
     // account must still be in it (who left keeps old keys).
+    let mut role = None;
     if Some(slot) == team_slot {
         let grant = team_grant.as_ref().expect("team slot has a grant");
         let server = shared.config.read().unwrap().server_addr();
-        let member = match (&extras.member, grant.witness_key()) {
+        role = match (&extras.member, grant.witness_key()) {
             (Some(proof), Some(witness)) if proof.verify(id, &rx.binding()) => {
-                crate::team::same_team(&server, proof.public_key, witness).await
+                crate::team::team_role(&server, proof.public_key, witness).await
             }
-            _ => false,
+            _ => None,
         };
-        if !member {
+        if role.is_none() {
             record_failure(&shared);
             note(&shared, &peer, profile_name.as_deref(), Outcome::NotMember);
             let mut tx = tx;
@@ -582,6 +594,26 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
     let permanent_slot = slot != 0 && Some(slot) != account_slot && Some(slot) != team_slot;
     let code_secret = shared.config.read().unwrap().code_secret.clone();
     let mut tx = tx;
+    // The team's policy may close ways in this computer's settings open.
+    if let Some(policy) = &team_policy {
+        let closed = if slot == 0 && !policy.one_time {
+            Some("Das Team erlaubt an diesem Gerät keinen Zugriff mit dem Einmalpasswort")
+        } else if permanent_slot && !policy.permanent {
+            Some("Das Team erlaubt an diesem Gerät keinen Zugriff mit dem festen Passwort")
+        } else if permanent_slot && policy.require_code && code_secret.is_none() {
+            Some("Das Team verlangt für das feste Passwort einen Bestätigungscode, an diesem Gerät ist keiner eingerichtet")
+        } else if Some(slot) == account_slot && !policy.account {
+            Some("Das Team erlaubt an diesem Gerät keinen Zugriff über das Konto")
+        } else {
+            None
+        };
+        if let Some(reason) = closed {
+            note(&shared, &peer, profile_name.as_deref(), Outcome::Policy);
+            let _ = tx.send(&HostMsg::Bye(reason.into())).await;
+            tx.close().await;
+            bail!("{peer}: {reason}");
+        }
+    }
     if let (true, Some(secret)) = (permanent_slot, code_secret) {
         let refused = |reason: &str| reason.to_string();
         let problem = if !features.has(Features::CODE) {
@@ -617,7 +649,36 @@ async fn serve(shared: Arc<Shared>, id: DeviceId, session: SessionId) -> Result<
             bail!("{peer}: {reason}");
         }
     }
-    admitted(shared, slot, (account_slot, team_slot), tx, rx, peer, features, profile, profile_name).await
+    let denied = team_policy.map_or(Permissions(0), |p| p.denied(role));
+    admitted(shared, slot, (account_slot, team_slot), denied, tx, rx, peer, features, profile, profile_name).await
+}
+
+/// The team's policy for a connecting viewer, if this computer is opened to
+/// the team: fetched now, or as fetched last when the server cannot say.
+async fn current_policy(shared: &Arc<Shared>) -> Option<TeamPolicy> {
+    let (server, signing, key, team) = {
+        let config = shared.config.read().unwrap();
+        let grant = config.team_access.as_ref().filter(|g| Some(g.host) == config.device_id)?;
+        (config.server_addr(), config.signing_key().ok(), grant.report.clone(), grant.team.clone())
+    };
+    if let (Some(signing), Some(key)) = (signing, key) {
+        match timeout(POLICY_TIMEOUT, policy::fetch(&server, &signing, &key)).await {
+            Ok(Ok(fetched)) => {
+                let held = fetched.clone().map(|policy| HeldPolicy { team, policy });
+                let mut config = shared.config.write().unwrap();
+                if config.team_policy != held {
+                    config.team_policy = held;
+                    if let Err(e) = config.save() {
+                        warn!("Teamrichtlinie nicht gespeichert: {e:#}");
+                    }
+                }
+                return fetched;
+            }
+            Ok(Err(e)) => debug!("Teamrichtlinie nicht geholt: {e:#}"),
+            Err(_) => debug!("Teamrichtlinie nicht rechtzeitig geholt"),
+        }
+    }
+    shared.config.read().unwrap().followed_policy().cloned()
 }
 
 /// After the passwords (and the code): approval, then the session itself.
@@ -663,6 +724,7 @@ async fn admitted(
     shared: Arc<Shared>,
     slot: usize,
     (account_slot, team_slot): (Option<usize>, Option<usize>),
+    denied: Permissions,
     tx: SecureSender,
     rx: SecureReceiver,
     peer: String,
@@ -697,7 +759,7 @@ async fn admitted(
     let can_chat = chat.is_some();
     let initial = {
         let config = shared.config.read().unwrap();
-        if slot == 0 { config.rights_attended } else { config.rights_unattended }
+        policy::capped(if slot == 0 { config.rights_attended } else { config.rights_unattended }, denied)
     };
     let (rights, rights_rx) = watch::channel(initial);
     let privacy = Arc::new(AtomicBool::new(false));
@@ -710,6 +772,7 @@ async fn admitted(
             stop: stop.clone(),
             chat,
             rights,
+            denied,
             privacy: privacy.clone(),
             recording: recording.clone(),
         },

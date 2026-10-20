@@ -92,7 +92,7 @@ impl ReportKey {
         Ok(Self { team: link.id.clone(), epoch: link.epoch, key: hex::encode(key), token: hex::encode(token) })
     }
 
-    fn parts(&self) -> Result<([u8; 16], [u8; 32], [u8; 32])> {
+    pub(crate) fn parts(&self) -> Result<([u8; 16], [u8; 32], [u8; 32])> {
         let team = hex::decode(&self.team).ok().and_then(|b| b.try_into().ok());
         let key = hex::decode(&self.key).ok().and_then(|b| b.try_into().ok());
         let token = hex::decode(&self.token).ok().and_then(|b| b.try_into().ok());
@@ -216,7 +216,7 @@ pub struct ReportRow {
 }
 
 /// The key of `epoch`: the current one or one of the book's past keys.
-fn team_key_of(view: &TeamView, epoch: u32) -> Option<[u8; 32]> {
+pub(crate) fn team_key_of(view: &TeamView, epoch: u32) -> Option<[u8; 32]> {
     if epoch == view.link.epoch {
         return view.link.key().ok();
     }
