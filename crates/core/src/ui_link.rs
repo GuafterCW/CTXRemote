@@ -28,6 +28,9 @@ pub struct ServiceState {
     /// Sessions the viewer records.
     #[serde(default)]
     pub session_recording: Vec<u64>,
+    /// Sessions with a command line open; `true` where the viewer sees no picture.
+    #[serde(default)]
+    pub session_terminal: Vec<(u64, bool)>,
     /// What new sessions may do (see [`Config::rights_attended`]).
     #[serde(default)]
     pub rights_attended: ctxremote_proto::session::Permissions,
@@ -230,6 +233,7 @@ mod imp {
             session_profiles: host.session_profiles(),
             session_rights: host.session_rights(),
             session_recording: host.recording_sessions(),
+            session_terminal: host.terminal_sessions(),
             rights_attended: config.rights_attended,
             rights_unattended: config.rights_unattended,
             code_enabled: config.code_secret.is_some(),

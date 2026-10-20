@@ -133,11 +133,7 @@
   async function refresh() {
     overview = await api.overview();
     presence = overview.presence;
-    // The overview does not know about open terminals; events do.
-    hosted = overview.hosted.map((h) => {
-      const known = hosted.find((o) => o.session === h.session);
-      return { ...h, terminal: known?.terminal ?? false, terminalOnly: known?.terminalOnly ?? false };
-    });
+    hosted = overview.hosted;
   }
 
   // The account's team, for its devices in the list; null without one.
@@ -195,6 +191,8 @@
               rights: event.rights ?? 0,
               privacy: false,
               recording: false,
+              terminal: false,
+              terminalOnly: false,
             },
           ];
         if (event.kind === "recording")

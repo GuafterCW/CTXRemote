@@ -79,10 +79,10 @@ export interface Hosted {
   privacy: boolean;
   /** The viewer records the session. */
   recording: boolean;
-  /** The viewer has a command line open on this computer (events only, not in the overview). */
-  terminal?: boolean;
+  /** The viewer has a command line open on this computer. */
+  terminal: boolean;
   /** …and sees no picture: it uses only the command line. */
-  terminalOnly?: boolean;
+  terminalOnly: boolean;
 }
 
 /** Who controls a hosted session, as shown on this device. */
@@ -227,6 +227,8 @@ export interface SessionReport {
   started: number;
   ended: number;
   outcome: null | Outcome;
+  /** Ready-made German texts of what happened in the session (host-side reports only; at most 50). */
+  actions?: string[];
 }
 
 export const canManageTeam = (team: TeamInfo | null): boolean => team?.role === "Owner" || team?.role === "Admin";
@@ -438,6 +440,8 @@ export interface Visit {
   peer: string;
   profile: string | null;
   outcome: Outcome;
+  /** Ready-made German texts of the actions taken (at most 50; missing in old entries). */
+  actions?: string[];
 }
 
 export const api = {

@@ -284,6 +284,7 @@ struct PeerView {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Hosted {
     session: u64,
     peer: String,
@@ -297,6 +298,10 @@ struct Hosted {
     privacy: bool,
     /// The viewer records the session.
     recording: bool,
+    /// The viewer has a command line open here…
+    terminal: bool,
+    /// …and sees no picture.
+    terminal_only: bool,
 }
 
 #[tauri::command]
@@ -304,7 +309,7 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
     #[cfg(feature = "quick")]
     let _ = &app;
     let config = state.config.read().unwrap();
-    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles, account_access, rights, defaults, code_enabled, recording) = match &state.host {
+    let (presence, password, server, unattended, sessions, service, direct, direct_active, chat, public_alias, profiles, account_access, rights, defaults, code_enabled, recording, terminals) = match &state.host {
         Side::Local(host) => (
             host.presence().borrow().clone(),
             host.password(),
@@ -322,11 +327,12 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
             (config.rights_attended, config.rights_unattended),
             config.code_secret.is_some(),
             host.recording_sessions(),
+            host.terminal_sessions(),
         ),
         #[cfg(not(feature = "quick"))]
         Side::Service(service) => {
             let s = service.state();
-            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles, s.account_access, s.session_rights, (s.rights_attended, s.rights_unattended), s.code_enabled, s.session_recording)
+            (s.presence, s.password, s.server, s.unattended, s.sessions, true, s.direct, s.direct_active, s.chat_sessions, s.public_alias, s.session_profiles, s.account_access, s.session_rights, (s.rights_attended, s.rights_unattended), s.code_enabled, s.session_recording, s.session_terminal)
         }
     };
     Overview {
@@ -367,6 +373,8 @@ fn overview(app: AppHandle, state: State<AppState>) -> Overview {
                 rights: rights.iter().find(|(n, ..)| *n == session).map_or(0, |(_, r, _)| r.0),
                 privacy: rights.iter().any(|(n, _, on)| *n == session && *on),
                 recording: recording.contains(&session),
+                terminal: terminals.iter().any(|(n, _)| *n == session),
+                terminal_only: terminals.iter().any(|(n, only)| *n == session && *only),
             })
             .collect(),
         version: ctxremote_core::update::VERSION,

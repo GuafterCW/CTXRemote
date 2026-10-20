@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use ctxremote_proto::session::{AudioPacket, CursorShape, DrawMsg, FileOp, FileReply, HostInfo, HostMsg, Quality, VideoCodec, VideoFrame, ViewerMsg};
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::capture::{self, Capturer};
 use crate::clipboard::ClipboardSync;
@@ -22,24 +22,29 @@ use crate::input::Injector;
 const FPS: f32 = 30.0;
 
 /// Serves one session until `inbox` closes, the viewer says `Bye` or `outbox`
-/// is gone. Sends `Welcome` first, or `Bye` with a reason if there is no screen.
-/// A small `outbox` applies backpressure to the capture loop.
+/// is gone. Sends `Welcome` first. Without a screen (a Linux server without
+/// X11) it lists no displays and serves only what needs none: terminal,
+/// files, processes, system info; the host turns away viewers that cannot
+/// use that. A small `outbox` applies backpressure to the capture loop.
 pub async fn run(
     mut inbox: mpsc::Receiver<ViewerMsg>,
     outbox: mpsc::Sender<HostMsg>,
     options: crate::host::ScreenOptions,
 ) -> Result<()> {
-    let displays = match capture::displays() {
-        Ok(displays) if !displays.is_empty() => displays,
-        result => {
-            let reason = result.err().map_or("Kein Bildschirm gefunden".into(), |e| format!("{e:#}"));
-            // Tell the viewer why instead of just dropping the connection.
-            let _ = outbox.send(HostMsg::Bye(reason.clone())).await;
-            anyhow::bail!(reason);
-        }
-    };
-    let primary = displays.iter().find(|d| d.primary).unwrap_or(&displays[0]);
-    let mut active = primary.clone();
+    let displays = capture::displays().unwrap_or_else(|e| {
+        info!("Kein Bildschirm ({e:#}), nur Terminal, Dateien und Prozesse");
+        Vec::new()
+    });
+    let headless = displays.is_empty();
+    let mut active = displays.iter().find(|d| d.primary).or(displays.first()).cloned().unwrap_or(capture::Display {
+        index: 0,
+        name: String::new(),
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+        primary: true,
+    });
     outbox
         .send(HostMsg::Welcome(HostInfo {
             hostname: whoami::devicename(),
@@ -56,13 +61,18 @@ pub async fn run(
     let (frames_tx, mut frames_rx) = mpsc::channel::<Captured>(2);
     let (commands, commands_rx) = std_mpsc::channel::<VideoCommand>();
     let first_display = active.index;
-    let video = std::thread::Builder::new()
-        .name("ctxremote-video".into())
-        .spawn(move || {
+    // Without a screen nothing is captured; the kept sender leaves the
+    // receiver pending instead of closed.
+    let no_frames = headless.then(|| frames_tx.clone());
+    let video = if headless {
+        None
+    } else {
+        Some(std::thread::Builder::new().name("ctxremote-video".into()).spawn(move || {
             if let Err(e) = video_loop(first_display, commands_rx, frames_tx) {
                 warn!("Videoübertragung beendet: {e:#}");
             }
-        })?;
+        })?)
+    };
 
     let mut injector = Injector::new(&active);
     injector.protect_own_ui(options.protect_own_ui);
@@ -179,6 +189,7 @@ pub async fn run(
                         }
                     }
                     Some(ViewerMsg::Draw(DrawMsg::Clear)) => drawing = None,
+                    Some(ViewerMsg::Draw(_)) if headless => {}
                     Some(ViewerMsg::Draw(stroke)) => {
                         if let Some(line) = crate::annotate::to_line(&stroke, active.width, active.height) {
                             if drawing.is_none() {
@@ -276,7 +287,10 @@ pub async fn run(
     drop(image_tx);
     drop(commands);
     drop(frames_rx);
-    let _ = tokio::task::spawn_blocking(move || video.join()).await;
+    drop(no_frames);
+    if let Some(video) = video {
+        let _ = tokio::task::spawn_blocking(move || video.join()).await;
+    }
     result
 }
 

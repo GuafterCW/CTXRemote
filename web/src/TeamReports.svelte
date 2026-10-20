@@ -72,7 +72,7 @@
       if (r.started < since) return false;
       if (who && l.who !== who) return false;
       if (!needle) return true;
-      const hay = [l.who, r.deviceName, r.peerName, r.profile ?? "", String(r.device ?? ""), String(r.peer ?? ""), outcomeText(r)]
+      const hay = [l.who, r.deviceName, r.peerName, r.profile ?? "", String(r.device ?? ""), String(r.peer ?? ""), outcomeText(r), ...actionsOf(r)]
         .join("\n")
         .toLowerCase();
       return hay.includes(needle);
@@ -85,6 +85,12 @@
   function outcomeText(r: Report): string {
     return r.outcome ? OUTCOME[r.outcome] : "";
   }
+
+  const PREVIEW = 3;
+  let expanded = $state<Record<number, boolean>>({});
+
+  /** Actions of a report; older reports have none. */
+  const actionsOf = (r: Report): string[] => (Array.isArray(r.actions) ? r.actions : []);
 
   function hm(minutes: number): string {
     return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
@@ -116,7 +122,7 @@
   }
 
   function exportCsv() {
-    const head = ["Beginn", "Ende", "Dauer (Minuten)", "Richtung", "Mitglied", "Gerät", "Gerät-ID", "Gegenstelle", "Gegenstelle-ID", "Art", "Profil"];
+    const head = ["Beginn", "Ende", "Dauer (Minuten)", "Richtung", "Mitglied", "Gerät", "Gerät-ID", "Gegenstelle", "Gegenstelle-ID", "Art", "Profil", "Aktionen"];
     const body = shown.map((l) => {
       const r = l.report;
       return [
@@ -131,6 +137,7 @@
         r.peer ?? "",
         outcomeText(r),
         r.profile ?? "",
+        actionsOf(r).join(" | "),
       ];
     });
     const csv = [head, ...body].map((line) => line.map(field).join(";")).join("\r\n") + "\r\n";
@@ -195,7 +202,21 @@
               <td>{l.who}</td>
               <td>{r.deviceName || "–"}{#if r.device !== null}<div class="sub">{formatId(r.device)}</div>{/if}</td>
               <td>{r.peerName || "–"}{#if r.peer !== null}<div class="sub">{formatId(r.peer)}</div>{/if}</td>
-              <td>{outcomeText(r) || "–"}</td>
+              <td>
+                {outcomeText(r) || "–"}
+                {#if actionsOf(r).length > 0}
+                  {@const acts = actionsOf(r)}
+                  {@const open = expanded[l.seq] === true}
+                  <ul class="actions">
+                    {#each open ? acts : acts.slice(0, PREVIEW) as a, i (i)}<li>{a}</li>{/each}
+                  </ul>
+                  {#if acts.length > PREVIEW}
+                    <button class="more" type="button" onclick={() => (expanded[l.seq] = !open)}>
+                      {open ? "weniger" : `+${acts.length - PREVIEW} weitere`}
+                    </button>
+                  {/if}
+                {/if}
+              </td>
             </tr>
           {/each}
         </tbody>
@@ -274,6 +295,24 @@
     color: var(--ink-3);
     font-weight: 600;
     white-space: nowrap;
+  }
+
+  .actions {
+    margin: 4px 0 0;
+    padding-left: 16px;
+    color: var(--ink-3);
+    font-size: 13px;
+  }
+
+  .more {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink-3);
+    font: inherit;
+    font-size: 13px;
+    text-decoration: underline;
+    cursor: pointer;
   }
 
   .sub {

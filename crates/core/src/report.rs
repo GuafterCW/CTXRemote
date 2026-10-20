@@ -58,6 +58,10 @@ pub struct Report {
     /// How the viewer got in, or why not (host side).
     #[serde(default)]
     pub outcome: Option<Outcome>,
+    /// What the viewer did beyond watching and controlling (host side, see
+    /// [`crate::history::Visit::actions`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<String>,
 }
 
 /// What a device needs to write reports: kept with a team grant on hosts,
@@ -287,6 +291,7 @@ mod tests {
             started: 10,
             ended: 20,
             outcome: None,
+            actions: Vec::new(),
         };
         for _ in 0..MAX_QUEUED + 3 {
             outbox.push(report.clone());

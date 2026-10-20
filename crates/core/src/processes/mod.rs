@@ -63,7 +63,7 @@ impl Processes {
             ProcessMsg::Kill { pid, name } => {
                 let result = kill(&system, pid, &name);
                 info!(pid, name, ok = result.is_ok(), "Prozess beenden");
-                Some(ProcessMsg::Done { what: name, result: result.map_err(|e| format!("{e:#}")) })
+                Some(ProcessMsg::Done { what: format!("Prozess {name} beendet"), result: result.map_err(|e| format!("{e:#}")) })
             }
             ProcessMsg::Service { name, action } => {
                 let result = service(&name, action);

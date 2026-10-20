@@ -172,6 +172,7 @@ async fn sessions_are_reported_to_owners_and_admins_only() {
         started: 100,
         ended: 160,
         outcome: None,
+        actions: Vec::new(),
     };
     let outbox = Outbox::open(None);
     outbox.push(viewer_report.clone());

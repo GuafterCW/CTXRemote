@@ -82,6 +82,8 @@
   let terminalPane = $state<ReturnType<typeof TerminalPane>>();
   /** Opened with "Terminal" only: the pane fills the window and the host sends no picture. */
   let terminalOnly = $state(false);
+  /** The remote device reports no display at all (e.g. a Linux server without X11); it never sends a picture. */
+  let noScreen = $state(false);
   $effect(() => {
     const only = terminalOnly;
     untrack(() => onterminal?.(only));
@@ -691,7 +693,10 @@
         if (attached.rights !== null) applyRights(attached.rights);
         privacy = attached.privacy;
         lockOnEnd = attached.lockOnEnd;
-        if (attached.terminalOnly) {
+        noScreen = info.displays.length === 0;
+        if (noScreen && !supported.terminal) {
+          showNotice("Dieses Gerät hat keinen Bildschirm.");
+        } else if (noScreen || attached.terminalOnly) {
           if (supported.terminal) {
             terminalOnly = true;
             showTerminal();
@@ -1170,9 +1175,13 @@
                 <Icon name="processes" size={14} /> Prozesse
               </button>
             {/if}
-            <button class="head-btn" title="Das Bild des Geräts zusätzlich zeigen" onclick={showScreen}>
-              <Icon name="monitor" size={14} /> Bildschirm zeigen
-            </button>
+            {#if noScreen}
+              <span class="no-screen">Dieses Gerät hat keinen Bildschirm</span>
+            {:else}
+              <button class="head-btn" title="Das Bild des Geräts zusätzlich zeigen" onclick={showScreen}>
+                <Icon name="monitor" size={14} /> Bildschirm zeigen
+              </button>
+            {/if}
             <button class="head-btn" title="Sitzung trennen" onclick={disconnect}>
               <Icon name="power" size={14} /> Trennen
             </button>
@@ -1198,9 +1207,11 @@
             <button class="head-btn" title="Zurück zur Befehlszeile" onclick={showTerminal}>
               <Icon name="terminal" size={14} /> Terminal
             </button>
-            <button class="head-btn" title="Das Bild des Geräts zusätzlich zeigen" onclick={showScreen}>
-              <Icon name="monitor" size={14} /> Bildschirm zeigen
-            </button>
+            {#if !noScreen}
+              <button class="head-btn" title="Das Bild des Geräts zusätzlich zeigen" onclick={showScreen}>
+                <Icon name="monitor" size={14} /> Bildschirm zeigen
+              </button>
+            {/if}
             <button class="head-btn" title="Sitzung trennen" onclick={disconnect}>
               <Icon name="power" size={14} /> Trennen
             </button>
@@ -2116,6 +2127,12 @@
 
   .terminal-box :global(.head-btn:disabled) {
     opacity: 0.4;
+  }
+
+  .no-screen {
+    color: #8f9a94;
+    font-size: 12.5px;
+    white-space: nowrap;
   }
 
   .terminal-box.hidden {

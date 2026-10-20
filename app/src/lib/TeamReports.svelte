@@ -45,6 +45,16 @@
     if (open && rows === null) load();
   }
 
+  /** Number of actions shown before the "more" button. */
+  const PREVIEW = 3;
+  let expanded = $state(new Set<number>());
+
+  function toggleActions(seq: number) {
+    const next = new Set(expanded);
+    if (!next.delete(seq)) next.add(seq);
+    expanded = next;
+  }
+
   const members = $derived.by(() => {
     const seen = new Map<string, string>();
     for (const r of rows ?? []) if (r.member !== null) seen.set(String(r.member), memberName(r));
@@ -59,7 +69,7 @@
       if (memberFilter && String(r.member) !== memberFilter) return false;
       if (needle) {
         if (!r.report) return false;
-        return `${r.report.deviceName}\n${r.report.peerName}`.toLowerCase().includes(needle);
+        return `${r.report.deviceName}\n${r.report.peerName}\n${(r.report.actions ?? []).join("\n")}`.toLowerCase().includes(needle);
       }
       return true;
     });
@@ -109,7 +119,7 @@
   let saved = $state<string | null>(null);
 
   function exportCsv() {
-    const head = ["Beginn", "Ende", "Dauer (Minuten)", "Richtung", "Mitglied", "Gerät", "Gerät-ID", "Gegenstelle", "Gegenstelle-ID", "Art", "Profil"];
+    const head = ["Beginn", "Ende", "Dauer (Minuten)", "Richtung", "Mitglied", "Gerät", "Gerät-ID", "Gegenstelle", "Gegenstelle-ID", "Art", "Profil", "Aktionen"];
     const lines = [head.map(field).join(";")];
     for (const r of readable) {
       const rep = r.report!;
@@ -126,6 +136,7 @@
           rep.peer,
           rep.outcome ? LABELS[rep.outcome] : "",
           rep.profile,
+          (rep.actions ?? []).join(" | "),
         ]
           .map(field)
           .join(";"),
@@ -194,6 +205,25 @@
                     <td>{r.report.side === "viewer" ? r.report.peerName || "–" : "–"}</td>
                     <td class:bad={refused(r.report.outcome)}>{kind(r)}</td>
                   </tr>
+                  {#if r.report.actions?.length}
+                    {@const all = expanded.has(r.seq)}
+                    {@const shown = all ? r.report.actions : r.report.actions.slice(0, PREVIEW)}
+                    <tr class="actions-row">
+                      <td></td>
+                      <td colspan="5">
+                        <ul class="actions">
+                          {#each shown as a, k (k)}
+                            <li>{a}</li>
+                          {/each}
+                        </ul>
+                        {#if r.report.actions.length > PREVIEW}
+                          <button type="button" class="link-btn" onclick={() => toggleActions(r.seq)}>
+                            {all ? "weniger" : `+${r.report.actions.length - PREVIEW} weitere`}
+                          </button>
+                        {/if}
+                      </td>
+                    </tr>
+                  {/if}
                 {:else}
                   <tr class="unreadable">
                     <td class="num">{formatDate(r.at)}</td>
@@ -327,6 +357,18 @@
 
   .bad {
     color: var(--bad);
+  }
+
+  .actions-row td {
+    padding-top: 0;
+    border-top: 0;
+    color: var(--ink-3);
+    font-size: 12px;
+  }
+
+  .actions {
+    margin: 0;
+    padding: 0 0 0 14px;
   }
 
   .unreadable td {

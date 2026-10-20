@@ -23,6 +23,16 @@
 
   onMount(load);
 
+  /** Number of actions shown before the "more" button. */
+  const PREVIEW = 3;
+  let expanded = $state(new Set<number>());
+
+  function toggle(i: number) {
+    const next = new Set(expanded);
+    if (!next.delete(i)) next.add(i);
+    expanded = next;
+  }
+
   const labels: Record<Outcome, string> = {
     oneTimePassword: "Einmalpasswort",
     permanentPassword: "Festes Passwort",
@@ -110,6 +120,20 @@
               </span>
               {#if length}<span class="length">{length}</span>{/if}
             </span>
+            {#if v.actions?.length}
+              {@const all = expanded.has(i)}
+              {@const shown = all ? v.actions : v.actions.slice(0, PREVIEW)}
+              <ul class="actions">
+                {#each shown as a, k (k)}
+                  <li>{a}</li>
+                {/each}
+              </ul>
+              {#if v.actions.length > PREVIEW}
+                <button type="button" class="link-btn more" onclick={() => toggle(i)}>
+                  {all ? "weniger" : `+${v.actions.length - PREVIEW} weitere`}
+                </button>
+              {/if}
+            {/if}
           </li>
         {/each}
       </ul>
@@ -211,6 +235,27 @@
     gap: 2px;
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .visits .actions {
+    margin: 4px 0 0;
+    padding: 0 0 0 14px;
+    border: 0;
+    list-style: disc;
+  }
+
+  .visits .actions li {
+    display: list-item;
+    padding: 0;
+    border: 0;
+    color: var(--ink-3);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .more {
+    margin-top: 2px;
+    font-size: 12px;
   }
 
   .top,

@@ -395,6 +395,8 @@ export interface Report {
   started: number;
   ended: number;
   outcome: Outcome | null;
+  /** Ready-made German texts of what happened in the session (at most 50); absent in older reports. */
+  actions?: string[];
 }
 
 /** A stored report; `report` is null if its epoch's key is missing or it is damaged. */

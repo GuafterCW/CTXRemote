@@ -516,6 +516,7 @@ pub fn report_session(app: &AppHandle, target: DeviceId, started: u64) {
         started,
         ended: ctxremote_core::history::now().max(started),
         outcome: None,
+        actions: Vec::new(),
     });
     flush_reports(app);
 }

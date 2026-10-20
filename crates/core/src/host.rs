@@ -1,7 +1,7 @@
 //! The controlled side: stays reachable at the server and serves sessions.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -109,7 +109,13 @@ struct SessionHandle {
     privacy: Arc<AtomicBool>,
     /// The viewer records the session.
     recording: Arc<AtomicBool>,
+    /// What the person here was told about command lines (see [`TERMINAL_OPEN`]).
+    terminal: Arc<AtomicU8>,
 }
+
+/// [`SessionHandle::terminal`]: a command line is open, and the viewer sees no picture.
+const TERMINAL_OPEN: u8 = 1;
+const TERMINAL_ONLY: u8 = 2;
 
 struct Shared {
     config: Arc<RwLock<Config>>,
@@ -299,7 +305,6 @@ impl Host {
         Ok(stored)
     }
 
-    /// Sessions whose viewer can receive chat messages.
     /// Sessions the viewer records.
     pub fn recording_sessions(&self) -> Vec<u64> {
         let sessions = self.shared.sessions.lock().unwrap();
@@ -309,6 +314,21 @@ impl Host {
         list
     }
 
+    /// Sessions with a command line open; `true` where the viewer sees no picture.
+    pub fn terminal_sessions(&self) -> Vec<(u64, bool)> {
+        let sessions = self.shared.sessions.lock().unwrap();
+        let mut list: Vec<(u64, bool)> = sessions
+            .iter()
+            .filter_map(|(n, h)| match h.terminal.load(Ordering::Relaxed) {
+                0 => None,
+                state => Some((*n, state & TERMINAL_ONLY != 0)),
+            })
+            .collect();
+        list.sort_unstable();
+        list
+    }
+
+    /// Sessions whose viewer can receive chat messages.
     pub fn chat_sessions(&self) -> Vec<u64> {
         let sessions = self.shared.sessions.lock().unwrap();
         let mut list: Vec<u64> = sessions.iter().filter(|(_, h)| h.chat.is_some()).map(|(n, _)| *n).collect();
@@ -698,14 +718,22 @@ async fn current_policy(shared: &Arc<Shared>) -> Option<TeamPolicy> {
 fn note(shared: &Arc<Shared>, peer: &str, profile: Option<&str>, outcome: Outcome) -> u64 {
     let started = shared.history.add(peer, profile, outcome);
     if !outcome.admitted() {
-        report(shared, peer, profile, started, started, outcome);
+        report(shared, peer, profile, started, started, outcome, Vec::new());
     }
     started
 }
 
 /// Reports a session to the team, if this computer is opened to it with a
 /// grant that carries the report key (see [`crate::report`]).
-fn report(shared: &Arc<Shared>, peer: &str, profile: Option<&str>, started: u64, ended: u64, outcome: Outcome) {
+fn report(
+    shared: &Arc<Shared>,
+    peer: &str,
+    profile: Option<&str>,
+    started: u64,
+    ended: u64,
+    outcome: Outcome,
+    actions: Vec<String>,
+) {
     let (server, signing, key, device) = {
         let config = shared.config.read().unwrap();
         let Some(grant) = config.team_access.as_ref().filter(|g| Some(g.host) == config.device_id) else { return };
@@ -722,6 +750,7 @@ fn report(shared: &Arc<Shared>, peer: &str, profile: Option<&str>, started: u64,
         started,
         ended,
         outcome: Some(outcome),
+        actions,
     });
     let reports = shared.reports.clone();
     tokio::spawn(async move {
@@ -775,6 +804,7 @@ async fn admitted(
     let (rights, rights_rx) = watch::channel(initial);
     let privacy = Arc::new(AtomicBool::new(false));
     let recording = Arc::new(AtomicBool::new(false));
+    let terminal = Arc::new(AtomicU8::new(0));
     shared.sessions.lock().unwrap().insert(
         number,
         SessionHandle {
@@ -786,6 +816,7 @@ async fn admitted(
             denied,
             privacy: privacy.clone(),
             recording: recording.clone(),
+            terminal: terminal.clone(),
         },
     );
     let _ = shared.events.send(HostEvent::SessionStarted {
@@ -807,13 +838,18 @@ async fn admitted(
         rights: rights_rx,
         privacy,
         recording,
+        terminal,
+        shared: shared.clone(),
+        visit,
+        peer: peer.clone(),
         screen: ScreenOptions { protect_own_ui: slot == 0 },
     };
     let result = run_session(tx, rx, stop, shared.screen.as_ref(), route).await;
 
     shared.sessions.lock().unwrap().remove(&number);
     shared.history.end(visit, &peer);
-    report(&shared, &peer, profile_name.as_deref(), visit, crate::history::now(), outcome);
+    let actions = shared.history.actions(visit, &peer);
+    report(&shared, &peer, profile_name.as_deref(), visit, crate::history::now(), outcome, actions);
     let _ = shared.events.send(HostEvent::SessionEnded { session: number });
     // A used one-time password is spent, as with any OTP.
     if slot == 0 {
@@ -936,6 +972,11 @@ struct Route {
     rights: watch::Receiver<Permissions>,
     privacy: Arc<AtomicBool>,
     recording: Arc<AtomicBool>,
+    terminal: Arc<AtomicU8>,
+    /// For the history: the host, and the visit this session is.
+    shared: Arc<Shared>,
+    visit: u64,
+    peer: String,
     /// How the screen side is opened, again after it comes back.
     screen: ScreenOptions,
 }
@@ -955,8 +996,16 @@ impl Route {
         if *shown != now {
             *shown = now;
             info!(open, only = now.1, "Terminal der Sitzung");
+            let state = if now.1 { TERMINAL_OPEN | TERMINAL_ONLY } else if open { TERMINAL_OPEN } else { 0 };
+            self.terminal.store(state, Ordering::Relaxed);
             let _ = self.events.send(HostEvent::Terminal { session: self.number, open, only: now.1 });
         }
+    }
+
+    /// Notes in the history what the viewer did (see [`crate::history::Visit::actions`]).
+    fn act(&self, action: &str) {
+        info!(action, "Aktion in der Sitzung");
+        self.shared.history.act(self.visit, &self.peer, action);
     }
 
     fn rights_event(&self, rights: Permissions) {
@@ -1041,6 +1090,8 @@ async fn run_session(
     let mut terminals: HashSet<u32> = HashSet::new();
     // Off for a session with only a terminal; a new screen side is told again.
     let mut video_on = true;
+    // The screen side found no display (see `agent::run`).
+    let mut headless = false;
     // What the person at the host was told about terminals (open, without picture).
     let mut shown = (false, false);
     let result: Result<()> = async {
@@ -1072,6 +1123,7 @@ async fn run_session(
                             }
                             TerminalMsg::Opened { id, result: Ok(_) } => {
                                 terminals.insert(*id);
+                                route.act("Terminal geöffnet");
                             }
                             TerminalMsg::Close { id } => {
                                 terminals.remove(id);
@@ -1091,7 +1143,19 @@ async fn run_session(
                             tx.send(&HostMsg::Privacy { on, error }).await?;
                         }
                     }
+                    // No screen here (a server without X11): only for viewers that
+                    // can open the terminal instead of showing a picture.
+                    Some(HostMsg::Welcome(info)) if info.displays.is_empty() && !route.features.has(Features::TERMINAL) => {
+                        let reason = "Das Gerät hat keinen Bildschirm, nur ein Terminal. Dafür braucht es hier eine neuere Version von Remocto.";
+                        tx.send(&HostMsg::Bye(reason.into())).await?;
+                        return Ok(());
+                    }
                     Some(msg @ HostMsg::Welcome(_)) => {
+                        if let HostMsg::Welcome(info) = &msg {
+                            // Nothing to show: the person here learns it is the terminal alone.
+                            headless = info.displays.is_empty();
+                            video_on &= !headless;
+                        }
                         // Older viewers ignore the trailer; newer ones learn what we support.
                         tx.send_with_trailer(&msg, &advertised).await?;
                         if route.features.has(Features::RIGHTS) {
@@ -1115,6 +1179,12 @@ async fn run_session(
                                 }
                             }
                         }
+                    }
+                    Some(HostMsg::Processes(msg)) => {
+                        if let ProcessMsg::Done { what, result: Ok(()) } = &msg {
+                            route.act(what);
+                        }
+                        tx.send(&HostMsg::Processes(msg)).await?;
                     }
                     Some(msg) => {
                         let bye = matches!(msg, HostMsg::Bye(_));
@@ -1296,7 +1366,7 @@ async fn run_session(
                         match msg {
                             ViewerMsg::SetAudio(on) => audio_on = on,
                             ViewerMsg::SetVideo(on) => {
-                                video_on = on;
+                                video_on = on && !headless;
                                 route.terminal_event(&mut shown, !terminals.is_empty(), !video_on);
                             }
                             _ => {}
