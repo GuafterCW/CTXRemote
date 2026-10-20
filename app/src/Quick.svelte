@@ -33,7 +33,10 @@
   }
 
   // Invitation: the helper whose link this quick help was downloaded from.
-  let inviter = $state<{ id: string } | null>(null);
+  // `team`: the link of a support team (no ID); the request waits in the team's queue.
+  let inviter = $state<{ id: string | null; team: boolean } | null>(null);
+  /** A team member took the queued request. */
+  let claimed = $state(false);
   let sendState = $state<"idle" | "sending" | "sent" | "failed">("idle");
   let sendError = $state("");
 
@@ -103,6 +106,7 @@
           chats[event.session] = [...(chats[event.session] ?? []), { mine: false, text: event.text, at: Date.now() }];
         }
         if (event.kind === "passwordChanged") refresh();
+        if (event.kind === "helpClaimed") claimed = true;
       }),
       listen<ApprovalRequest>("approval-request", (e) => {
         if (!requests.some((r) => r.id === e.payload.id)) requests = [...requests, e.payload];
@@ -209,15 +213,29 @@
       {#if inviter}
         <section class="invite">
           <strong>Sie wurden zur Fernhilfe eingeladen</strong>
-          <span class="hint">von ID {inviter.id}</span>
-          {#if sendState === "sent"}
-            <p class="invite-ok">Gesendet. Ihr Helfer verbindet sich gleich, Sie bestätigen den Zugriff wie gewohnt.</p>
+          <span class="hint">{inviter.team ? "Ihr Support-Team" : `von ID ${inviter.id}`}</span>
+          {#if inviter.team && claimed}
+            <p class="invite-ok">
+              Ein Techniker hat Ihre Anfrage übernommen und verbindet sich gleich. Bitte bestätigen Sie dann mit „Zulassen“.
+            </p>
+          {:else if sendState === "sent"}
+            <p class="invite-ok">
+              {inviter.team
+                ? "Ihre Anfrage wartet. Sobald jemand aus dem Team übernimmt, sehen Sie es hier."
+                : "Gesendet. Ihr Helfer verbindet sich gleich, Sie bestätigen den Zugriff wie gewohnt."}
+            </p>
           {:else}
             {#if sendState === "failed"}
               <p class="invite-bad">{sendError.replace(/[.!]?$/, ".")} Lesen Sie ID und Passwort einfach vor.</p>
             {/if}
             <button class="btn btn-primary" disabled={!myId || sendState === "sending"} onclick={sendHelp}>
-              {sendState === "sending" ? "Wird gesendet …" : sendState === "failed" ? "Nochmal senden" : "Zugangsdaten senden"}
+              {sendState === "sending"
+                ? "Wird gesendet …"
+                : sendState === "failed"
+                  ? "Nochmal senden"
+                  : inviter.team
+                    ? "Anfrage an das Support-Team senden"
+                    : "Zugangsdaten senden"}
             </button>
           {/if}
         </section>

@@ -33,7 +33,9 @@ export type HostEvent =
   | { kind: "terminal"; session: number; open: boolean; only?: boolean }
   | { kind: "sessionEnded"; session: number }
   | { kind: "chat"; session: number; text: string }
-  | { kind: "passwordChanged" };
+  | { kind: "passwordChanged" }
+  /** Quick help: a team member took the queued request and connects shortly. */
+  | { kind: "helpClaimed" };
 
 /** Quick build: a viewer waits for the user's decision. */
 export interface ApprovalRequest {
@@ -190,6 +192,17 @@ export interface TeamInfo {
   access: boolean;
   /** Why the last team sync failed, if it did. */
   error: string | null;
+  /** The team's current help link for customers; visible to all members. */
+  helpLink: string | null;
+}
+
+/** A request in the team's support queue (mirrors `Waiting` in app/src-tauri/src/team.rs). */
+export interface Waiting {
+  ticket: number;
+  id: string;
+  name: string;
+  /** Unix seconds. */
+  since: number;
 }
 
 /** Owners and admins manage the team; technicians only use it. */
@@ -469,6 +482,14 @@ export const api = {
   teamSetAccess: (enabled: boolean) => invoke<TeamInfo | null>("team_set_access", { enabled }),
   /** A code like "ABCD-EFGH-JKMN" for a new member; valid for ten minutes, once. */
   teamInvite: (role: "Admin" | "Technician") => invoke<string>("team_invite", { role }),
+  /** Creates a new help link (the old one stops working); owners and admins only. */
+  teamOpenHelpLink: () => invoke<string>("team_open_help_link"),
+  /** Switches the help link off; owners and admins only. */
+  teamCloseHelpLink: () => invoke<void>("team_close_help_link"),
+  /** Waiting support requests, oldest first. */
+  teamQueue: () => invoke<Waiting[]>("team_queue"),
+  /** Takes a request; fails if someone else was faster. */
+  teamClaimHelp: (ticket: number) => invoke<{ id: string; password: string; name: string }>("team_claim_help", { ticket }),
   /** Session reports of the team, newest first; owners and admins only. */
   teamReports: () => invoke<ReportRow[]>("team_reports"),
   /** Saves the CSV in the download folder; returns the file's path. */
@@ -617,8 +638,8 @@ export const api = {
   answerApproval: (id: number, allow: boolean) => invoke<void>("answer_approval", { id, allow }),
   /** Normal app: a link that leads a helped person to the quick help; `id` is this device's ID. */
   createInvite: (id: string) => invoke<string>("create_invite", { id }),
-  /** Quick build: the ID of the helper who sent the download link, if any. */
-  invitation: () => invoke<{ id: string } | null>("invitation"),
+  /** Quick build: the helper's ID, or `team: true` for a support team's link (no ID). */
+  invitation: () => invoke<{ id: string | null; team: boolean } | null>("invitation"),
   /** Quick build: sends ID and password to the inviting helper; rejects with the reason. */
   sendHelp: () => invoke<void>("send_help"),
 };

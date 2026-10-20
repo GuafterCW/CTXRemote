@@ -5,6 +5,7 @@
 //! or the server. The quick helper finds its inviter in its own file name.
 
 use ctxremote_core::proto::invite;
+#[cfg(not(feature = "quick"))]
 use ctxremote_core::proto::DeviceId;
 #[cfg(not(feature = "quick"))]
 use serde::{Deserialize, Serialize};

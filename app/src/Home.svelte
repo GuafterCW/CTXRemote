@@ -19,6 +19,7 @@
   import RightsMenu from "./lib/RightsMenu.svelte";
   import ChatPanel, { type ChatMessage } from "./lib/ChatPanel.svelte";
   import Icon from "./lib/Icon.svelte";
+  import SupportQueue from "./lib/SupportQueue.svelte";
   import PeerList from "./PeerList.svelte";
   import Settings from "./Settings.svelte";
   import Account from "./Account.svelte";
@@ -474,6 +475,10 @@
         </div>
       {/each}
     </div>
+  {/if}
+
+  {#if !MOBILE}
+    <SupportQueue {team} onclaim={connectRequest} />
   {/if}
 
   <main>

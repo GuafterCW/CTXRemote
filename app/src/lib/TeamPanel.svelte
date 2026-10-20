@@ -26,6 +26,10 @@
   let deleting = $state(false);
   let deleteName = $state("");
 
+  /** Help link for customers: a confirmation waiting, and the copy feedback. */
+  let linkConfirm = $state<"renew" | "close" | null>(null);
+  let linkCopied = $state(false);
+
   const manage = $derived(canManageTeam(team));
   const owner = $derived(team?.role === "Owner");
 
@@ -84,6 +88,31 @@
       deleteName = "";
       onupdate(null);
     });
+
+  // The Rust side reloads the team after a change; reading it again keeps this panel current.
+  const openHelpLink = () =>
+    run(async () => {
+      await api.teamOpenHelpLink();
+      linkConfirm = null;
+      onupdate(await api.teamInfo());
+    });
+  const closeHelpLink = () =>
+    run(async () => {
+      await api.teamCloseHelpLink();
+      linkConfirm = null;
+      onupdate(await api.teamInfo());
+    });
+
+  async function copyHelpLink() {
+    if (!team?.helpLink) return;
+    try {
+      await navigator.clipboard.writeText(team.helpLink);
+      linkCopied = true;
+      setTimeout(() => (linkCopied = false), 1400);
+    } catch (err) {
+      error = errorText(err);
+    }
+  }
 
   function startRename() {
     nameDraft = team?.name ?? "";
@@ -263,6 +292,51 @@
         </div>
       {/if}
     {/if}
+
+    <div class="help-link">
+      <h3>Hilfelink fürs Team</h3>
+      <span class="note">
+        Ein fester Link für Kunden, z. B. auf der Website oder in der E-Mail-Signatur. Anfragen darüber sehen alle
+        Mitglieder in der Warteschlange; wer übernimmt, verbindet sich.
+      </span>
+      {#if team.helpLink}
+        <input class="field" readonly value={team.helpLink} aria-label="Hilfelink" onfocus={(e) => e.currentTarget.select()} />
+        <div class="row link-actions">
+          <button type="button" class="btn btn-quiet small" onclick={copyHelpLink}>
+            <Icon name={linkCopied ? "check" : "copy"} size={14} />
+            {linkCopied ? "Kopiert" : "Kopieren"}
+          </button>
+          {#if manage}
+            <button type="button" class="link-btn" disabled={busy} onclick={() => (linkConfirm = "renew")}>Neuen Link erzeugen</button>
+            <button type="button" class="link-btn" disabled={busy} onclick={() => (linkConfirm = "close")}>Link abschalten</button>
+          {/if}
+        </div>
+        {#if linkConfirm}
+          <div class="confirm">
+            <p>
+              {linkConfirm === "renew"
+                ? "Der bisherige Link funktioniert danach nicht mehr."
+                : "Der Link funktioniert danach nicht mehr."}
+            </p>
+            <div class="row">
+              <button
+                type="button"
+                class="btn btn-danger small"
+                disabled={busy}
+                onclick={linkConfirm === "renew" ? openHelpLink : closeHelpLink}
+              >
+                {linkConfirm === "renew" ? "Neuen Link erzeugen" : "Abschalten"}
+              </button>
+              <button type="button" class="btn btn-quiet small" onclick={() => (linkConfirm = null)}>Abbrechen</button>
+            </div>
+          </div>
+        {/if}
+      {:else if manage}
+        <button type="button" class="btn btn-quiet start" disabled={busy} onclick={openHelpLink}>Hilfelink erzeugen</button>
+      {:else}
+        <span class="note">Noch kein Hilfelink – Inhaber oder Admins können einen erzeugen.</span>
+      {/if}
+    </div>
 
     <TeamPolicyPanel {manage} />
 
@@ -472,6 +546,18 @@
 
   .invite {
     align-items: center;
+  }
+
+  .help-link {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .link-actions {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 14px;
   }
 
   .confirm {
