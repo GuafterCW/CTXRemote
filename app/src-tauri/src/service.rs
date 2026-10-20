@@ -48,6 +48,7 @@ impl Service {
             account_access: false,
             team_access: None,
             team_reports: false,
+            team_policy: None,
         });
         let service = Arc::new(Service { link: Mutex::new(None), state, alias_answer: Mutex::new(None), history_answer: Mutex::new(None) });
         match tokio::time::timeout(Duration::from_secs(2), establish(service.clone(), app.clone()))

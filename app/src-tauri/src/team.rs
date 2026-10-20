@@ -10,6 +10,7 @@ use std::sync::Mutex;
 
 use ctxremote_core::proto::account::{AccountError, TeamRole};
 use ctxremote_core::proto::DeviceId;
+use ctxremote_core::policy::{self, TeamPolicy};
 use ctxremote_core::report;
 use ctxremote_core::team::{self, AccessList, TeamAccessGrant, TeamView};
 use serde::Serialize;
@@ -510,18 +511,21 @@ pub fn report_session(app: &AppHandle, target: DeviceId, started: u64) {
     flush_reports(app);
 }
 
+/// The team, synced now (in the sync's turn).
+async fn synced(app: &AppHandle, state: &AppState, sync: &Sync) -> CmdResult<TeamView> {
+    let _turn = sync.turn().lock().await;
+    let (server, key, link) = credentials(state)?;
+    let cached = state.config.read().unwrap().team.clone();
+    let view = team::sync(&server, &key, &link, cached.as_ref()).await.map_err(err)?;
+    let view = view.ok_or("Dieses Konto gehört zu keinem Team")?;
+    applied(app, view.clone()).await;
+    Ok(view)
+}
+
 /// The team's session reports, newest first (owners, admins).
 #[tauri::command]
 pub async fn team_reports(app: AppHandle, state: State<'_, AppState>, sync: State<'_, Sync>) -> CmdResult<Vec<report::ReportRow>> {
-    let view = {
-        let _turn = sync.turn().lock().await;
-        let (server, key, link) = credentials(&state)?;
-        let cached = state.config.read().unwrap().team.clone();
-        let view = team::sync(&server, &key, &link, cached.as_ref()).await.map_err(err)?;
-        let view = view.ok_or("Dieses Konto gehört zu keinem Team")?;
-        applied(&app, view.clone()).await;
-        view
-    };
+    let view = synced(&app, &state, &sync).await?;
     let (server, key, _) = credentials(&state)?;
     if !view.link.role.manages() {
         return Err("Sitzungsberichte sehen nur Inhaber und Admins".into());
@@ -529,6 +533,35 @@ pub async fn team_reports(app: AppHandle, state: State<'_, AppState>, sync: Stat
     let mut rows = report::fetch(&server, &key, &view).await.map_err(err)?;
     rows.reverse();
     Ok(rows)
+}
+
+/// The team's policy (every member may read it); `None` if it has none.
+#[tauri::command]
+pub async fn team_policy(app: AppHandle, state: State<'_, AppState>, sync: State<'_, Sync>) -> CmdResult<Option<TeamPolicy>> {
+    let view = synced(&app, &state, &sync).await?;
+    let (server, key, _) = credentials(&state)?;
+    policy::load(&server, &key, &view).await.map_err(err)
+}
+
+/// Stores the team's policy, `None` removes it (owners, admins).
+#[tauri::command]
+pub async fn team_set_policy(state: State<'_, AppState>, policy: Option<TeamPolicy>) -> CmdResult<()> {
+    let (server, key, _) = credentials(&state)?;
+    let link = state.config.read().unwrap().team.clone().ok_or("Dieses Konto gehört zu keinem Team")?;
+    if !link.role.manages() {
+        return Err("Richtlinien legen nur Inhaber und Admins fest".into());
+    }
+    let policy = policy.map(|p| TeamPolicy { changed: ctxremote_core::history::now(), ..p });
+    policy::save(&server, &key, &link, policy.as_ref()).await.map_err(err)
+}
+
+/// The policy this computer follows as a device opened to the team.
+#[tauri::command]
+pub fn device_policy(state: State<'_, AppState>) -> Option<TeamPolicy> {
+    match &state.host {
+        crate::Side::Local(_) => state.config.read().unwrap().followed_policy().cloned(),
+        crate::Side::Service(service) => service.state().team_policy,
+    }
 }
 
 /// Saves the CSV export of the reports in the download folder; returns its path.
