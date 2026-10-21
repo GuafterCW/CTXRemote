@@ -78,11 +78,10 @@ Alles, was eine Fernwartung braucht
 • Eigener Alias statt der neunstelligen ID
 • Geräteliste mit Gruppen, auf Wunsch über ein Konto auf allen Ihren Geräten
 
-Für Windows, Mac, Linux und Android
-Remocto gibt es auch für macOS, Linux und als Viewer für Android (Vorschau). Downloads unter https://remocto.com
-
 Kostenlos
 Remocto ist kostenlos, ohne Abo und ohne Werbung.
+
+Keine Verweise auf Downloads außerhalb des Stores (andere Plattformen, Website als Bezugsquelle, „herunterladen unter …“) in Beschreibung, Features, „Neues in dieser Version“ und Screenshots: Microsoft lehnt das nach Richtlinie 10.1.5 ab (am 21. Oktober 2026 passiert). Die Website gehört nur in die Felder „Website“ und „Datenschutzrichtlinie“.
 
 ## Neues in dieser Version
 
@@ -90,7 +89,7 @@ Erste Version im Microsoft Store.
 
 Für die Umbenennung (Update nach 0.1.50):
 
-> CTXRemote heißt jetzt Remocto: neuer Name, neues Logo, neue Website remocto.com. Ihre ID, Ihre Geräte und Einstellungen bleiben. Neu: Einladungslinks, über die Ihr Gegenüber Ihnen mit einem Klick ID und Passwort schickt, und eine Status-Seite unter remocto.com/status.html.
+> CTXRemote heißt jetzt Remocto: neuer Name, neues Logo. Ihre ID, Ihre Geräte und Einstellungen bleiben. Neu: Einladungslinks, über die Ihr Gegenüber Ihnen mit einem Klick ID und Passwort schickt.
 
 ## Umbenennung im Partner Center
 
