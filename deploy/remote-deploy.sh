@@ -38,6 +38,7 @@ if [ -d "$incoming/updates" ]; then
   done
   # Keep the three newest installers per platform.
   ls -1t "$updates"/CTXRemote-*-windows-x86_64.* 2>/dev/null | tail -n +4 | xargs -r rm -f
+  ls -1t "$updates"/CTXRemote-*-linux-server-x86_64.* 2>/dev/null | tail -n +4 | xargs -r rm -f
   echo "Client-Update veröffentlicht."
 fi
 

@@ -72,6 +72,24 @@ pub async fn check(server: &str) -> Result<Option<UpdateInfo>> {
     }
 }
 
+/// The platform the Linux server host (`remocto-service` without a desktop)
+/// is published under. The desktop app on Linux does not update itself.
+pub const LINUX_SERVER: &str = "linux-server-x86_64";
+
+/// [`check`] for a platform this process installs differently, e.g.
+/// [`LINUX_SERVER`]: needs only the built-in key.
+pub async fn check_platform(server: &str, platform: &str) -> Result<Option<UpdateInfo>> {
+    match public_key() {
+        Some(key) => check_with(server, platform, VERSION, &key).await,
+        None => Ok(None),
+    }
+}
+
+/// Whether this build carries the key updates must be signed with.
+pub fn has_key() -> bool {
+    public_key().is_some()
+}
+
 /// [`check`] with everything spelled out, for tests.
 pub async fn check_with(server: &str, platform: &str, current: &str, key: &[u8; 32]) -> Result<Option<UpdateInfo>> {
     let (mut t, _) = net::dial(server).await?;
@@ -96,8 +114,13 @@ pub async fn check_with(server: &str, platform: &str, current: &str, key: &[u8; 
 /// size and hash. Returns the installer's path.
 pub async fn download(server: &str, info: &UpdateInfo, dir: &Path) -> Result<PathBuf> {
     tokio::fs::create_dir_all(dir).await?;
-    let path = dir.join(format!("Remocto-{}-setup.exe", info.version));
-    let partial = path.with_extension("part");
+    let name = if info.platform.starts_with("windows") {
+        format!("Remocto-{}-setup.exe", info.version)
+    } else {
+        format!("remocto-{}-{}", info.version, info.platform)
+    };
+    let partial = dir.join(format!("{name}.part"));
+    let path = dir.join(name);
     let result = fetch(server, info, &partial).await;
     if let Err(e) = result {
         let _ = tokio::fs::remove_file(&partial).await;

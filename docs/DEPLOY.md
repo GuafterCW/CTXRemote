@@ -38,6 +38,11 @@ Das Produkt heißt jetzt Remocto. Die Website liegt unter `remocto.com` (Cloudfl
   - Er installiert still, aber nur, solange niemand verbunden ist.
   - Der Installer stoppt den Dienst, ersetzt die Dateien und startet ihn wieder.
 - **Ohne Dienst**: Die App zeigt oben „Update auf X“. Der Klick lädt das Update und startet den Installer mit UAC-Abfrage.
+- **Linux-Server** (`remocto-service` ohne Bildschirm, Plattform `linux-server-x86_64`):
+  - `--install` richtet neben dem Dienst den Timer `remocto-update.timer` ein: 10 Minuten nach dem Start, dann alle 6 Stunden (bis zu 30 Minuten zufällig verschoben).
+  - Der Timer startet `remocto-service --update` als root. Es fragt den Server des Dienstbenutzers, lädt nach `/var/cache/remocto` (nur root), prüft Signatur und Größe und ersetzt `/usr/local/bin/remocto-service` in einem Schritt.
+  - Der laufende Host sieht jede Minute nach, ob die Datei ersetzt wurde. Ist niemand verbunden, beendet er sich, und systemd startet die neue Version.
+  - Von Hand: `sudo remocto-service --update`.
 - **Schnellhilfe**: Sie aktualisiert sich nicht. Man lädt sie einfach neu aus dem letzten Workflow-Lauf.
 - **Ältere Server** kennen die Update-Anfrage nicht und legen auf. Für den Client heißt das dann „kein Update“.
 - **Server-Werkzeuge:**
@@ -538,6 +543,7 @@ Weil `tunnel.key` mit zurückkommt, verbinden sich die Apps ohne neues Release.
   - Signieren, Ausliefern über mehrere Blöcke, falscher Schlüssel, getauschte Datei und zurückgezogenes Release (`crates/server/tests/updates.rs`)
   - `deploy/remote-deploy.sh` mit nachgebildetem systemd, inklusive Rückfall auf die vorige Version, wenn der neue Server nicht startet
   - der statische musl-Build
+  - das Update des Linux-Servers von Hand (20./21. Oktober, im Container ohne systemd): Version 0.1.1 lief als eigener Benutzer, `--update` als root holte die signierte 0.1.2 von einem echten Server, ein zweiter Aufruf meldet „ist aktuell“, und der Host beendete sich innerhalb einer Minute mit „Neue Version eingesetzt“
 - Auf GitHub: ein Probelauf des Workflows auf dem Arbeitsbranch, ohne Auslieferung. Version, Server und Client waren grün, Installer und Server lagen als Artefakte vor. Den Schritt Schnellhilfe hat der Lauf übersprungen, weil die Variable fehlte. Lokal baut er mit derselben Konfiguration.
 - **Nicht getestet**:
   - der echte Workflow-Lauf, der erst nach der Einrichtung möglich ist

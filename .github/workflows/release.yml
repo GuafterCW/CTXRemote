@@ -413,6 +413,13 @@ jobs:
               --platform windows-x86_64 --version "$VERSION" \
               --file "artifacts/client/Remocto-$VERSION-setup.exe" \
               --out incoming/updates --notes "$(printf '%s' "$NOTES" | head -n 1)"
+            # The Linux server host fetches this with its update timer.
+            if [ -f artifacts/client-linux/remocto-server-linux-x86_64 ]; then
+              artifacts/server/ctxremote-server update-sign \
+                --platform linux-server-x86_64 --version "$VERSION" \
+                --file artifacts/client-linux/remocto-server-linux-x86_64 \
+                --out incoming/updates --notes "$(printf '%s' "$NOTES" | head -n 1)"
+            fi
           else
             echo "::warning::Kein CTXREMOTE_UPDATE_SIGNING_KEY: Client-Update wird nicht veröffentlicht."
           fi
